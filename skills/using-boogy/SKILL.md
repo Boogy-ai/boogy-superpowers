@@ -39,9 +39,15 @@ questionnaire once installed; until then, answer them yourself first.
 | `boogy-mesh-architecture` | composing multiple services, deciding whether to split a service, or passing identity/data between services |
 | `boogy-registry-and-provisioning` | needing functionality that might already exist in the mesh, publishing a module, or deciding whether to run your own instance of one |
 | `boogy-secrets` | a service needs an API key or credential for an external call, or asking how secrets work |
+| `boogy-rest-apis` | building HTTP/REST or JSON-RPC endpoints — routing, guards, request parsing/validation, response types, error wire format |
+| `boogy-mcp-services` | exposing MCP tools/resources/prompts to LLM clients, or adding MCP alongside an existing REST service |
+| `boogy-outbound-http` | a service must call an external HTTP API or bring its own database/backend — egress allowlist, request shape, caps, credentials |
+| `boogy-background-jobs` | work should run outside the request — scheduled, deferred, retried, or fan-out — or asking whether a job runs exactly once |
+| `boogy-performance-and-scaling` | a service is throttled or slow under load — 429/503/504, Retry-After, or "make this endpoint faster" |
+| `boogy-service-lifecycle` | retiring, deprecating, replacing, or removing a deployed service — especially when other services call it, or its data matters |
 
-No matching skill yet (jobs, surfaces)? Say so
-explicitly and work from the SDK reference docs rather than guessing.
+No matching skill? Say so explicitly and work from the SDK reference
+docs rather than guessing.
 
 ## Red flags
 
