@@ -38,8 +38,7 @@ use boogy_sdk::peer::PeerRequest;
 
 fn search_mesh() -> Result<(), ApiError> {
     let resp = peer_fetch("boogy://_sys/services/registry",
-                          &PeerRequest::get("/v1/registry/search?q=thumbnail"))
-        .map_err(|e| ApiError::internal(format!("registry search failed: {e}")))?;
+                          &PeerRequest::get("/v1/registry/search?q=thumbnail"))?;
     Ok(())
 }
 ```

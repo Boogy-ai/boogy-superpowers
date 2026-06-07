@@ -75,19 +75,18 @@ struct Reserved { ok: bool }
 fn reserve(payload: serde_json::Value) -> Result<(), ApiError> {
     let resp = peer_fetch(
         "boogy://acme/services/inventory",
-        &PeerRequest::post("/api/reserve")
-            .body_json(&payload)
-            .map_err(|e| ApiError::internal(e.to_string()))?,
-    )
-    .map_err(|e| ApiError::internal(format!("reserve failed: {e}")))?;
+        &PeerRequest::post("/api/reserve").body_json(&payload)?,
+    )?;
     if resp.is_success() {
-        let r: Reserved = resp.json().map_err(|e| ApiError::internal(e.to_string()))?;
+        let r: Reserved = resp.json()?;
     }
     Ok(())
 }
 ```
 
 - Caller manifest needs `[capabilities] peer = true`.
+- A failed peer call lifts to **502 upstream** via `?` (`From<PeerError>`);
+  match the variant first if you want a different status.
 - `PeerError` variants: `TargetNotFound`, `Denied`, `Timeout`,
   `DepthExceeded`, `CapabilityDenied`, `Internal`, `InvalidTarget`.
 - **Cross-service writes**: one ambient transaction spans the whole

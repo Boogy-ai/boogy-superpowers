@@ -86,11 +86,8 @@ fn place_order(order_cols: Vec<Column>, reserve: serde_json::Value) -> Result<()
         store::insert("orders", &order_cols)?;
         let resp = peer_fetch(                          // enrolls B in this tx
             "boogy://owner/services/inventory",
-            &PeerRequest::post("/reserve")
-                .body_json(&reserve)
-                .map_err(|e| ApiError::internal(e.to_string()))?,
-        )
-        .map_err(|e| ApiError::internal(format!("reserve failed: {e}")))?;
+            &PeerRequest::post("/reserve").body_json(&reserve)?,
+        )?;
         if !resp.is_success() {                          // poisons → both roll back
             return Err(ApiError::conflict("out of stock"));
         }
@@ -99,6 +96,11 @@ fn place_order(order_cols: Vec<Column>, reserve: serde_json::Value) -> Result<()
     Ok(())
 }
 ```
+
+A failed peer call lifts to **502 upstream** via `?` (`From<PeerError> for
+ApiError`); body construction (`body_json`/`resp.json`) lifts its
+`serde_json::Error` to **500** (`From<serde_json::Error>`). Match the variant
+first if you want a different status (e.g. treat the callee's 404 as your own).
 
 ## Red flags
 
