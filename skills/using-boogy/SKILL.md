@@ -33,8 +33,14 @@ questionnaire once installed; until then, answer them yourself first.
 | `boogy-access-patterns` | adding a list, lookup, ranking, filter, tag, or pagination query |
 | `boogy-transactions` | writing multiple rows atomically, combining writes with cross-service calls, handling 409s, or placing side effects near writes |
 | `boogy-migrations` | changing the schema of a deployed service — adding columns or indexes, or backfilling data |
+| `boogy-auth` | adding authorization — per-user data, ownership checks, "only my X" endpoints, API keys, or scope gating |
+| `boogy-account-auth` | wiring login/signup for a service's users, or asking where principals and tokens come from |
+| `boogy-obo-delegation` | one service must act on a user's behalf when calling another service — delegation config, principal-vs-actor authorization |
+| `boogy-mesh-architecture` | composing multiple services, deciding whether to split a service, or passing identity/data between services |
+| `boogy-registry-and-provisioning` | needing functionality that might already exist in the mesh, publishing a module, or deciding whether to run your own instance of one |
+| `boogy-secrets` | a service needs an API key or credential for an external call, or asking how secrets work |
 
-No matching skill yet (auth, jobs, mesh, surfaces)? Say so
+No matching skill yet (jobs, surfaces)? Say so
 explicitly and work from the SDK reference docs rather than guessing.
 
 ## Red flags

@@ -31,17 +31,24 @@ ungoverned scaffold.
    | Internal mesh service | a payment processor other services call | `internal` |
    | Public multi-tenant API | open redirect/link service | `public` |
 
-2. **Surface(s)** — REST · JSON-RPC · MCP · hybrid. One service can serve
+2. **Mesh check** — does an existing Boogy service or published module
+   already provide this capability (payments, notifications, search,
+   ...)? Prefer consuming or provisioning it over a fresh external
+   integration — a healthy mesh emerges from services building on each
+   other. Not a mandate: when nothing fits, external via `outbound_http`
+   is fully sanctioned.
+
+3. **Surface(s)** — REST · JSON-RPC · MCP · hybrid. One service can serve
    **REST and MCP together** (same data, two surfaces); a split is a
    decision, not a default.
 
-3. **Capabilities** — deny-by-default; list only what you use:
+4. **Capabilities** — deny-by-default; list only what you use:
    `store`, `auth`, `clock`, `entropy`, `logging`, `peer` (call other
    services), `outbound_http` (external HTTPS), `background_jobs`.
    Each one you grant is attack surface — justify it. (Vector/semantic
    search is not yet available — see `boogy:boogy-capability-limits`.)
 
-4. **Ingress mode** — answer the flowchart, then the delegation question:
+5. **Ingress mode** — answer the flowchart, then the delegation question:
 
 ```dot
 digraph ingress {
@@ -77,11 +84,11 @@ digraph ingress {
    `max_delegated_scopes`); absent that block, on-behalf-of tokens are
    rejected. Authorize on the **principal** (the user), never the actor.
 
-5. **Data sketch** — tables, the owner column (per-row ownership for
+6. **Data sketch** — tables, the owner column (per-row ownership for
    `authenticated` services), and the access patterns you'll need
    (list/lookup/rank/filter). No bare table/column names in real code.
 
-6. **Limits check** — REQUIRED BACKGROUND: `boogy:boogy-capability-limits`.
+7. **Limits check** — REQUIRED BACKGROUND: `boogy:boogy-capability-limits`.
    Run every feature past the gaps and ceilings (no WebSockets/streaming,
    no large-file storage, request budget, transaction envelope, outbound
    caps) before committing to the design.
