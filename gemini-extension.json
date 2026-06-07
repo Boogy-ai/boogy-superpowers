@@ -1,0 +1,6 @@
+{
+  "name": "boogy-superpowers",
+  "description": "Skills for building Boogy services: design, scaffolding, data modeling, auth, transactions, background jobs, mesh composition, MCP/REST surfaces, and platform limits",
+  "version": "0.1.0",
+  "contextFileName": "GEMINI.md"
+}

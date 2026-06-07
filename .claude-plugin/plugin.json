@@ -1,0 +1,12 @@
+{
+  "name": "boogy-superpowers",
+  "description": "Skills for building Boogy services: design, scaffolding, data modeling, auth, transactions, background jobs, mesh composition, MCP/REST surfaces, and platform limits",
+  "version": "0.1.0",
+  "author": {
+    "name": "Boogy"
+  },
+  "homepage": "https://boogy.ai",
+  "repository": "https://github.com/Boogy-ai/boogy-superpowers",
+  "license": "MIT",
+  "keywords": ["boogy", "skills", "wasm", "backend", "mcp", "agents"]
+}
