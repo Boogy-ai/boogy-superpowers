@@ -97,8 +97,14 @@ fn create_widget(req: &mut Req<'_>) -> Result<Created<WidgetOut>, ApiError> {
 NOT `0.20`. The derive macro emits `::garde::*` paths, so it's a direct
 dependency. Some rules are feature-gated: `#[garde(email)]` needs
 `features = ["email"]`, `#[garde(pattern(...))]` needs `["pattern"]` —
-enable them alongside `derive`. (`schemars` is `0.8` when you need it for
-MCP tools.)
+enable them alongside `derive`.
+
+**`schemars = "0.8"` is required for spec generation.** Add it as a
+direct dep and derive `schemars::JsonSchema` on every DTO that appears
+in a typed extractor or response — this is what makes request/response
+shapes show up in the auto-served `…/openapi.json` document. Omitting
+it is not an error at runtime, but the generated schema will be empty
+for that type.
 
 ## Responses
 
@@ -134,16 +140,15 @@ through REST or JSON-RPC.
 ## JSON-RPC (it has a real layer)
 
 JSON-RPC 2.0 is NOT "a POST route you parse yourself" — use
-`rpc::Dispatcher`:
+`Router::rpc`, which registers the route AND captures method shapes for
+`…/openrpc.json`:
 
 ```rust
-fn rpc(req: &mut Req<'_>) -> response::HttpResponse {
-    rpc::Dispatcher::new()
-        .method("search", search)      // Fn(P) -> Result<R, RpcError>
-        .method("share", share)
-        .handle(req.request)
-}
-// mount: Router::new().post("/rpc", rpc)
+// mount: the closure runs once at registration (spec capture) and once
+// per request (dispatch).
+Router::new().rpc("/rpc", || rpc::Dispatcher::new()
+    .method("search", search)      // Fn(P) -> Result<R, RpcError>
+    .method("share", share))
 ```
 
 It does envelope parse, method routing, typed `params` decode, and
@@ -160,4 +165,4 @@ see `boogy:boogy-mcp-services`.)
 | "garde 0.20 should be fine." | Match the workspace pin (currently 0.22). A mismatched garde version fails to build or drifts the derive. |
 | "I'll return a 201 with a custom JSON error envelope." | Return `Created<T>` / `ApiError`; the wire shape is RFC 7807 `application/problem+json`, not a bespoke `{error:...}`. |
 | "Attach the guard with `.guard(...)`." | No such method. Use `.group([...], |g| …)`; heterogeneous types → `guards![...]`. |
-| "No framework for JSON-RPC, I'll parse the envelope." | `rpc::Dispatcher` does envelope + routing + typed params + standard codes. |
+| "No framework for JSON-RPC, I'll parse the envelope." | `Router::rpc(path, || Dispatcher::new()…)` does registration + spec capture + envelope + routing + typed params + standard codes. |

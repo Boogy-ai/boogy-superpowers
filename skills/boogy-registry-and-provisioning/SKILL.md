@@ -113,6 +113,12 @@ use `upgrade` to change the pinned version. See
 | "I'll just build the thumbnailer." | Search the registry first. Building is fine if nothing fits — but check. |
 | "I'm sure the manifest field is X." | Verify mode names/defaults; don't assert config you haven't confirmed. |
 
+## Platform API reference
+
+The platform API is self-describing: `GET <host>/openapi.json` returns
+an OpenAPI 3.1 document covering the full deploy lifecycle (`/_agents/*`,
+`/_admin/*`, `/v1/*`) — anonymous fetch OK, no token required.
+
 ## Integration
 
 ← `boogy:designing-boogy-services` (the mesh-check before designing a

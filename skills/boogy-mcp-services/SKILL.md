@@ -11,21 +11,20 @@ routes — one deployed service, two surfaces, same data. Build from the
 
 ## Mounting (hybrid with REST)
 
-Add ONE POST route alongside your existing routes — no second service:
+Use `Router::mcp` — it registers the POST route AND records the
+endpoint in the auto-served `…/openapi.json`:
 
 ```rust
 fn build_router() -> Router {
     Router::new()
         .get("/tasks", list_tasks)            // existing REST
         .post("/tasks", create_task)
-        .post("/mcp", mcp_dispatch)           // MCP surface
-}
-
-fn mcp_dispatch(req: &mut Req<'_>) -> response::HttpResponse {
-    McpServer::new("tasks", env!("CARGO_PKG_VERSION"))
-        .tool_typed(tool("create_task").description("Create a task."), create_task_tool)
-        .tool_typed(tool("list_tasks").description("List the caller's tasks."), list_tasks_tool)
-        .handle(req.request)
+        .mcp("/mcp", |req| {                  // MCP surface
+            McpServer::new("tasks", env!("CARGO_PKG_VERSION"))
+                .tool_typed(tool("create_task").description("Create a task."), create_task_tool)
+                .tool_typed(tool("list_tasks").description("List the caller's tasks."), list_tasks_tool)
+                .handle(req.request)
+        })
 }
 ```
 
@@ -36,10 +35,10 @@ resources, prompts, and all envelope/error mapping.
 ## Registering tools
 
 Prefer **`tool_typed::<P, R>`**: a typed arg struct deriving
-`Deserialize + JsonSchema`, a typed result deriving `Serialize`, handler
-returns `Result<R, ApiError>`. The advertised `inputSchema` is
-auto-derived from `P`, so the deserializer and the protocol surface
-can't drift.
+`Deserialize + JsonSchema`, a typed result deriving `Serialize +
+JsonSchema`, handler returns `Result<R, ApiError>`. Both `inputSchema`
+and `outputSchema` are auto-derived from the struct types, so the
+deserializer/serializer and the protocol surface can't drift.
 
 ```rust boogy-snippet
 use schemars::JsonSchema;
@@ -47,7 +46,7 @@ use schemars::JsonSchema;
 #[derive(Deserialize, JsonSchema)]
 struct CreateTaskArgs { title: String }
 
-#[derive(Serialize)]
+#[derive(Serialize, JsonSchema)]
 struct TaskOut { id: String, title: String }
 
 fn create_task_tool(args: CreateTaskArgs) -> Result<TaskOut, ApiError> {
@@ -111,9 +110,10 @@ fully exercise through a live client. See `boogy:testing-boogy-services`.
 
 | Thought | Reality |
 |---------|---------|
-| "MCP needs its own service separate from the REST one." | One service serves both — add a `.post("/mcp", mcp_dispatch)` route alongside REST. |
+| "MCP needs its own service separate from the REST one." | One service serves both — add a `Router::mcp("/mcp", handler)` route alongside REST. |
 | "I'll parse the JSON-RPC envelope and dispatch by hand." | `McpServer::handle` does the handshake, routing, schema, and error mapping. |
 | "MCP tools run unauthenticated / have separate auth." | Same bearer path as REST; call `auth::current_principal()` and scope by it. |
 | "There's no resource/template support, only tools." | `resource`, `resource_template`, `extract_template_var`, and `prompt` all exist. |
 | "Return `Err` so the model sees the failure." | `Err` is a protocol error. For a model-visible failure return `Ok(ToolResult::error(...))` (`isError: true`). |
-| "I'll write the inputSchema by hand." | `tool_typed` derives it from the arg struct's `JsonSchema` — they can't drift. |
+| "I'll write the inputSchema/outputSchema by hand." | `tool_typed` derives both from the arg/result struct `JsonSchema` impls — they can't drift. |
+| "I mount MCP with `.post(\"/mcp\", mcp_dispatch)`." | Use `Router::mcp(\"/mcp\", handler)` — it also records the endpoint in the generated `openapi.json`. |

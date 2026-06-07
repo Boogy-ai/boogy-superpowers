@@ -49,6 +49,12 @@ rollback path exists) — don't remove + re-add, which strands data and
 breaks callers. Only do a true remove when the service is genuinely
 going away.
 
+## Platform API reference
+
+The platform API is self-describing: `GET <host>/openapi.json` returns
+an OpenAPI 3.1 document covering the full deploy lifecycle (`/_agents/*`,
+`/_admin/*`, `/v1/*`) — anonymous fetch OK, no token required.
+
 ## What does NOT exist yet (be honest)
 
 - **No user-initiated data erasure / store-wipe API.** Removal does not
