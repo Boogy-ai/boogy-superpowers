@@ -97,7 +97,9 @@ fn place_order(order_cols: Vec<Column>, reserve: serde_json::Value) -> Result<()
 }
 ```
 
-A failed peer call lifts to **502 upstream** via `?` (`From<PeerError> for
+A failed peer call lifts to **502 upstream** via `?` — clients receive
+only the failure class; the full error is in your service's
+request-correlated logs — (`From<PeerError> for
 ApiError`); body construction (`body_json`/`resp.json`) lifts its
 `serde_json::Error` to **500** (`From<serde_json::Error>`). Match the variant
 first if you want a different status (e.g. treat the callee's 404 as your own).
