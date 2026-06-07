@@ -13,11 +13,14 @@ alternative up front beats deriving it from scratch — and beats faking it.
 
 **WebSockets / server-push / SSE-from-the-service.** The HTTP handler is
 strict request → one response. There is no streaming, WebSocket, or
-server-sent-events export. *What to do instead:* a notifications table
-keyed `(recipient, created_at)` + a cheap keyset-paginated short-poll
-endpoint with a cursor; optionally fan out via SSE/WebSocket in the
-client's own web tier; optionally push to an external push provider via
-`outbound_http`.
+server-sent-events export *that your service authors*. *What to do
+instead:* a notifications table keyed `(recipient, created_at)` + a cheap
+keyset-paginated short-poll endpoint with a cursor; optionally fan out
+via SSE/WebSocket in the client's own web tier; optionally push to an
+external push provider via `outbound_http`. (The platform does stream
+*your own* observability data — guest logs and more — to you as the
+owner; see `boogy:boogy-observability`. That's an owner-side surface, not
+a push channel your service handlers can emit on.)
 
 **Large files / blobs.** There is no file-storage capability. The `blob`
 column type is for *small binary values*, not files — it does not change

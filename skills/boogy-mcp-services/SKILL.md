@@ -9,6 +9,11 @@ MCP tools/resources/prompts ride on the same service as your REST
 routes — one deployed service, two surfaces, same data. Build from the
 `McpServer` surface; never hand-roll the JSON-RPC envelope.
 
+(Separately, the platform itself exposes owner-scoped MCP tools for your
+own usage, audit, and service logs — `query_my_usage`,
+`tail_my_audit_events`, `get_service_logs`. Those are platform tools you
+*consume*, not tools you author; see `boogy:boogy-observability`.)
+
 ## Mounting (hybrid with REST)
 
 Use `Router::mcp` — it registers the POST route AND records the

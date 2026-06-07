@@ -89,9 +89,11 @@ digraph ingress {
    (list/lookup/rank/filter). No bare table/column names in real code.
 
 7. **Limits check** — REQUIRED BACKGROUND: `boogy:boogy-capability-limits`.
-   Run every feature past the gaps and ceilings (no WebSockets/streaming,
-   no large-file storage, request budget, transaction envelope, outbound
-   caps) before committing to the design.
+   Run every feature past the gaps and ceilings (no service-authored
+   WebSockets/streaming, no large-file storage, request budget,
+   transaction envelope, outbound caps) before committing to the design.
+   (For viewing your own usage/logs as the owner, see
+   `boogy:boogy-observability`.)
 
 ## Design output is decisions, not code
 
