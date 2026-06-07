@@ -29,10 +29,13 @@ questionnaire once installed; until then, answer them yourself first.
 | `scaffolding-a-service` | starting implementation of a designed service — project, manifest, build loop |
 | `testing-boogy-services` | testing a service, or before claiming one works — the test pyramid + deploy-and-exercise |
 | `deploying-boogy-services` | deploying, updating, or removing a deployed service — CLI commands, config, deploy errors |
+| `boogy-data-modeling` | declaring tables, designing schemas, or choosing how to represent data |
+| `boogy-access-patterns` | adding a list, lookup, ranking, filter, tag, or pagination query |
+| `boogy-transactions` | writing multiple rows atomically, combining writes with cross-service calls, handling 409s, or placing side effects near writes |
+| `boogy-migrations` | changing the schema of a deployed service — adding columns or indexes, or backfilling data |
 
-No matching skill yet (data modeling, auth, transactions, jobs, mesh,
-surfaces)? Say so explicitly and work from the SDK reference docs rather
-than guessing.
+No matching skill yet (auth, jobs, mesh, surfaces)? Say so
+explicitly and work from the SDK reference docs rather than guessing.
 
 ## Red flags
 

@@ -35,6 +35,12 @@ and return immediately; the client polls for status.
 Short-polling is the supported pattern; true push lives outside the
 service (client tier or an external provider via `outbound_http`).
 
+**Vector / semantic search.** Not yet available — there is no working
+embedding or similarity-search capability. *What to do instead:* keyword
+search via the store's filter/LIKE queries; if semantic search is a hard
+requirement, generate embeddings and search via an external service
+through `outbound_http`, keeping only metadata in the store.
+
 **Extreme write rates.** The built-in store handles typical CRUD plus
 most write-heavy workloads. Genuinely extreme write rates (large
 payloads, write-amplifying secondary indexes) → bring your own database

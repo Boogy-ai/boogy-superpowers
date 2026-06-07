@@ -37,8 +37,9 @@ ungoverned scaffold.
 
 3. **Capabilities** — deny-by-default; list only what you use:
    `store`, `auth`, `clock`, `entropy`, `logging`, `peer` (call other
-   services), `outbound_http` (external HTTPS), `background_jobs`,
-   `vector`. Each one you grant is attack surface — justify it.
+   services), `outbound_http` (external HTTPS), `background_jobs`.
+   Each one you grant is attack surface — justify it. (Vector/semantic
+   search is not yet available — see `boogy:boogy-capability-limits`.)
 
 4. **Ingress mode** — answer the flowchart, then the delegation question:
 
