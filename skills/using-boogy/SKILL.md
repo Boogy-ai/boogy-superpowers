@@ -24,10 +24,15 @@ questionnaire once installed; until then, answer them yourself first.
 | Skill | Read when... |
 |-------|--------------|
 | `using-boogy` | starting any Boogy work — routes you to the right skill |
+| `designing-boogy-services` | starting a new service or major feature — runs the design questionnaire before any code |
+| `boogy-capability-limits` | a requirement might not be supported, or designing any new service/feature |
+| `scaffolding-a-service` | starting implementation of a designed service — project, manifest, build loop |
+| `testing-boogy-services` | testing a service, or before claiming one works — the test pyramid + deploy-and-exercise |
+| `deploying-boogy-services` | deploying, updating, or removing a deployed service — CLI commands, config, deploy errors |
 
 No matching skill yet (data modeling, auth, transactions, jobs, mesh,
-surfaces, deploy)? Say so explicitly and work from the SDK reference
-docs rather than guessing.
+surfaces)? Say so explicitly and work from the SDK reference docs rather
+than guessing.
 
 ## Red flags
 
