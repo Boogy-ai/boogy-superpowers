@@ -23,12 +23,17 @@ wit_glue!(bindings, Api, with_jobs);   // 3-arg form adds the job export
 
 Implement `build_job_router()` on your `Api`:
 
-```rust
+```rust boogy-snippet
+use boogy_sdk::{job, JobRouter};
+
+#[derive(serde::Deserialize)]
+struct Spec { /* ... */ }
+
 #[job("send_nightly_digest")]              // exact match
-fn send_nightly_digest() -> Result<(), String> { /* ... */ }
+fn send_nightly_digest() -> Result<(), String> { /* ... */ Ok(()) }
 
 #[job(prefix = "export_")]                  // suffix passed to the fn
-fn export(suffix: &str, payload: Spec) -> Result<(), String> { /* ... */ }
+fn export(suffix: &str, payload: Spec) -> Result<(), String> { /* ... */ Ok(()) }
 
 fn build_job_router() -> JobRouter {
     JobRouter::new()
@@ -64,14 +69,21 @@ build your own cron loop or `tokio::spawn` timer.
 
 ## Enqueuing
 
-```rust
-let job_id = jobs_enqueue(JobSpec {
-    handler: "send_welcome_email".into(),
-    payload: serde_json::to_vec(&p)?,
-    idempotency_key: Some(format!("welcome:{user_id}")),
-    not_before_unix_s: Some(run_at),   // optional delay
-    ..Default::default()               // max_attempts inherits the manifest
-})?;
+```rust boogy-snippet
+use boogy_sdk::jobs::JobSpec;
+
+fn enqueue(p: &impl Serialize, user_id: u64, run_at: u64)
+    -> Result<String, Box<dyn std::error::Error>>
+{
+    let job_id = jobs_enqueue(JobSpec {
+        handler: "send_welcome_email".into(),
+        payload: serde_json::to_vec(&p)?,
+        idempotency_key: Some(format!("welcome:{user_id}")),
+        not_before_unix_s: Some(run_at),   // optional delay
+        ..Default::default()               // max_attempts inherits the manifest
+    })?;
+    Ok(job_id)
+}
 ```
 
 `jobs_enqueue` / `jobs_cancel` / `jobs_status` are emitted by `wit_glue!`.

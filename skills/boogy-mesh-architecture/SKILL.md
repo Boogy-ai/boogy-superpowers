@@ -66,13 +66,24 @@ nothing — it's removed by design. To convey who the call is for:
 
 ## Peer mechanics (quick reference)
 
-```rust
-let resp = peer_fetch(
-    "boogy://acme/services/inventory",
-    &PeerRequest::post("/api/reserve").body_json(&payload)?,
-)?;
-if resp.is_success() {
-    let r: Reserved = resp.json()?;
+```rust boogy-snippet
+use boogy_sdk::peer::PeerRequest;
+
+#[derive(Deserialize)]
+struct Reserved { ok: bool }
+
+fn reserve(payload: serde_json::Value) -> Result<(), ApiError> {
+    let resp = peer_fetch(
+        "boogy://acme/services/inventory",
+        &PeerRequest::post("/api/reserve")
+            .body_json(&payload)
+            .map_err(|e| ApiError::internal(e.to_string()))?,
+    )
+    .map_err(|e| ApiError::internal(format!("reserve failed: {e}")))?;
+    if resp.is_success() {
+        let r: Reserved = resp.json().map_err(|e| ApiError::internal(e.to_string()))?;
+    }
+    Ok(())
 }
 ```
 

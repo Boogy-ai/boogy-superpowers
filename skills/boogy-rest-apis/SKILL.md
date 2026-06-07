@@ -10,14 +10,24 @@ from this surface — never hand-roll status codes or error bodies.
 
 ## Routing
 
-```rust
-Router::new()
-    .get("/widgets", list_widgets)
-    .post("/widgets", create_widget)
-    .get("/widgets/{id}", get_widget)
-    .patch("/widgets/{id}", update_widget)
-    .delete("/widgets/{id}", delete_widget)
-    .nest("/admin", admin_routes())     // mount a sub-router under a prefix
+```rust boogy-snippet
+fn routes() -> Router {
+    Router::new()
+        .get("/widgets", list_widgets)
+        .post("/widgets", create_widget)
+        .get("/widgets/{id}", get_widget)
+        .patch("/widgets/{id}", update_widget)
+        .delete("/widgets/{id}", delete_widget)
+        .nest("/admin", admin_routes())     // mount a sub-router under a prefix
+}
+
+// Handler / sub-router shapes (bodies elided):
+fn list_widgets(_req: &mut Req<'_>) -> NoContent { NoContent }
+fn create_widget(_req: &mut Req<'_>) -> NoContent { NoContent }
+fn get_widget(_req: &mut Req<'_>) -> NoContent { NoContent }
+fn update_widget(_req: &mut Req<'_>) -> NoContent { NoContent }
+fn delete_widget(_req: &mut Req<'_>) -> NoContent { NoContent }
+fn admin_routes() -> Router { Router::new() }
 ```
 
 `get`/`post`/`put`/`patch`/`delete` register one route each;
@@ -30,12 +40,18 @@ falls back to GET with the body stripped.
 Guards are NOT attached with a `.guard()` method — that does not exist.
 Use `.group(guards, |g| …)`:
 
-```rust
-Router::new()
-    .group([auth::owns_resource("widgets", "owner_principal", "id")], |g| g
-        .get("/widgets/{id}", get_widget)
-        .delete("/widgets/{id}", delete_widget))
-    .get("/health", health)            // ungrouped → no guards
+```rust boogy-snippet
+fn routes() -> Router {
+    Router::new()
+        .group([auth::owns_resource("widgets", "owner_principal", "id")], |g| g
+            .get("/widgets/{id}", get_widget)
+            .delete("/widgets/{id}", delete_widget))
+        .get("/health", health)            // ungrouped → no guards
+}
+
+fn get_widget(_req: &mut Req<'_>) -> NoContent { NoContent }
+fn delete_widget(_req: &mut Req<'_>) -> NoContent { NoContent }
+fn health(_req: &mut Req<'_>) -> NoContent { NoContent }
 ```
 
 Guard ordering: **outer guards (parent `.group`/`.nest`) run before
@@ -59,7 +75,10 @@ JSON **and** runs `garde` (missing body → 400, bad JSON → 400, failed
 validation → 422 with a per-field map). Use `parse_body` only when the
 type has no validation rules (avoids the `garde::Validate` bound).
 
-```rust
+```rust boogy-snippet
+#[derive(serde::Serialize)]
+struct WidgetOut { id: u64 }
+
 #[derive(Deserialize, garde::Validate)]
 struct CreateWidget {
     #[garde(length(min = 1, max = 80))] name: String,
@@ -69,13 +88,17 @@ struct CreateWidget {
 fn create_widget(req: &mut Req<'_>) -> Result<Created<WidgetOut>, ApiError> {
     let input: CreateWidget = validate_body(req.body())?;
     // ... insert, return Created(...) ...
+    Ok(Created(WidgetOut { id: 1 }))
 }
 ```
 
 **The `garde` version must match the SDK workspace pin (currently
 `0.22`).** Add `garde = { workspace = true }` (or `garde = "0.22"`) —
 NOT `0.20`. The derive macro emits `::garde::*` paths, so it's a direct
-dependency. (`schemars` is `0.8` when you need it for MCP tools.)
+dependency. Some rules are feature-gated: `#[garde(email)]` needs
+`features = ["email"]`, `#[garde(pattern(...))]` needs `["pattern"]` —
+enable them alongside `derive`. (`schemars` is `0.8` when you need it for
+MCP tools.)
 
 ## Responses
 

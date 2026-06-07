@@ -16,7 +16,7 @@ tag struct per table with `pub const` items (`TABLE`, one per column,
 one per index). Handlers, init, jobs, and migrations reference the
 consts. A rename is one edit; a typo is a compile error, not a 500.
 
-```rust
+```rust boogy-snippet
 pub struct Posts;
 impl Posts {
     pub const TABLE: &str = "posts";

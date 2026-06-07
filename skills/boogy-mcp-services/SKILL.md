@@ -41,7 +41,7 @@ returns `Result<R, ApiError>`. The advertised `inputSchema` is
 auto-derived from `P`, so the deserializer and the protocol surface
 can't drift.
 
-```rust
+```rust boogy-snippet
 use schemars::JsonSchema;
 
 #[derive(Deserialize, JsonSchema)]
@@ -53,6 +53,7 @@ struct TaskOut { id: String, title: String }
 fn create_task_tool(args: CreateTaskArgs) -> Result<TaskOut, ApiError> {
     let principal = auth::current_principal().ok_or_else(ApiError::unauthenticated)?;
     // ... insert scoped to `principal`, return TaskOut ...
+    Ok(TaskOut { id: "1".into(), title: args.title })
 }
 ```
 

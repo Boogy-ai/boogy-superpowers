@@ -41,17 +41,22 @@ appears in audit records or logs.
 `(header-name, secret-name)` in `secret_headers`. The host resolves and
 injects the value as that header at the wire edge:
 
-```rust
-let req = outbound_http::OutboundRequest {
-    method: "POST".into(),
-    url: "https://api.stripe.com/v1/charges".into(),
-    headers: vec![],
-    body: Some(form_bytes),
-    timeout_ms: Some(5000),
-    // (header name, declared secret name) — NOT the value
-    secret_headers: vec![("Authorization".into(), "stripe_key".into())],
-};
-let resp = outbound_http::fetch(&req)?;
+```rust boogy-snippet
+use bindings::boogy::platform::outbound_http;
+
+fn charge(form_bytes: Vec<u8>) -> Result<(), outbound_http::FetchError> {
+    let req = outbound_http::OutboundRequest {
+        method: "POST".into(),
+        url: "https://api.stripe.com/v1/charges".into(),
+        headers: vec![],
+        body: Some(form_bytes),
+        timeout_ms: Some(5000),
+        // (header name, declared secret name) — NOT the value
+        secret_headers: vec![("Authorization".into(), "stripe_key".into())],
+    };
+    let resp = outbound_http::fetch(&req)?;
+    Ok(())
+}
 ```
 
 Injected secret headers are highest precedence (they overwrite any

@@ -35,20 +35,25 @@ backfill that rewrites a large table blows the envelope and rolls back
 Declare migrations in `init_tables`, after the `create_table_from`
 calls for the tables they touch:
 
-```rust
-migrations(&[
-    migration(1, "add_priority", |m| {
-        m.add_column("tasks",
-            &col("priority", ColType::Integer).not_null().default(Val::Integer(0)))?;
-        Ok(())
-    }),
-    migration(2, "index_priority", |m| {
-        m.create_index("tasks", &store::IndexDef {
-            name: "by_priority".into(), columns: vec!["priority".into()], unique: false,
-        })?;
-        Ok(())
-    }),
-]).expect("migrations failed");
+```rust boogy-snippet
+use boogy_sdk::store::{col, ColType, Val};
+
+fn init_tables() {
+    migrations(&[
+        migration(1, "add_priority", |m| {
+            m.add_column("tasks",
+                &col("priority", ColType::Integer).not_null().default(Val::Integer(0)))?;
+            Ok(())
+        }),
+        migration(2, "index_priority", |m| {
+            m.create_index("tasks", &store::IndexDef {
+                name: "by_priority".into(), columns: vec!["priority".into()],
+                unique: false, covering: false,
+            })?;
+            Ok(())
+        }),
+    ]).expect("migrations failed");
+}
 ```
 
 `MigrationCtx` (`m`) gives schema ops `add_column` / `rename_column` /

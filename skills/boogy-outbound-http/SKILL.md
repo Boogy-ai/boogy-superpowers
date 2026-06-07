@@ -48,20 +48,22 @@ default).
 
 There is no SDK wrapper — use the generated binding directly:
 
-```rust
+```rust boogy-snippet
 use bindings::boogy::platform::outbound_http;
 
-let req = outbound_http::OutboundRequest {
-    method: "POST".into(),
-    url: "https://api.stripe.com/v1/charges".into(),
-    headers: vec![("content-type".into(), "application/json".into())],
-    body: Some(payload_bytes),
-    timeout_ms: Some(5000),          // None → manifest default_timeout_ms
-    secret_headers: vec![("authorization".into(), "stripe_key".into())],
-};
-match outbound_http::fetch(&req) {
-    Ok(resp) => { /* resp.status: u16, resp.headers, resp.body */ }
-    Err(e)   => { /* transport-level failure — see taxonomy */ }
+fn charge(payload_bytes: Vec<u8>) {
+    let req = outbound_http::OutboundRequest {
+        method: "POST".into(),
+        url: "https://api.stripe.com/v1/charges".into(),
+        headers: vec![("content-type".into(), "application/json".into())],
+        body: Some(payload_bytes),
+        timeout_ms: Some(5000),          // None → manifest default_timeout_ms
+        secret_headers: vec![("authorization".into(), "stripe_key".into())],
+    };
+    match outbound_http::fetch(&req) {
+        Ok(resp) => { /* resp.status: u16, resp.headers, resp.body */ }
+        Err(e)   => { /* transport-level failure — see taxonomy */ }
+    }
 }
 ```
 

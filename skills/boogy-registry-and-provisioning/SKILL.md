@@ -33,9 +33,15 @@ GET /v1/registry/modules/{owner}/{name}        # full detail (404 if not visible
 Filters: `q`, `category`, `mode`, `owner`, `since` (RFC3339), `limit`.
 A deployed service can query it cross-service:
 
-```rust
-peer_fetch("boogy://_sys/services/registry",
-           &PeerRequest::get("/v1/registry/search?q=thumbnail"))?;
+```rust boogy-snippet
+use boogy_sdk::peer::PeerRequest;
+
+fn search_mesh() -> Result<(), ApiError> {
+    let resp = peer_fetch("boogy://_sys/services/registry",
+                          &PeerRequest::get("/v1/registry/search?q=thumbnail"))
+        .map_err(|e| ApiError::internal(format!("registry search failed: {e}")))?;
+    Ok(())
+}
 ```
 
 LLM clients get MCP tools at `POST /v1/registry/mcp`: `search_modules`,

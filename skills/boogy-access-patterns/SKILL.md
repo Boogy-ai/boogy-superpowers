@@ -54,19 +54,34 @@ combos or OR-groups the verbs don't express. Read-helper decision table:
 Keyset, not offset. The typed Query DSL (emitted by `wit_glue!`) is the
 primary recipe — no manual cursor arithmetic:
 
-```rust
-// Decode the inbound ?cursor= (None on first page).
-let c = req.query("cursor").and_then(decode);
+```rust boogy-snippet
+use boogy_sdk::pagination::{decode, CursorPage};
+use boogy_sdk::store::SortDir;
 
-// Build and execute; fetch_page defaults to limit=20 when .limit() is omitted.
-let page = Query::on(T::POSTS)
-    .where_eq(C::OWNER, principal)   // access-pattern-backed filter
-    .keyset_by(C::CREATED_AT, SortDir::Desc)   // keyset column + direction
-    .limit(20)
-    .cursor(c)
-    .fetch_page(|row| PostView::from_row(row))?;
+struct T; impl T { const POSTS: &str = "posts"; }
+struct C; impl C { const OWNER: &str = "owner_principal"; const CREATED_AT: &str = "created_at"; }
 
-// page: CursorPage<PostView> — { items, next_cursor? }
+#[derive(serde::Serialize)]
+struct PostView { id: u64 }
+impl PostView {
+    fn from_row(row: &Row) -> PostView { PostView { id: row.int("_id") as u64 } }
+}
+
+fn list(req: &mut Req<'_>, principal: String) -> Result<CursorPage<PostView>, ApiError> {
+    // Decode the inbound ?cursor= (None on first page).
+    let c = req.query("cursor").and_then(decode);
+
+    // Build and execute; fetch_page defaults to limit=20 when .limit() is omitted.
+    let page = Query::on(T::POSTS)
+        .where_eq(C::OWNER, principal)   // access-pattern-backed filter
+        .keyset_by(C::CREATED_AT, SortDir::Desc)   // keyset column + direction
+        .limit(20)
+        .cursor(c)
+        .fetch_page(|row| PostView::from_row(row))?;
+
+    // page: CursorPage<PostView> — { items, next_cursor? }
+    Ok(page)
+}
 ```
 
 `fetch_page` handles everything internally: it appends the keyset resume

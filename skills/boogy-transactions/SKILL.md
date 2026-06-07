@@ -10,18 +10,26 @@ There is no transaction handle — inside the closure you call the *same*
 `store::*` / `db_*` / `find_row_by` functions as outside; they join the
 ambient transaction. `Ok` commits, `Err` rolls back, a panic discards it.
 
-```rust
-let new_balance: f64 = tx::<_, _, ApiError>(|| {
-    let bal = find_row_by("balances", "principal", Value::Text(me.clone()))?
-        .map(|r| r.text("balance").parse::<f64>().unwrap_or(0.0))
-        .unwrap_or(0.0);
-    if bal < amount {                       // check INSIDE — read-your-writes
-        return Err(ApiError::unprocessable("insufficient balance"));
-    }
-    store::update("balances", from_id, &debit(bal - amount))?;
-    store::update("balances", to_id, &credit(...))?;
-    Ok(bal - amount)
-})?;
+```rust boogy-snippet
+use store::{Value, Column};
+
+fn transfer(me: String, amount: f64, from_id: u64, to_id: u64) -> Result<f64, ApiError> {
+    let debit = |bal: f64| vec![Column { name: "balance".into(), val: Value::Text(bal.to_string()) }];
+    let credit = |amt: f64| vec![Column { name: "balance".into(), val: Value::Text(amt.to_string()) }];
+
+    let new_balance: f64 = tx::<_, _, ApiError>(|| {
+        let bal = find_row_by("balances", "principal", Value::Text(me.clone()))?
+            .map(|r| r.text("balance").parse::<f64>().unwrap_or(0.0))
+            .unwrap_or(0.0);
+        if bal < amount {                       // check INSIDE — read-your-writes
+            return Err(ApiError::unprocessable("insufficient balance"));
+        }
+        store::update("balances", from_id, &debit(bal - amount))?;
+        store::update("balances", to_id, &credit(amount))?;
+        Ok(bal - amount)
+    })?;
+    Ok(new_balance)
+}
 ```
 
 ## Sequencing discipline
@@ -69,18 +77,27 @@ let new_balance: f64 = tx::<_, _, ApiError>(|| {
 
 ## Cross-service sketch (verified shapes)
 
-```rust
-tx::<_, _, ApiError>(|| {
-    store::insert("orders", &order_cols)?;
-    let resp = peer_fetch(                          // enrolls B in this tx
-        "boogy://owner/services/inventory",
-        &PeerRequest::post("/reserve").body_json(&reserve)?,
-    )?;
-    if !resp.is_success() {                          // poisons → both roll back
-        return Err(ApiError::conflict("out of stock"));
-    }
+```rust boogy-snippet
+use boogy_sdk::peer::PeerRequest;
+use store::{Value, Column};
+
+fn place_order(order_cols: Vec<Column>, reserve: serde_json::Value) -> Result<(), ApiError> {
+    tx::<_, _, ApiError>(|| {
+        store::insert("orders", &order_cols)?;
+        let resp = peer_fetch(                          // enrolls B in this tx
+            "boogy://owner/services/inventory",
+            &PeerRequest::post("/reserve")
+                .body_json(&reserve)
+                .map_err(|e| ApiError::internal(e.to_string()))?,
+        )
+        .map_err(|e| ApiError::internal(format!("reserve failed: {e}")))?;
+        if !resp.is_success() {                          // poisons → both roll back
+            return Err(ApiError::conflict("out of stock"));
+        }
+        Ok(())
+    })?;
     Ok(())
-})?;
+}
 ```
 
 ## Red flags
