@@ -140,6 +140,15 @@ supported (it takes a `service_id`); additional channel kinds use the
 same `subscribe`/`unsubscribe` envelope with new `kind` values, so write
 clients to switch on `kind` rather than assuming logs are the only stream.
 
+### Service channels (subscribing to a service's real-time messages)
+
+The same `/v1/stream` gateway also carries **service-published** channels —
+real-time messages a service pushes to its end users (not owner logs).
+Subscribe with `{ kind: "service", owner, service_id, channel }` (public
+channels need no token; private channels carry a service-minted `grant`);
+events are `svc:snapshot` (replay) then `svc` (live). Publishing those
+channels is a service-AUTHORING concern — see `boogy:boogy-websockets`.
+
 ## Guest logging (making your logs retrievable)
 
 Service logs are **opt-in** per service. Grant the capability and emit
