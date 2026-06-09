@@ -37,6 +37,11 @@ fn build_router() -> Router {
 `.handle(req.request)` does the handshake, `tools/list`, `tools/call`,
 resources, prompts, and all envelope/error mapping.
 
+`tool("name").description("…")` annotates a tool the same way REST routes
+and RPC methods now take `.summary()` / `.description()` (see
+`boogy:boogy-api-specs`) — annotate them all so clients and agents can
+discover what each one does.
+
 ## Registering tools
 
 Prefer **`tool_typed::<P, R>`**: a typed arg struct deriving

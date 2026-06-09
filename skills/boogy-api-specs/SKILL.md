@@ -102,6 +102,29 @@ Router::new()
 `.post(path, handler)` works for both but does NOT record the endpoint
 in the spec. Prefer `.mcp` and `.rpc`.
 
+## Annotating endpoints (`summary` / `description`)
+
+REST routes and RPC methods both take chainable `.summary("one line")`
+and `.description("longer prose")` — they apply to the NEXT thing
+registered, then self-clear. `Router::summary/description` annotate the
+next route; `Dispatcher::summary/description` annotate the next
+`.method(…)`:
+
+```rust
+Router::new()
+    .summary("List widgets")
+    .description("Return every widget the caller owns.")
+    .get("/widgets", list_widgets)
+    .rpc("/api/rpc", || rpc::Dispatcher::new()
+        .summary("Search notes")
+        .description("Full-text search over the caller's notes.")
+        .method("search", search_notes))
+```
+
+These populate `summary` / `description` on the generated OpenAPI
+operations and OpenRPC methods (omitted when unset). Write them — they
+are how REST clients and agents discover what each endpoint does.
+
 ## The `JsonSchema` derive requirement
 
 Typed extractors (`Json<T>`, `Query<T>`, `Path<T>`) and typed responses

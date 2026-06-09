@@ -66,6 +66,26 @@ operator-configured (off by default). Request bodies and responses ride
 the per-request memory cap — don't route large payloads through the
 service.
 
+### Who sets what: defaults vs deployment config
+
+The `[limits]` a module ships are **defaults**, not a ceiling. They are
+**deployment-settable**: whoever provisions an instance may raise *or*
+lower each limit, bounded only by the **platform hard caps** (the most a
+host can safely grant) — not by the module's declared value. The platform
+caps are surfaced on the module's manifest endpoint so a provisioner sees
+the ceiling for each field; a value above its cap is rejected at provision
+time.
+
+`[capabilities]`, by contrast, stay **module-author-only**: a provisioner
+can never widen them (no adding `outbound_http` to a module that didn't
+declare it). Authors grant capabilities; provisioners size limits.
+
+`[outbound] allowed_hosts` is **provisioner-configurable** — the instance
+owner sets the egress allowlist for their own instance. Independently of
+the allowlist, the runtime IP firewall blocks internal/loopback addresses
+(link-local, private ranges, `127.0.0.0/8`, `::1`, …), so a permissive
+allowlist still cannot reach the host's own network.
+
 ## Red flags
 
 | Thought | Reality |

@@ -35,6 +35,27 @@ fn admin_routes() -> Router { Router::new() }
 answers 404, 405 + `Allow:`, and auto-OPTIONS (204 + `Allow:`); HEAD
 falls back to GET with the body stripped.
 
+### Annotating a route
+
+Chain `.summary(…)` (one line) and `.description(…)` (longer prose)
+before a route — both apply to the NEXT route registered, then
+self-clear:
+
+```rust boogy-snippet
+fn documented_routes() -> Router {
+    Router::new()
+        .summary("List widgets")
+        .description("Return every widget the caller owns.")
+        .get("/widgets", list_widgets)
+}
+
+fn list_widgets(_req: &mut Req<'_>) -> NoContent { NoContent }
+```
+
+These flow straight into the auto-served `openapi.json`, so REST clients
+and other agents understand what the endpoint does without reading your
+source. Annotate every route.
+
 ## Guards (auth, ownership, scope)
 
 Guards are NOT attached with a `.guard()` method — that does not exist.

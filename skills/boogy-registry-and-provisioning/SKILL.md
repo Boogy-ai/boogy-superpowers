@@ -104,6 +104,60 @@ Provision is a CREATE — re-running for an existing `service_id` is a 409;
 use `upgrade` to change the pinned version. See
 `boogy:deploying-boogy-services` for the build/deploy loop.
 
+### Per-instance mount path
+
+A provision-time override can relocate where a service answers by setting
+`[routing] path`:
+
+```toml
+# over.toml
+[routing]
+path = "/personal-notes"
+```
+
+This changes the **external** URL of this instance only — one module can
+run as several instances at distinct mounts (e.g. `/personal-notes` and
+`/company-notes` from the same `notes` module). The guest still serves its
+own module routes unchanged; the host rewrites the mount prefix
+transparently on the way in, and the served `openapi.json`/`openrpc.json`
+paths are remapped to the mount so clients see the real URLs. Arbitrary
+multi-segment paths are allowed (`/team/notes`, `/api/v2/notes`). Mount
+paths are unique per owner — a mount that equals or overlaps another of
+your services' mounts is rejected with **409**. Omit the override (or keep
+the module's own `path`) and nothing changes.
+
+### Two tiers: module-intrinsic vs deployment config
+
+A manifest has two kinds of fields, and only one kind is yours to set
+when you provision someone else's module.
+
+**Module-intrinsic** — fixed by the module author; the provisioner can
+**never** change or widen them:
+
+- `[capabilities]` — what the code is allowed to touch (`store`, `peer`,
+  `outbound_http`, …). The author grants these; you cannot add one.
+- declared realtime channels (`[[websockets.channels]]`) — names + access
+  class the code publishes on.
+- declared secret **names** (`[secrets]`) — which secrets the code reads.
+- routing **methods** and the module's internal base path — the route
+  shape the code answers on.
+
+**Deployment config** — set per instance, by you, at provision time:
+
+- service id and mount path (the external URL — see above).
+- `[ingress]` — mode, rate limits, delegation.
+- `[limits]` — sized for *your* instance, within the platform caps (you
+  may raise or lower; see `boogy:boogy-capability-limits`).
+- `[outbound] allowed_hosts` — the egress allowlist for your instance.
+- secret **values** — you bind your own values for the declared names;
+  they never travel in the manifest (bound through the per-service secret
+  endpoint, KMS-wrapped). The module author's names tell you *what* to
+  provide, not the value.
+
+So: the author decides what the code *can* do; you decide how *your*
+instance is sized, exposed, rate-limited, and what egress + secret values
+it runs with.
+
 ## Red flags
 
 | Thought | Reality |
