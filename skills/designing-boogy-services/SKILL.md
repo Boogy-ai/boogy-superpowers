@@ -84,9 +84,13 @@ digraph ingress {
    `max_delegated_scopes`); absent that block, on-behalf-of tokens are
    rejected. Authorize on the **principal** (the user), never the actor.
 
-6. **Data sketch** — tables, the owner column (per-row ownership for
-   `authenticated` services), and the access patterns you'll need
-   (list/lookup/rank/filter). No bare table/column names in real code.
+6. **Data sketch** — the tables, each as a future `#[derive(Model)]`
+   struct: its fields, the owner column (per-row ownership for
+   `authenticated` services), and the access patterns you'll declare on
+   it (`list_by` / `ranked_by` / `lookup_by` / `tagged_by`). The model
+   derive is the standard data layer — a hand-written `cols` module or
+   `Table::new(...)` is a regression (see `boogy:boogy-data-modeling`).
+   Sketch the patterns now so the right indexes are derived later.
 
 7. **Limits check** — REQUIRED BACKGROUND: `boogy:boogy-capability-limits`.
    Run every feature past the gaps and ceilings (no service-authored

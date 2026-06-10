@@ -7,16 +7,34 @@ description: Use when building HTTP/REST or JSON-RPC endpoints on a Boogy servic
 
 Handlers take `&mut Req<'_>` and return anything `IntoResponse`. Build
 from this surface — never hand-roll status codes or error bodies.
+Handler bodies read and write through the typed model layer (`db_*` +
+`Query`, see `boogy:boogy-access-patterns`), **not** raw `store::*`.
 
-## Routing
+## Routing — annotate every route, set the doc identity
+
+`Router::info(title, version, Some(description))` sets the document
+identity; chain `.summary(…)` (one line) + `.description(…)` (prose)
+before each route — both apply to the NEXT route registered, then
+self-clear:
 
 ```rust boogy-snippet
 fn routes() -> Router {
     Router::new()
+        .info("Widgets", "0.1.0", Some("CRUD over the widget catalog."))
+        .summary("List widgets")
+        .description("Return every widget the caller owns, newest first.")
         .get("/widgets", list_widgets)
+        .summary("Create a widget")
+        .description("Insert a widget and return it with its new id.")
         .post("/widgets", create_widget)
+        .summary("Get a widget")
+        .description("Fetch one widget by id; 404 if it doesn't exist.")
         .get("/widgets/{id}", get_widget)
+        .summary("Update a widget")
+        .description("Replace a widget's fields by id.")
         .patch("/widgets/{id}", update_widget)
+        .summary("Delete a widget")
+        .description("Delete a widget by id; 404 if it doesn't exist.")
         .delete("/widgets/{id}", delete_widget)
         .nest("/admin", admin_routes())     // mount a sub-router under a prefix
 }
@@ -35,26 +53,39 @@ fn admin_routes() -> Router { Router::new() }
 answers 404, 405 + `Allow:`, and auto-OPTIONS (204 + `Allow:`); HEAD
 falls back to GET with the body stripped.
 
-### Annotating a route
+**Route annotation is MANDATORY, not decoration.** `Router::info(...)`
+plus `.summary()` + `.description()` on **every** route flow straight
+into the auto-served `openapi.json` (and `openrpc.json` for JSON-RPC
+mounts) — the surface the API console, REST clients, and other agents
+read to understand your service without your source. An un-annotated
+route or an empty/identity-less spec is a **defect**, the same as a
+missing test. Checklist before you call a router done:
 
-Chain `.summary(…)` (one line) and `.description(…)` (longer prose)
-before a route — both apply to the NEXT route registered, then
-self-clear:
+- [ ] `Router::info(title, version, Some(desc))` is set.
+- [ ] Every route has both `.summary()` and `.description()`.
+- [ ] Every DTO in an extractor or response derives `schemars::JsonSchema`.
 
-```rust boogy-snippet
-fn documented_routes() -> Router {
-    Router::new()
-        .summary("List widgets")
-        .description("Return every widget the caller owns.")
-        .get("/widgets", list_widgets)
+## Handler bodies use the model layer
+
+A create handler inserts a typed model and returns it — no
+`store::insert`, no bare column strings:
+
+```rust
+// `Widget` is a #[derive(Model)] struct (see boogy:boogy-data-modeling).
+fn create_widget(req: &mut Req<'_>) -> Result<Created<WidgetOut>, ApiError> {
+    let input: CreateWidget = validate_body(req.body())?;
+    let id = db_insert(&Widget {
+        id: Id::new(0),                       // placeholder PK; store assigns _id
+        name: input.name.clone(),
+        created_at: Timestamp::new(now_millis() as i64),
+    })?;
+    Ok(Created(WidgetOut { id, name: input.name }))
 }
-
-fn list_widgets(_req: &mut Req<'_>) -> NoContent { NoContent }
 ```
 
-These flow straight into the auto-served `openapi.json`, so REST clients
-and other agents understand what the endpoint does without reading your
-source. Annotate every route.
+Reads go through `db_get` / `db_find_by` / `Query` (see
+`boogy:boogy-access-patterns`). Raw `store::insert`/`find` is the escape
+hatch only.
 
 ## Guards (auth, ownership, scope)
 
@@ -187,3 +218,6 @@ see `boogy:boogy-mcp-services`.)
 | "I'll return a 201 with a custom JSON error envelope." | Return `Created<T>` / `ApiError`; the wire shape is RFC 7807 `application/problem+json`, not a bespoke `{error:...}`. |
 | "Attach the guard with `.guard(...)`." | No such method. Use `.group([...], |g| …)`; heterogeneous types → `guards![...]`. |
 | "No framework for JSON-RPC, I'll parse the envelope." | `Router::rpc(path, || Dispatcher::new()…)` does registration + spec capture + envelope + routing + typed params + standard codes. |
+| "I'll `store::insert` / `store::find` in the handler." | Use `db_insert` / `db_get` / `db_find_by` / `Query` on a `#[derive(Model)]` struct. Raw `store::*` for ordinary CRUD is a regression (see `boogy:boogy-data-modeling`). |
+| "The handler inserts a row and bumps a counter — that's fine as two calls." | Multi-write handlers (≥ 2 dependent writes, read-modify-write upsert, debit + credit) must wrap the writes in one `tx` — see `boogy:boogy-transactions`. |
+| "I'll wire the routes and skip the docs." | MANDATORY: `Router::info(...)` + `.summary()` + `.description()` on every route. They flow into the auto-served `openapi.json`/`openrpc.json` (the API console + clients surface them). An un-annotated route or identity-less spec is a defect, not a smell. |

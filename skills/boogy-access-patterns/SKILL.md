@@ -5,137 +5,192 @@ description: Use when adding a list, lookup, ranking, filter, tag, or pagination
 
 # Querying data on Boogy
 
-Every query needs an index, or it degrades to a full-table scan. You do
-**not** hand-name indexes: you declare the *access pattern* with a verb
-on the table, and the resolver derives the right index shape.
+You read data through the **typed model layer**: `db_get` / `db_find_by`
+for point reads and the `Query` DSL for lists, mapping rows back with
+`M::from_row`. Every query needs an index, or it degrades to a
+full-table scan — and you don't hand-name indexes: you declare the
+*access pattern* on the `#[derive(Model)]` struct (data-modeling skill)
+and the right index is derived.
 
 ## Iron Law
 
-**Declare the access pattern with a verb. Never hand-roll a secondary
-index for a query path a verb covers, and never hand-write a derived
-index name.** Declaring intent (`list_by`/`ranked_by`/…) — not the
-physical index — is the altitude. The resolver names and shapes it.
+**Declare the access pattern on the model; read through `db_*` + `Query`.**
+Each query you write maps to a verb you declared on the struct. Raw
+`store::find` / `FindOptions` is an **escape hatch** for shapes the DSL
+can't express — never the default for normal reads.
 
-## Verb quick-reference
+## Verb → query mapping
 
-Order is expressed in English by free functions: `newest(col)` /
-`oldest(col)` (timestamps), `highest(col)` / `lowest(col)` (scores).
+The verb you put on the model (see `boogy:boogy-data-modeling`) is the
+index that backs the query:
 
-| Verb | Query it serves | Declaration | Derives |
-|------|-----------------|-------------|---------|
-| `.list_by(filter, order)` | rows where `filter == v`, ordered, paginated ("my links by clicks") | `.list_by(OWNER, highest(CLICKS))` | covering composite `(filter, order)` |
-| `.ranked_by(order)` | top rows by `order`, no filter (global feed / leaderboard) | `.ranked_by(highest(SCORE))` | covering single-col `(order)` |
-| `.lookup_by(column)` | the unique row where `column == v` (point lookup) | `.lookup_by(SLUG)` | unique `(column)` |
-| `.tagged_by(tag, refs)` | junction/side table: rows tagged `tag`, exposing `refs` to join back | `.tagged_by(TAG, POST_ID)` | covering `(tag, refs)` |
+| Model declaration | Backs this read |
+|-------------------|-----------------|
+| `#[lookup_by]` on a field | point lookup: `db_find_by::<M>(M::COL, val)` (the unique row where `col == v`) |
+| `#[model(list_by(filter = "peer", newest = "created_at"))]` | filtered+ordered list: `Query::on(M::TABLE).where_eq(M::PEER, v).order_by_desc(M::CREATED_AT).limit(n)` |
+| `#[model(ranked_by(highest = "score"))]` | global ranked feed: `Query::on(M::TABLE).order_by_desc(M::SCORE).limit(n)` |
+| `#[model(tagged_by(tag, refs))]` | junction page: seek the tag, expose `refs` to hydrate parents |
 
-Derived names follow a deterministic `ix_<table>_<cols>` rule and merge
-by column tuple (flags OR together; duplicate patterns dedupe). **You
-never write that name** — read `.resolved_indices()` if you must see it.
-An owner-scoped list already has its index from `.owned()` /
-`.owned_by()` (data-modeling skill) — don't redeclare it.
+You write the column **consts the derive emitted** (`Message::PEER`,
+`Conversation::LAST_AT`) — never bare strings, never a hand-rolled index
+name.
 
-## When raw `find_rows` is right
+## Point reads — `db_*`
 
-The verbs cover the common shapes. Drop to raw reads for multi-filter
-combos or OR-groups the verbs don't express. Read-helper decision table:
+| Need | Call | Returns |
+|------|------|---------|
+| one row by primary key | `db_get::<M>(id)` | `Result<Option<M>>` |
+| all rows where `col == v` | `db_find_by::<M>(M::COL, val)` | `Result<Vec<M>>` |
+| insert (auto-PK) | `db_insert(&m)` | `Result<u64>` (the new `_id`) |
+| overwrite a row | `db_update(id, &m)` | `Result<()>` |
+| delete a row | `db_delete(id)` | `Result<()>` |
 
-| Need | Use |
-|------|-----|
-| one row by primary key | `get_row(table, id)` (never filter on `_id`) |
-| first row matching one column | `find_row_by(table, col, val)` |
-| all rows for the current principal | `auth::find_owned(table, owner_col)` |
-| one filter, all matches | `find_rows_by(table, col, val)` |
-| multi-filter AND + composite sort + page | `find_rows(table, filters, sort, page)` |
-| OR-of-AND (incl. keyset pagination) | `find_rows_grouped(table, filters, or_groups, sort, page)` |
-| stream a whole table in a batch job | `for_each_batch(...)` — **`order_col` is an INDEX NAME, not a column** (or `None` for PK order); cannot run inside `tx` |
+`db_find_by` takes a `boogy_sdk::store::Val` (e.g.
+`Val::Text(peer.to_string())`, `Val::Integer(post_id as i64)`). A
+`#[lookup_by]` lookup returns a `Vec` of length 0 or 1 — take
+`.into_iter().next()` for the single row. This is the canonical upsert
+shape (from chat):
 
-## The canonical paginated-list recipe
-
-Keyset, not offset. The typed Query DSL (emitted by `wit_glue!`) is the
-primary recipe — no manual cursor arithmetic:
-
-```rust boogy-snippet
-use boogy_sdk::pagination::{decode, CursorPage};
-use boogy_sdk::store::SortDir;
-
-struct T; impl T { const POSTS: &str = "posts"; }
-struct C; impl C { const OWNER: &str = "owner_principal"; const CREATED_AT: &str = "created_at"; }
-
-#[derive(serde::Serialize)]
-struct PostView { id: u64 }
-impl PostView {
-    fn from_row(row: &Row) -> PostView { PostView { id: row.int("_id") as u64 } }
-}
-
-fn list(req: &mut Req<'_>, principal: String) -> Result<CursorPage<PostView>, ApiError> {
-    // Decode the inbound ?cursor= (None on first page).
-    let c = req.query("cursor").and_then(decode);
-
-    // Build and execute; fetch_page defaults to limit=20 when .limit() is omitted.
-    let page = Query::on(T::POSTS)
-        .where_eq(C::OWNER, principal)   // access-pattern-backed filter
-        .keyset_by(C::CREATED_AT, SortDir::Desc)   // keyset column + direction
-        .limit(20)
-        .cursor(c)
-        .fetch_page(|row| PostView::from_row(row))?;
-
-    // page: CursorPage<PostView> — { items, next_cursor? }
-    Ok(page)
+```rust
+// Point-lookup by the natural key, then update-or-insert.
+let existing: Option<Conversation> =
+    db_find_by::<Conversation>(Conversation::PEER, Val::Text(peer.to_string()))?
+        .into_iter()
+        .next();
+match existing {
+    Some(c) => db_update(c.id.get(), &updated_conversation)?,
+    None    => { db_insert(&new_conversation)?; }
 }
 ```
 
-`fetch_page` handles everything internally: it appends the keyset resume
-filter (`keyset_resume_filter`), overfetches by 1, builds the composite
-`Cursor` from the last kept row, and returns `CursorPage<T>`.
+## Lists — the `Query` DSL
 
-**Other terminal methods on `Query`:**
-- `.fetch_one()` → `Result<Option<Row>>` — first match, `limit` overridden to 1
+`Query::on(M::TABLE)` builds a typed query; chain filters and order, then
+a terminal. `fetch_all`/`fetch_page` return raw `Row`s — map each with
+`M::from_row(&row)`:
+
+```rust boogy-snippet
+// The `Model` trait (in scope here) provides `TABLE` + `from_row` to the
+// query/read code below. In a real service the struct lives in its own
+// `models.rs` (which imports `boogy_sdk::Model` for the derive) and the
+// handler module imports the trait — see the chat example.
+use boogy_sdk::model::{Id, Model, Timestamp};
+
+#[derive(boogy_sdk::Model)]
+#[model(table = "messages", list_by(filter = "peer", newest = "created_at"))]
+pub struct Message {
+    #[pk] pub id: Id<Message>,
+    pub peer: String,
+    pub direction: String,
+    pub body: String,
+    pub created_at: Timestamp,
+}
+
+// list_by(filter = peer, newest = created_at) backs this seek: equality
+// on peer, newest-first within it, bounded by `limit`.
+pub fn last_messages(peer: &str, limit: usize) -> Result<Vec<Message>, ApiError> {
+    let rows = Query::on(Message::TABLE)
+        .where_eq(Message::PEER, peer)
+        .order_by_desc(Message::CREATED_AT)
+        .limit(limit)
+        .fetch_all()?;
+    Ok(rows.iter().map(Message::from_row).collect())
+}
+```
+
+A `ranked_by` feed is the same minus the filter:
+
+```rust
+// ranked_by(highest = last_at) backs a global newest-activity-first walk.
+let rows = Query::on(Conversation::TABLE)
+    .order_by_desc(Conversation::LAST_AT)
+    .limit(500)
+    .fetch_all()?;
+let items: Vec<Conversation> = rows.iter().map(Conversation::from_row).collect();
+```
+
+**Filter builders** (all `where_*`): `where_eq`, `where_neq`, `where_gt`,
+`where_gte`, `where_lt`, `where_lte`, `where_like`, `where_not_like`,
+`where_null`, `where_not_null`, `where_in(col, iter)`, and `.or(|q| …)`
+for an OR-of-AND group. Order: `order_by_asc`/`order_by_desc`/`order_by`.
+
+**Terminals:**
 - `.fetch_all()` → `Result<Vec<Row>>` — all matches (subject to `.limit()`)
-- `.fetch_all_with_total()` → `Result<(Vec<Row>, u64)>` — rows + count in one call
+- `.fetch_one()` → `Result<Option<Row>>` — first match (`limit` forced to 1)
+- `.fetch_all_with_total()` → `Result<(Vec<Row>, u64)>` — rows + count
 - `.count()` → `Result<u64>` — count only (ignores `.or()`, sort, page)
+- `.fetch_page(|row| …)` → `CursorPage<T>` — keyset pagination (below)
+
+## The canonical paginated-list recipe
+
+Keyset, not offset. `fetch_page` appends the keyset resume filter,
+overfetches by 1, builds the `Cursor` from the last kept row, and returns
+`CursorPage<T>` — no manual cursor arithmetic:
+
+```rust
+use boogy_sdk::pagination::decode;
+use boogy_sdk::store::SortDir;
+
+// Decode the inbound ?cursor= (None on first page); page a ranked feed.
+let cursor = req.query("cursor").and_then(decode);
+let page = Query::on(Post::TABLE)
+    .keyset_by(Post::SCORE_TOTAL, SortDir::Desc)  // keyset column + direction
+    .limit(20)
+    .cursor(cursor)
+    .fetch_page(|row| PostView::from_row(row))?;   // map Row -> your DTO
+// page: CursorPage<PostView> — { items, next_cursor? }
+```
 
 **Offset vs keyset:** offset shifts under concurrent inserts and
-`OFFSET 10000` scans 10001 rows — a deep-page cliff. Keyset (`_id > last`)
-is a constant-cost indexed lookup. Always keyset for client-facing lists.
+`OFFSET 10000` scans 10001 rows — a deep-page cliff. Keyset is a
+constant-cost indexed lookup. Always keyset for client-facing lists.
 
-### The layer underneath — for shapes the DSL doesn't cover
+## When raw `store::find` is the escape hatch
 
-`Query` delegates to `find_rows_grouped` + `keyset_paginate` (both
-emitted by `wit_glue!`). Drop to them when needed:
+The DSL covers the common shapes. Drop *below* it only for what it can't
+express:
 
-- **OR-groups the `.or()` builder can't express in a single query** —
-  e.g. a tagged-junction page where the keyset OR must merge with
-  caller-supplied domain filters that aren't representable as simple
-  AND-chains in the DSL.
-- **Junction hydration** — page the side table (with `fetch_page` or
-  `keyset_paginate`), then batch-hydrate parents in one read with
-  `filter_in(REFS, ids)`. The DSL has no JOIN primitive; this is the
-  correct two-step pattern.
-- **`CursorPage::from_overfetched` directly** — rare; only when you
-  need full control over the `(item, Cursor)` derivation per row that
-  `.fetch_page`'s closure doesn't give you.
+- **OR-groups the `.or()` builder can't represent** — a keyset OR that
+  must merge with caller-supplied domain filters (`find_rows_grouped`).
+- **Junction hydration** — page the side table with `fetch_page`, then
+  batch-hydrate parents in one read with `where_in(REFS, ids)` /
+  `get_many`. The DSL has no JOIN primitive; this two-step is the pattern.
+- **Streaming a whole table in a batch job** — `for_each_batch(...)`
+  (`order_col` is an INDEX NAME, not a column; cannot run inside `tx`).
+  Index names are **schema-canonical** — derived as `ix_<table>_<cols>`,
+  NOT the `name` you wrote in the access-pattern/index declaration (that
+  arg is canonicalized and discarded). A hand-typed name silently drifts
+  from the real one: the cursor returns NotFound (a hard-to-trace 404/500
+  at runtime, not a compile error). When you genuinely need this
+  low-level cursor, pass the **canonical** `ix_<table>_<col1>_<col2>…`
+  name and annotate the call `// index-name-ok: <reason>`. Prefer the
+  Query DSL — `where_eq(...).keyset_by(...).fetch_page(...)` — which lets
+  the planner pick the index **by the query's columns**, so there's no
+  name to drift.
 
-`keyset_resume_filter`, `Cursor`, `decode`/`encode`, and
-`CursorPage::from_overfetched` are all in `boogy_sdk::pagination`
-when you need them raw. Don't re-derive the overfetch logic — use the
-helper.
+`Cursor`, `decode`/`encode`, `CursorPage::from_overfetched`, and
+`keyset_resume_filter` live in `boogy_sdk::pagination` when you need them
+raw. Don't re-derive the overfetch logic — use the helper.
 
 ## Unindexed-scan guardrail
 
 A query with no usable index that scans past the row threshold **errors**
-(strict mode), with a hint naming the fix: *declare an access pattern
-(`list_by`/`ranked_by`/`lookup_by`/`tagged_by`) so the index is derived.*
-`.allow_scan("reason")` is an audited **opt-out**, not a fix — the scan is
-still O(table). Use it only for genuinely intentional small/admin scans.
+(strict mode), with a hint naming the fix: *declare an access pattern so
+the index is derived.* `.allow_full_scan("reason")` is an audited
+**opt-out**, not a fix — the scan is still O(table). Use it only for
+genuinely intentional small/single-owner/admin scans (chat's
+`list_conversations` does this for a single-owner table).
 
 ## Red flags
 
-- "I'll just load all rows and sort in memory" → O(N) reads + memory blowup. Declare the pattern.
-- "I'll hand-write the index name" → that's the resolver's job. Use the verb.
-- "Offset pagination is fine" → not for deep pages. Keyset.
+- "I'll just load all rows and sort in memory" → O(N) reads + memory blowup. Declare the verb, use `Query`.
+- "I'll reach for `store::find` / `FindOptions`" → that's the escape hatch. Use `db_find_by` / `Query` and a declared access pattern.
+- "I'll hand-write the index name" → the derive names it (`ix_<table>_<cols>`); the `name` you declared is discarded. Reference data by **columns** via `db_find_by` / the Query DSL — never by a hardcoded index name. A literal name passed to `for_each_batch`/`open_cursor` drifts from the canonical one and the cursor returns NotFound at runtime.
+- "Offset pagination is fine" → not for deep pages. `fetch_page` (keyset).
 
 ## Integration
 
-← `boogy:boogy-data-modeling` (tables + owner columns). **REQUIRED
-BACKGROUND for any list endpoint.** → `boogy:boogy-migrations` to add an
-access pattern (and its index) to an already-deployed service.
+← `boogy:boogy-data-modeling` (the `#[derive(Model)]` structs + access-
+pattern verbs these queries consume). **REQUIRED BACKGROUND for any list
+endpoint.** → `boogy:boogy-rest-apis` (handlers that call `db_*`/`Query`).
+→ `boogy:boogy-migrations` to add an access pattern to a deployed service.

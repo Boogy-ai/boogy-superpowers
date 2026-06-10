@@ -18,8 +18,49 @@ get wrong.
 | `Cargo.toml` | `[lib] crate-type = ["cdylib"]`; deps below |
 | `build.rs` | Syncs WIT files from the pinned SDK into local `wit/` |
 | `boogy.toml` | Manifest: `[service]`, `[routing]`, `[capabilities]`, `[ingress]` |
-| `src/cols.rs` | Table/column/index name constants (no bare string literals) |
-| `src/lib.rs` | `mod bindings { wit_bindgen::generate!{...} }`, `wit_glue!`, `impl Api` |
+| `src/models.rs` | `#[derive(Model)]` structs — one per table; the derive emits the column consts (NO hand-written `cols` module) |
+| `src/lib.rs` | `mod bindings { wit_bindgen::generate!{...} }`, `wit_glue!`, `impl Api` (`init_tables` = `create_model::<M>()` per model; `build_router` = annotated routes) |
+
+## Start from the model layer
+
+The first code you write is the data layer, and it is
+`#[derive(Model)]` — not a `cols` module, not `Table::new(...)`. Each
+table is a struct; register it in `init_tables` and read/write through
+`db_*` + `Query`. The canonical shape:
+
+```rust
+// src/models.rs
+use boogy_sdk::model::{Id, Timestamp};
+use boogy_sdk::Model;
+
+#[derive(Model)]
+#[model(table = "messages", list_by(filter = "peer", newest = "created_at"))]
+pub struct Message {
+    #[pk] pub id: Id<Message>,
+    pub peer: String,
+    pub body: String,
+    pub created_at: Timestamp,
+}
+```
+
+```rust
+// src/lib.rs — inside impl Api
+fn init_tables() {
+    create_model::<Message>();           // schema + indexes from the struct
+}
+fn build_router() -> Router {
+    Router::new()
+        .info("Chat", "0.1.0", Some("Peer-to-peer chat."))
+        .summary("Conversation messages")
+        .description("The last N messages with a peer, newest first.")
+        .get("/chat/messages", list_messages)
+}
+```
+
+A hand-written `cols` module, `Table::new(...).text(...)`, or
+`create_table_from(...)` for a fixed-shape table is a **regression** —
+see `boogy:boogy-data-modeling`. Routes MUST carry `Router::info(...)` +
+`.summary()` + `.description()` (see `boogy:boogy-rest-apis`).
 
 ## Dep-form rule (the #1 scaffolding bug)
 
@@ -85,6 +126,8 @@ cargo build --target wasm32-wasip2 --release
 | No `.gitignore` → generated `wit/` gets committed | Gitignore `/wit/` and `/target/` |
 | Editing `wit/` | It's regenerated every build; bump the pinned rev instead |
 | `service-with-jobs` without `handle_job` | Impl `job_handler::Guest` (stub is fine) or it won't compile |
+| Hand-writing a `cols` module / `Table::new(...)` / `create_table_from` | `#[derive(Model)]` + `create_model::<M>()` — the derive emits the column consts and schema |
+| Un-annotated routes / no `Router::info` | Set `Router::info(...)` and `.summary()`+`.description()` on every route (feeds `openapi.json`) |
 | Asserting a derived index name from memory | Don't guess it — declare access patterns and let the SDK report the name; verify in `AGENTS.md` |
 | Inventing job/store API signatures | Verify in the SDK repo's `AGENTS.md` before writing |
 
