@@ -62,10 +62,35 @@ schedule = "0 0 2 * * *"     # 6-field cron: sec min hour day month dow → 02:0
 # max_attempts = 3                 # retry limit (>= 1)
 # backoff_ms = 1000                # delay between retries
 # max_concurrent_per_tenant = null # per-tenant in-flight cap (null = unlimited)
+# pin_version = false              # opt-in: run jobs on the version that enqueued them
 ```
 
 A handler with a `schedule` fires on that cadence automatically — do NOT
 build your own cron loop or `tokio::spawn` timer.
+
+## Which version runs a job
+
+By default a job runs on **whatever version of your service is active when
+the worker picks it up** — not the version that enqueued it. Jobs benefit
+from bug fixes deployed after they were queued, and recurring work always
+tracks your latest code. The catch: if a deploy changes a handler's
+`payload` shape, the new handler may receive an old job's payload (or, after
+a retry across a deploy, vice-versa).
+
+Set `pin_version = true` on a handler to instead run each of its jobs on the
+**exact version that enqueued it**, even after newer deploys. Use it when a
+job's payload is only meaningful to the code that created it.
+
+- Pinning keeps **code and payload** in sync. It does **not** snapshot your
+  data: the per-service store still migrates forward, so a pinned old handler
+  runs against the current schema. Keep store migrations additive.
+- **Cron fires and admin replays always run active** — pinning applies only
+  to jobs enqueued from a handler.
+- If the pinned version is gone (service deleted), the job dead-letters with
+  `pinned_version_gone` rather than silently running different code.
+
+Prefer the default (unpinned) unless you have a concrete payload-compatibility
+reason — pinned jobs don't pick up handler bug fixes.
 
 ## Enqueuing
 
