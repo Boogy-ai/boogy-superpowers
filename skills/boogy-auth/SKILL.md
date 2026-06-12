@@ -53,6 +53,51 @@ mode = "public"                 # anyone may reach /webhook
 A manifest with no `[[ingress.routes]]` behaves exactly as before — this
 is purely additive.
 
+### The reverse: a RESTRICTED subtree inside an open service (owner-only `/admin`)
+
+The same mechanism runs the other direction — a service whose default is open
+(`authenticated`) but whose `/admin/*` subtree is reachable only by the
+**instance owner's own backend**. The trap: a **provisionable** module is
+deployed by *anyone*, so you must NOT hardcode an identity (`@alice`,
+`boogy://alice/services/*`) in the manifest — that literal owner is wrong for
+every other provisioner, and ingress allowlist strings are **not** substituted
+at deploy time. Ingress has no "same owner as me" matcher either.
+
+The pattern that works — **ingress admits the broad class, the handler narrows
+by runtime identity**:
+
+```toml
+[ingress]
+mode = "authenticated"          # end-user routes: any authenticated principal
+
+[[ingress.routes]]
+path = "/admin/*"
+mode = "internal"               # any DEPLOYED WORKLOAD; rejects humans/anonymous
+allowed_origins = ["*"]         # names NO owner — the handler does the narrowing
+```
+
+Then in the handler, learn your own owner from the ungated **self-identity**
+capability and admit only callers whose attested workload owner matches:
+
+```rust
+// require_operator(): same-owner check, no identity hardcoded anywhere
+let our_owner = self_identity().owner;            // host-pinned to the provisioner
+let id = current_identity();                       // the caller
+let caller_owner = workload_owner(id.principal)    // boogy://<owner>/services/<x> → <owner>
+    .or_else(|| id.actor.and_then(workload_owner)); // OBO hop: the actor is the workload
+match caller_owner {
+    Some(o) if o == our_owner => { /* operator */ }
+    _ => return forbidden(),                        // cross-owner workload, or a bare agent
+}
+```
+
+Why both layers: ingress (`internal`, `["*"]`) keeps humans/anonymous out cheaply
+and names nobody; `self_identity()` supplies the real owner at request time so the
+in-handler check narrows to the provisioner's OWN services — defense in depth that
+travels with the module to whoever deploys it. A direct human admin therefore goes
+*through* their backend (a workload); a raw agent token carries no owner handle a
+wasm component could verify. (See the `resend-base` catalog module.)
+
 ## Guard & helper quick-reference (verified)
 
 | Item | Use |

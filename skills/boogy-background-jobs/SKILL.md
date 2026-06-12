@@ -42,9 +42,11 @@ fn build_job_router() -> JobRouter {
 }
 ```
 
-`#[job]` accepts `fn() -> Result<R, String>`, `fn(payload: T)` (T:
-`DeserializeOwned`), `fn(payload: Vec<u8>)`, and the prefix forms with a
-leading `suffix: &str`. **`service-with-jobs` without a working job
+`#[job]` accepts `fn() -> Result<R, E>`, `fn(payload: T)` (T:
+`DeserializeOwned`), `fn(payload: Vec<u8>)`, the prefix forms with a leading
+`suffix: &str`, and an optional leading `ctx: JobContext` (carries
+`job_id` / `handler` / `attempts`). `E` is `String` (retryable) or
+`boogy_sdk::JobError` (explicit `Retry`/`Terminal`). **`service-with-jobs` without a working job
 export fails to compile** — start from a stub if needed.
 
 ## Declaring handlers (manifest)
@@ -139,10 +141,24 @@ does NOT make the handler body run once. For handler-level safety: use
 the stable `ctx.job_id` as the `Idempotency-Key` on outbound calls, and
 `INSERT … ON CONFLICT DO NOTHING` for store writes.
 
-**Errors and retries:** an `Err(String)` from the `#[job]`/`JobRouter`
-path is treated as terminal (straight to dead letter). A wasm trap
-(panic, OOM, deadline) is retryable and counts against `max_attempts`.
-For a soft retry on a transient failure, trap rather than return `Err`.
+**Errors and retries.** A bare `Err(String)` is **retryable** — the worker
+backs off and re-runs (up to `max_attempts`, then dead-letters), the same as a
+wasm trap (panic, OOM, deadline). For explicit control, return a
+`boogy_sdk::JobError`: `Terminal(msg)` dead-letters immediately (a failure that
+can never succeed on retry — bad payload, a missing parent row), `Retry(msg)` is
+a transient one. To recognize the FINAL attempt — e.g. to record a terminal
+`failed` status on your own row before the job dead-letters — take a leading
+`ctx: JobContext` and compare `ctx.attempts` (1-based) against your manifest
+`max_attempts`.
+
+**Prefer enqueuing a job over a synchronous side effect when it should be
+transactional.** Enqueuing inside `tx(...)` is **staged**: the job is submitted
+only if the transaction commits (a rollback discards it) — so a durable job is
+the way to make a side effect (send an email, call a third party, fan out)
+happen *iff your writes commit*. A synchronous `outbound_http` call can't do
+this: it's denied inside an open `tx`, and a completed external call can't be
+rolled back. Make the endpoint enqueue by default; offer a synchronous flag only
+for fire-now cases outside a transaction.
 
 ## Large sweeps
 
