@@ -222,6 +222,7 @@ own routes and schemas.
 | "I need to write a handler for openapi.json." | The router serves it automatically. Only override if you need a custom document. |
 | "My catch-all `{file}` route will intercept openapi.json." | Reserved filenames are not captured by `{param}` routes. Spec doc wins. |
 | "Omitting JsonSchema breaks the build." | Not a build error — but that type's schema will be empty in the generated doc. Add `JsonSchema` to get full schema output. |
+| "`Json<json::Value>` in/out is fine, it's flexible." | It produces a useless "any" schema — an undocumented endpoint. A CI gate FAILS untyped handler I/O. Define a typed DTO (Iron Law in `boogy:boogy-rest-apis`). |
 | "I use `.post(\"/mcp\", mcp_dispatch)` to mount MCP." | Use `Router::mcp` so the endpoint is recorded in `openapi.json`. |
 | "I use `.post(\"/rpc\", rpc_dispatch)` to mount JSON-RPC." | Use `Router::rpc(path, || Dispatcher::new()…)` so methods appear in `openrpc.json`. |
 | "Anonymous clients should see all routes in the spec." | Routes inside `.group([...], |g| …)` are hidden from anonymous callers. Move them out of the group or use `Router::undocumented` if that's the intent. |

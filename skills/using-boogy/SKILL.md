@@ -38,7 +38,8 @@ questionnaire once installed; until then, answer them yourself first.
 | `boogy-obo-delegation` | one service must act on a user's behalf when calling another service — delegation config, principal-vs-actor authorization |
 | `boogy-mesh-architecture` | composing multiple services, deciding whether to split a service, or passing identity/data between services |
 | `boogy-registry-and-provisioning` | needing functionality that might already exist in the mesh, publishing a module, or deciding whether to run your own instance of one |
-| `boogy-secrets` | a service needs an API key or credential for an external call, or asking how secrets work |
+| `boogy-secrets` | a service needs an API key or credential for an external call, host-side HMAC signature verification, or asking how secrets work |
+| `boogy-webhooks` | building a service that RECEIVES and verifies inbound webhooks from a third party (Stripe, GitHub, Twilio, any HMAC-signed callback) |
 | `boogy-rest-apis` | building HTTP/REST or JSON-RPC endpoints — routing, guards, request parsing/validation, response types, error wire format |
 | `boogy-mcp-services` | exposing MCP tools/resources/prompts to LLM clients, or adding MCP alongside an existing REST service |
 | `boogy-api-specs` | questions about the auto-served spec docs (openapi.json / openrpc.json / MCP discovery), Router::info, two-tier visibility, undocumented routes, or the JsonSchema derive requirement |

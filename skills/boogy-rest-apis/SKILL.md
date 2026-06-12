@@ -10,6 +10,66 @@ from this surface — never hand-roll status codes or error bodies.
 Handler bodies read and write through the typed model layer (`db_*` +
 `Query`, see `boogy:boogy-access-patterns`), **not** raw `store::*`.
 
+## Iron Law: every request body and every response is a typed DTO
+
+**Every HTTP request body and every response is a typed
+`#[derive(Serialize/Deserialize, schemars::JsonSchema)]` DTO, returned
+as `Json<T>` / `Created<T>` (lists as `Json<Wrapper { items: Vec<T> }>`).
+`Json<json::Value>` is an escape hatch, not a default.**
+
+Every deployed service auto-serves `GET <routes>/openapi.json`. The
+typed DTOs are *what populates the request and response schemas in that
+document* — they are the entire reason a REST client, an SDK generator,
+or another agent can use your API without reading your source. A handler
+that takes or returns `json::Value` produces an endpoint with **no
+schema**: an undocumented hole in the spec.
+
+This is **enforced, not advised** — a CI gate FAILS untyped handler I/O.
+And a type-level bound can't catch it for you: `schemars` implements
+`JsonSchema` for `serde_json::Value`, so a `T: JsonSchema` bound on
+`Json<T>` would still accept `Json<json::Value>` and emit a useless
+"any" schema. That is exactly why the discipline AND the gate matter.
+
+```rust
+// GOOD — typed DTO in, typed DTO out. Both derive JsonSchema, so both
+// the request and the response shape land in openapi.json.
+#[derive(Deserialize, schemars::JsonSchema)]
+struct SendReq {
+    to: String,
+    from: String,
+    subject: String,
+    body: String,
+}
+
+#[derive(Serialize, schemars::JsonSchema)]
+struct SendResult {
+    message_id: u64,
+    status: String,
+}
+
+// The Json<T> extractor arg decodes + validates the typed body; the
+// Json<SendResult> return type publishes the response schema.
+fn send(Json(req): Json<SendReq>) -> Result<Json<SendResult>, ApiError> {
+    let id = db_insert(&Message { /* … */ })?;
+    Ok(Json(SendResult { message_id: id, status: "queued".into() }))
+}
+
+// Lists are a typed wrapper around a Vec<T> — never a bare Vec or Value.
+#[derive(Serialize, schemars::JsonSchema)]
+struct MessageList { items: Vec<MessageOut>, count: usize }
+```
+
+```rust
+// BAD — both directions are invisible in openapi.json.
+//   * Json<json::Value> in/out → no request and no response schema.
+//   * a Deserialize-only request struct → the body has no schema either,
+//     because schemars only emits a schema when JsonSchema is derived.
+#[derive(Deserialize)]                       // ← missing schemars::JsonSchema
+struct SendReq { to: String, body: String }
+
+fn send(Json(req): Json<json::Value>) -> Json<json::Value> { /* … */ }
+```
+
 ## Routing — annotate every route, set the doc identity
 
 `Router::info(title, version, Some(description))` sets the document
@@ -221,3 +281,8 @@ see `boogy:boogy-mcp-services`.)
 | "I'll `store::insert` / `store::find` in the handler." | Use `db_insert` / `db_get` / `db_find_by` / `Query` on a `#[derive(Model)]` struct. Raw `store::*` for ordinary CRUD is a regression (see `boogy:boogy-data-modeling`). |
 | "The handler inserts a row and bumps a counter — that's fine as two calls." | Multi-write handlers (≥ 2 dependent writes, read-modify-write upsert, debit + credit) must wrap the writes in one `tx` — see `boogy:boogy-transactions`. |
 | "I'll wire the routes and skip the docs." | MANDATORY: `Router::info(...)` + `.summary()` + `.description()` on every route. They flow into the auto-served `openapi.json`/`openrpc.json` (the API console + clients surface them). An un-annotated route or identity-less spec is a defect, not a smell. |
+| "I'll just take/return `Json<json::Value>` / `Created<json::Value>` — it's flexible." | Your endpoint is undocumented: no request or response schema in `openapi.json`. The CI gate FAILS it. Define a typed `#[derive(…, schemars::JsonSchema)]` DTO. |
+| "My request struct only needs `Deserialize`." | A request struct that derives `Deserialize` without `JsonSchema` makes the request body invisible in the spec — `schemars` emits a schema only when `JsonSchema` is derived. Derive both. |
+
+→ `boogy:boogy-api-specs` — the full picture of the auto-served
+`openapi.json`/`openrpc.json`, two-tier visibility, and overrides.

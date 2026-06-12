@@ -77,6 +77,14 @@ boogy publish my-service.boogy.toml          # POST /v1/modules
 boogy publish my-service.boogy.toml --provision   # + run your own instance
 ```
 
+A module is only as discoverable as its `[service]` metadata. The
+registry full-text-searches name + `description` + `keywords` and
+filters on `category`, so before publishing, make sure the manifest
+carries a plain-words `description`, a few distinct `keywords` (e.g.
+`["email","resend"]`), and a precise `category` (`email`, `payments`, …)
+— the way a developer would search for it, not internal jargon. The full
+quality bar + good/bad examples live in `boogy:scaffolding-a-service`.
+
 Publishing forces *you* as the owner (no publishing on another's
 behalf). Control who may provision with `[provisioning]`:
 

@@ -21,6 +21,38 @@ Resolve the caller with `auth::current_principal() -> Option<String>`.
 The principal is **opaque** — never parse, prefix-strip, or assume a
 UUID; use it only as your owner-column value and as input to `auth::*`.
 
+## Per-route ingress: a public route inside a restricted service
+
+Layer 1 (ingress) is normally one service-wide `mode`. But sometimes one
+route must be reachable by callers the rest of the service rejects — the
+canonical case is a **public `/webhook`** receiver inside an otherwise
+`authenticated` (or `internal`/`mixed`) service. Carve it out with a
+per-route override; the rest of the service stays restricted:
+
+```toml
+[ingress]
+mode = "authenticated"          # service-wide default — everything else
+
+[[ingress.routes]]
+path = "/webhook"               # service-relative path; ALL methods
+mode = "public"                 # anyone may reach /webhook
+```
+
+**The security contract (read it — it's fail-closed):**
+
+| Rule | Why it matters |
+|---|---|
+| **Service-relative literal paths.** Exact (`/webhook`) or prefix (`/stripe/*`, segment-boundary). No `{param}` capture. | The `path` is the path your Router sees, the same frame as your handlers. |
+| **Most-specific match wins; exactly one mode applies.** Exact beats prefix; longer prefix beats shorter. | A public sub-route can never *widen* a sibling: `/webhook` public does not loosen `/data`. |
+| **Default = the service-wide mode.** An unmatched path (or a `..` traversal attempt) falls through to the restricted default, **never** to the most-permissive route. | Forgetting to list a route leaves it protected, not exposed. |
+| **Each override carries its OWN mode + allowlists.** An override does NOT inherit `allowed_agents`/`allowed_origins`. | List them on the route block; the same non-empty validation applies so a typo can't silently deny-all. |
+| **Per-PATH, not per-method (today).** `path = "/webhook"` applies to GET, POST, etc. alike. | A public `/webhook` is reachable by any verb — so still validate the request in-handler (a stray GET should do nothing). |
+| **Host-enforced at the edge.** Ingress runs *before* your wasm instantiates. | You do NOT self-gate a public route in code; but a public route means **anyone** reaches it — authenticate it some *other* way (e.g. an HMAC signature; see `boogy:boogy-webhooks`). |
+| **Delegation gate + rate limit stay SERVICE-WIDE.** | A public carve-out can't bypass the `[ingress.delegation]` gate, and shares the rate-limit bucket. |
+
+A manifest with no `[[ingress.routes]]` behaves exactly as before — this
+is purely additive.
+
 ## Guard & helper quick-reference (verified)
 
 | Item | Use |
@@ -78,10 +110,12 @@ Invoke `api_keys_glue!(bindings)` next to `wit_glue!`, then:
 | "I'll check ownership in the handler after loading the row." | `owns_resource` does load + check + ctx-stash in one guard. Read the stashed row; don't re-implement the check. |
 | "I'll add a custom api_keys table." | `api_keys_glue!` ships a hashed, isolated, scope-aware table. Use it. |
 | "Read the owner id from the request body." | Stamp it from `current_principal()`. The body is attacker-controlled. |
+| "A public `[[ingress.routes]]` route still needs an in-wasm auth check." | Public means anyone reaches it — authenticate it another way (HMAC signature for webhooks). The override doesn't self-gate. |
 
 ## Integration
 
 ← `boogy:designing-boogy-services` picks the ingress mode feeding layer
 1. `boogy:boogy-account-auth` is where principals come from (login →
 the token you read). For acting on a user's behalf across services, see
-`boogy:boogy-obo-delegation`.
+`boogy:boogy-obo-delegation`. A public per-route carve-out for a signed
+callback is the front half of `boogy:boogy-webhooks`.

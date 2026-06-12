@@ -92,7 +92,18 @@ digraph ingress {
    `Table::new(...)` is a regression (see `boogy:boogy-data-modeling`).
    Sketch the patterns now so the right indexes are derived later.
 
-7. **Limits check** — REQUIRED BACKGROUND: `boogy:boogy-capability-limits`.
+7. **Registry metadata** — sketch how a developer would find this module:
+   a precise `category` (the thing they file it under — "I need email" →
+   `email`, "take payments" → `payments`, NOT a broad bucket like
+   "communication"), a few distinct `keywords` (canonical tags, e.g.
+   `["email","resend"]` — not phrases that restate the name), and a
+   one-line plain-words `description` of what it does for them. Every word
+   true and useful; no internal jargon, no aspirational/false terms. The
+   full standard + good/bad examples live in
+   `boogy:scaffolding-a-service`; decide the gist now so the manifest
+   sketch carries it.
+
+8. **Limits check** — REQUIRED BACKGROUND: `boogy:boogy-capability-limits`.
    Run every feature past the gaps and ceilings (no service-authored
    WebSockets/streaming, no large-file storage, request budget,
    transaction envelope, outbound caps) before committing to the design.
@@ -112,6 +123,8 @@ fabrication happens.
 | "I'll express the design as the full implementation." | Every baseline that did this fabricated SDK signatures (outbound/peer/MCP builder calls, header-templating, middleware that doesn't exist). Decisions first; code after scaffolding. |
 | "They said skip design, so design is skipped." | Skip = compress to six lines, never zero. The gate holds under pressure. |
 | "I know the right ingress mode without the flowchart." | The modes have non-obvious distinctions (`allowed_agents` vs `allowed_origins`; internal rejects humans; delegation is opt-in). Walk it. |
+| "I'll figure out request/response shapes when I write handlers." | Decide the surface now, but know the rule that binds it at implementation: every handler's request body and response is a typed `#[derive(…, schemars::JsonSchema)]` DTO (`Json<T>`/`Created<T>`) — a CI gate FAILS untyped I/O. See `boogy:boogy-rest-apis`. |
+| "id + name is enough manifest metadata." | A module with bare `id`+`name` is nearly invisible in the registry — sketch a precise `category`, distinct `keywords`, and a plain-words `description` (see step 7 + `boogy:scaffolding-a-service`). |
 
 ## Integration
 
