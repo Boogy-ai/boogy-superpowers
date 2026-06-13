@@ -55,48 +55,42 @@ is purely additive.
 
 ### The reverse: a RESTRICTED subtree inside an open service (owner-only `/admin`)
 
-The same mechanism runs the other direction — a service whose default is open
-(`authenticated`) but whose `/admin/*` subtree is reachable only by the
-**instance owner's own backend**. The trap: a **provisionable** module is
-deployed by *anyone*, so you must NOT hardcode an identity (`@alice`,
-`boogy://alice/services/*`) in the manifest — that literal owner is wrong for
-every other provisioner, and ingress allowlist strings are **not** substituted
-at deploy time. Ingress has no "same owner as me" matcher either.
+The other direction — a service whose default is open (`authenticated`) but whose
+`/admin/*` subtree is reachable only by the **service owner** (the provisioner).
+The trap: a **provisionable** module is deployed by *anyone*, so you must NOT
+hardcode an identity (`@alice`, `boogy://alice/services/*`) in the manifest — that
+literal owner is wrong for every other provisioner, and ingress allowlist strings
+are **not** substituted at deploy time. Ingress has no "same owner as me" matcher.
 
-The pattern that works — **ingress admits the broad class, the handler narrows
-by runtime identity**:
+Use the ungated **`caller_is_service_owner()`** capability — the host attests
+whether the caller is THIS service's owner (their agent token, resolved host-side
+against the agents registry, OR one of their own workloads). No per-route ingress,
+no hardcoded identity:
 
 ```toml
 [ingress]
-mode = "authenticated"          # end-user routes: any authenticated principal
-
-[[ingress.routes]]
-path = "/admin/*"
-mode = "internal"               # any DEPLOYED WORKLOAD; rejects humans/anonymous
-allowed_origins = ["*"]         # names NO owner — the handler does the narrowing
+mode = "authenticated"          # all routes; the handler gates /admin itself
 ```
 
-Then in the handler, learn your own owner from the ungated **self-identity**
-capability and admit only callers whose attested workload owner matches:
-
 ```rust
-// require_operator(): same-owner check, no identity hardcoded anywhere
-let our_owner = self_identity().owner;            // host-pinned to the provisioner
-let id = current_identity();                       // the caller
-let caller_owner = workload_owner(id.principal)    // boogy://<owner>/services/<x> → <owner>
-    .or_else(|| id.actor.and_then(workload_owner)); // OBO hop: the actor is the workload
-match caller_owner {
-    Some(o) if o == our_owner => { /* operator */ }
-    _ => return forbidden(),                        // cross-owner workload, or a bare agent
+// require_operator(): host-attested, nothing hardcoded.
+fn require_operator() -> Result<(), ApiError> {
+    if caller_is_service_owner() { return Ok(()); }   // the owner: their agent OR own workload
+    // OBO: the owner's backend acting for a user — the ATTESTED actor is the workload.
+    let id = current_identity();
+    let actor_owner = id.and_then(|i| i.actor).and_then(workload_owner);
+    if actor_owner == Some(self_identity().owner) { return Ok(()); }
+    Err(ApiError::forbidden("operator only"))
 }
 ```
 
-Why both layers: ingress (`internal`, `["*"]`) keeps humans/anonymous out cheaply
-and names nobody; `self_identity()` supplies the real owner at request time so the
-in-handler check narrows to the provisioner's OWN services — defense in depth that
-travels with the module to whoever deploys it. A direct human admin therefore goes
-*through* their backend (a workload); a raw agent token carries no owner handle a
-wasm component could verify. (See the `resend-base` catalog module.)
+Why this is the right primitive: the **human owner can curl `/admin` directly**
+with their own token (the wasm can't resolve an agent's handle, but the host can —
+that's what the capability does), AND the owner's backend works as a workload.
+Fail-closed: anonymous, a different owner, or an unresolvable caller → `false`.
+(See the `resend-base` catalog module.) The earlier "`internal` + same-owner
+workload" pattern also works but EXCLUDES direct human curl — prefer
+`caller_is_service_owner` for owner-only surfaces.
 
 ## Guard & helper quick-reference (verified)
 

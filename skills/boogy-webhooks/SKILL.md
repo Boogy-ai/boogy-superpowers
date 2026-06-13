@@ -201,7 +201,7 @@ fn record_and_enqueue(event_id: String) -> Result<Json<json::Value>, ApiError> {
 
 ## Reference implementation
 
-The catalog `stripe-gateway` service is the canonical end-to-end example:
+The catalog `stripe-base` service is the canonical end-to-end example:
 a `mixed`-default service with a single `[[ingress.routes]] path =
 "/webhook" mode = "public"` carve-out, `Stripe-Signature` parsing +
 replay tolerance in a `*-core` crate, host-side `hmac-verify` of the

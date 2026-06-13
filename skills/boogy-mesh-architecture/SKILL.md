@@ -119,7 +119,7 @@ belongs:**
 | **Declarative** — `mode = "internal"` (or `mixed`) with `allowed_origins = ["boogy://<owner>/services/*"]`. The host enforces it at the edge before your wasm runs. | The rule is "who may call this service AT ALL". Cheapest, no per-request code. Prefer this. |
 | **In-handler** — `self_identity()` + parse the attested caller's owner, branch in code. | The owner-match drives *behavior*, not just admission — e.g. partitioning rows by the calling app, or a defense-in-depth second check behind the ingress allowlist. |
 
-The two compose: the catalog `stripe-gateway` does both — `internal`
+The two compose: the catalog `stripe-base` does both — `internal`
 ingress restricts callers to the owner's apps, AND each handler derives
 the attested caller's service id to partition orders per-app, so one app
 can never read another's rows even if ingress were misconfigured.

@@ -27,9 +27,14 @@ index that backs the query:
 | Model declaration | Backs this read |
 |-------------------|-----------------|
 | `#[lookup_by]` on a field | point lookup: `db_find_by::<M>(M::COL, val)` (the unique row where `col == v`) |
-| `#[model(list_by(filter = "peer", newest = "created_at"))]` | filtered+ordered list: `Query::on(M::TABLE).where_eq(M::PEER, v).order_by_desc(M::CREATED_AT).limit(n)` |
-| `#[model(ranked_by(highest = "score"))]` | global ranked feed: `Query::on(M::TABLE).order_by_desc(M::SCORE).limit(n)` |
+| `#[model(list_by(filter = "peer", newest = "created_at"))]` | filtered newest-first list. **Default (client-facing) → keyset:** `Query::on(M::TABLE).where_eq(M::PEER, v).keyset_by(M::CREATED_AT, SortDir::Desc).cursor(c).limit(n).fetch_page(…)`. A small bounded "last N" internal read may use `.order_by_desc(M::CREATED_AT).limit(n).fetch_all()`. |
+| `#[model(ranked_by(highest = "score"))]` | global ranked feed. **Default → keyset:** `Query::on(M::TABLE).keyset_by(M::SCORE, SortDir::Desc).cursor(c).limit(n).fetch_page(…)`. Bounded top-N → `.order_by_desc(M::SCORE).limit(n).fetch_all()`. |
 | `#[model(tagged_by(tag, refs))]` | junction page: seek the tag, expose `refs` to hydrate parents |
+
+**Default any list a client pages through to keyset** (`.keyset_by(…).cursor(…)
+.fetch_page(…)` → `CursorPage`) — see the recipe below. `.fetch_all()` is for a
+small bounded internal read, never an unbounded client list. Offset is never the
+answer for deep pages.
 
 You write the column **consts the derive emitted** (`Message::PEER`,
 `Conversation::LAST_AT`) — never bare strings, never a hand-rolled index
@@ -67,7 +72,12 @@ match existing {
 
 `Query::on(M::TABLE)` builds a typed query; chain filters and order, then
 a terminal. `fetch_all`/`fetch_page` return raw `Row`s — map each with
-`M::from_row(&row)`:
+`M::from_row(&row)`.
+
+The two examples below end in `.limit(n).fetch_all()` — that is the
+**bounded read**: a fixed "last N" / "top N" you size yourself, never an
+unbounded list. **A list a client pages through defaults to keyset**
+(`.fetch_page` → `CursorPage`) — the recipe section right after these:
 
 ```rust boogy-snippet
 // The `Model` trait (in scope here) provides `TABLE` + `from_row` to the
@@ -87,7 +97,8 @@ pub struct Message {
 }
 
 // list_by(filter = peer, newest = created_at) backs this seek: equality
-// on peer, newest-first within it, bounded by `limit`.
+// on peer, newest-first within it. Bounded "last N" read — caller-sized
+// `limit`, no cursor. A client-paged inbox uses `fetch_page` (recipe below).
 pub fn last_messages(peer: &str, limit: usize) -> Result<Vec<Message>, ApiError> {
     let rows = Query::on(Message::TABLE)
         .where_eq(Message::PEER, peer)
@@ -98,10 +109,12 @@ pub fn last_messages(peer: &str, limit: usize) -> Result<Vec<Message>, ApiError>
 }
 ```
 
-A `ranked_by` feed is the same minus the filter:
+A `ranked_by` feed is the same minus the filter — again a **bounded**
+read (a fixed top-N for an internal aggregate, not a client list):
 
 ```rust
 // ranked_by(highest = last_at) backs a global newest-activity-first walk.
+// Bounded top-500 internal read; a client feed keysets (recipe below).
 let rows = Query::on(Conversation::TABLE)
     .order_by_desc(Conversation::LAST_AT)
     .limit(500)
