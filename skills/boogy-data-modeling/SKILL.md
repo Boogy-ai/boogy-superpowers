@@ -172,6 +172,8 @@ promote fields to real columns later via a migration.
 ← `boogy:designing-boogy-services` (data sketch). This skill is
 schema-only. → `boogy:boogy-access-patterns` (the typed `db_*` + `Query`
 read surface that consumes these models) → `boogy:boogy-rest-apis`
-(handlers that call them). Multi-write handlers (insert + a dependent
-counter / summary, debit + credit): see `boogy:boogy-transactions`.
+(handlers that call them). Handlers whose writes must roll back on a
+later error — multi-write (insert + a dependent counter / summary, debit +
+credit) or a single write with fallible work after it: see
+`boogy:boogy-transactions`.
 Evolving a deployed schema lives in `boogy:boogy-migrations`.

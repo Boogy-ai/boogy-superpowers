@@ -49,6 +49,20 @@ most write-heavy workloads. Genuinely extreme write rates (large
 payloads, write-amplifying secondary indexes) → bring your own database
 and reach it via `outbound_http`, keeping only what you must in the store.
 
+**Oversized deployed artifact.** Your compiled `.wasm` must fit the
+artifact size cap: up to **8 MiB on the free tier**, and a **32 MiB hard
+maximum** even on a paid plan — measured on the *uncompressed* `.wasm`,
+not gzipped. Typical Rust services compile to well under 1 MiB; large
+dependency trees, embedded assets, or image/crypto-heavy crates inflate
+that fast. An upload over 8 MiB without a paid plan is rejected (HTTP
+402); over 32 MiB is rejected for everyone (HTTP 413). *What to do
+instead:* trim features and dependencies, move large embedded data out of
+the binary (fetch or presign it at runtime), or split the work across
+multiple services. A leaner `.wasm` also **cold-starts faster** — a
+service that hasn't been hit for a while may pay a one-time cold-start
+(reload + recompile) on its next request, and binary size drives that
+latency.
+
 ## Quick reference — ceilings
 
 | Limit | Default | Note |
@@ -59,6 +73,7 @@ and reach it via `outbound_http`, keeping only what you must in the store.
 | Outbound request body | 1 MiB | `[outbound] max_request_bytes` |
 | Outbound response body | 10 MiB | `[outbound] max_response_bytes` |
 | Outbound timeout | 30000 ms max / 10000 ms default | `[outbound] max_timeout_ms` / `default_timeout_ms` |
+| Deployed wasm artifact | 8 MiB free / 32 MiB hard max | uncompressed `.wasm`; >8 MiB needs a paid plan, >32 MiB rejected for all |
 
 Inside an open transaction, `outbound_http` and `background_jobs` are
 refused. Per-request store-op rate/count limits are
@@ -94,6 +109,7 @@ allowlist still cannot reach the host's own network.
 | "I'll just guess the outbound API shape / secret-header semantics." | Verify every `outbound_http` and `[secrets]` signature against the SDK source/docs; never ship an unverified call. |
 | "I'll add a WebSocket upgrade handler." | There is no ws/streaming export. Short-poll a keyset endpoint; push from the client tier or an external provider. |
 | "It's just a demo, store the file in a column." | Same ceilings apply in a demo. Presigned upload + a metadata row is the fastest path that actually works. |
+| "I'll pull in whatever crates are convenient — size doesn't matter." | The compiled `.wasm` has an 8 MiB free-tier cap (32 MiB hard max, uncompressed) and binary size drives cold-start latency. Keep dependencies lean; move big embedded data out of the binary. |
 
 ## Integration
 

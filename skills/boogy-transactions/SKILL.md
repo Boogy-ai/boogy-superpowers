@@ -1,6 +1,6 @@
 ---
 name: boogy-transactions
-description: Use when a handler does two or more writes that must agree, writing multiple rows atomically, combining writes with cross-service calls, handling 409s, or placing side effects near writes
+description: Use when a state change must roll back if later work in the handler fails, when two or more writes must agree, writing rows atomically, combining writes with cross-service calls, handling 409s, or placing side effects near writes
 ---
 
 # Transactions on Boogy
@@ -10,11 +10,21 @@ There is no transaction handle — inside the closure you call the *same*
 `store::*` / `db_*` / `find_row_by` functions as outside; they join the
 ambient transaction. `Ok` commits, `Err` rolls back, a panic discards it.
 
-## ⚖️ THE DECISION RULE — wrap writes in `tx` when they must agree
+## ⚖️ THE DECISION RULE — wrap writes in `tx` when an error must undo them
 
-Wrap store writes in `tx::<_, _, ApiError>(|| { … })` **whenever a handler
-performs two or more writes that must agree.** The canonical cases:
+Wrap store writes in `tx::<_, _, ApiError>(|| { … })` **whenever an error
+later in the handler should logically roll back the state change.** The
+criterion is rollback-on-error *intent*, not a write count: even a
+**single** write belongs in a `tx` if fallible work runs after it (or
+alongside it) and a partial state would be invalid. Multiple writes that
+must agree are the most common case of this, not the defining one.
 
+The canonical cases:
+
+- **A write followed by fallible work** — a single `db_insert` (or
+  `store::update`/`delete`) where validation, a derived computation, or
+  any `?`-returning step *after* the write would otherwise leave the row
+  stranded. Move the write inside the `tx` so that `Err` discards it.
 - An insert **plus a dependent counter / summary / denormalized row** —
   e.g. insert a message and bump its conversation's last-message summary;
   insert an investment and increment a cached backer count.
@@ -24,12 +34,14 @@ performs two or more writes that must agree.** The canonical cases:
   read and the write must see one consistent snapshot (read-your-writes).
 - Any **"all-or-nothing"** mutation you'd describe as "atomically".
 
-A **single** write does **not** need an explicit `tx` — it is already
-atomic on its own. **Reads alone never** need one.
+A **single** write with **no fallible work after it** does **not** need an
+explicit `tx` — it is already atomic on its own. **Reads alone never** need
+one.
 
 | What the handler does | Wrap in `tx`? |
 |-----------------------|:-------------:|
-| One `db_insert` / `store::update` / `store::delete` | **No** — already atomic |
+| One write, nothing fallible after it | **No** — already atomic |
+| One write **then** fallible work that should undo it on `Err` | **YES** — rollback-on-error |
 | Reads only (list, point-lookup, query) | **No** |
 | ≥ 2 writes that must all land or none (insert + dependent update, debit + credit) | **YES** |
 | Read-modify-write upsert (find → update-or-insert) | **YES** |
@@ -247,6 +259,7 @@ Scan a handler for these. Each is a partial-write waiting to corrupt data:
 | Rationalization | Reality |
 |-----------------|---------|
 | "It's just two writes, they'll both succeed" | Until one doesn't — partial write, corrupt state. ≥ 2 dependent writes ⇒ `tx`. |
+| "It's only one write, so no `tx` needed" | Not the test. If fallible work runs after the write and a partial state would be invalid, the write must roll back on `Err` — wrap it. |
 | "Snapshot the balance before the tx" | Read it INSIDE — read-your-writes closes the TOCTOU window. |
 | "The callee should open its own tx" | It must NOT — it auto-enrolls; a callee `tx` fails at commit. |
 | "Call outbound inside the tx so it's atomic" | Denied + irreversible. Enqueue a staged job instead. |

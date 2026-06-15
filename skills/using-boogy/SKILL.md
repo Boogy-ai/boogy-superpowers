@@ -31,7 +31,7 @@ questionnaire once installed; until then, answer them yourself first.
 | `deploying-boogy-services` | deploying, updating, or removing a deployed service — CLI commands, config, deploy errors |
 | `boogy-data-modeling` | declaring tables, designing schemas, or choosing how to represent data |
 | `boogy-access-patterns` | adding a list, lookup, ranking, filter, tag, or pagination query |
-| `boogy-transactions` | writing multiple rows atomically, combining writes with cross-service calls, handling 409s, or placing side effects near writes |
+| `boogy-transactions` | a write that must roll back if later work fails, writing multiple rows atomically, combining writes with cross-service calls, handling 409s, or placing side effects near writes |
 | `boogy-migrations` | changing the schema of a deployed service — adding columns or indexes, or backfilling data |
 | `boogy-auth` | adding authorization — per-user data, ownership checks, "only my X" endpoints, API keys, or scope gating |
 | `boogy-account-auth` | wiring login/signup for a service's users, or asking where principals and tokens come from |
