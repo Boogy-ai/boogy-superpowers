@@ -32,10 +32,13 @@ stripe_key = { usage = ["outbound-header"] }
 ```
 
 **2. Bind** the value out-of-band, never in code/env/store. An operator
-PUTs the raw value to the binding endpoint
-`PUT /_admin/secrets/{owner}/{service}/stripe_key` (≤ 64 KiB). The value
-is stored encrypted; binding/removal is audited but the value never
-appears in audit records or logs.
+binds it with the CLI — `boogy secret set <service> stripe_key <value>`
+(or `--value-stdin`), which **seals the value client-side** before it
+leaves the machine; the host stores it encrypted and never sees the
+plaintext. A raw plaintext PUT to the binding endpoint is rejected — the
+value must be sealed (the dashboard does the same sealing in-browser).
+Binding/removal is audited, but the value never appears in audit records
+or logs.
 
 **3. Use** by referencing the NAME on the outbound request — pass
 `(header-name, secret-name)` in `secret_headers`. The host resolves and
@@ -94,8 +97,9 @@ returns only a `bool`.**
 stripe_webhook_secret = { usage = ["hmac-verify"] }
 ```
 
-**2. Bind** the provider's signing secret out-of-band (same endpoint as
-any secret — `PUT /_admin/secrets/{owner}/{service}/stripe_webhook_secret`).
+**2. Bind** the provider's signing secret out-of-band the same way as any
+secret — `boogy secret set <service> stripe_webhook_secret <value>` (the
+CLI seals it client-side; a raw plaintext PUT is rejected).
 
 **3. Verify** in the handler. Reconstruct the exact bytes the provider
 signed (usually `"{timestamp}.{raw_body}"`) and the expected hex tag from
@@ -175,4 +179,6 @@ references fail closed.
 planning). → `boogy:boogy-outbound-http` covers the full egress story
 (allowlists, size/time caps, the SSRF firewall) — where `outbound-header`
 secrets are consumed. → `boogy:boogy-webhooks` composes `hmac-verify`
-into the canonical inbound-webhook receiver.
+into the canonical inbound-webhook receiver. → `boogy:boogy-signing` is the
+counterpart for *producing* a signature with a host-held private key your
+code never touches.

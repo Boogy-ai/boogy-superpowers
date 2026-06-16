@@ -44,7 +44,10 @@ ungoverned scaffold.
 
 4. **Capabilities** — deny-by-default; list only what you use:
    `store`, `auth`, `clock`, `entropy`, `logging`, `peer` (call other
-   services), `outbound_http` (external HTTPS), `background_jobs`.
+   services), `outbound_http` (external HTTPS), `background_jobs`,
+   `signing` (produce signatures with a key the host holds and your code
+   never touches — see `boogy:boogy-signing`), `websockets` (push
+   real-time messages to clients — see `boogy:boogy-websockets`).
    Each one you grant is attack surface — justify it. (Vector/semantic
    search is not yet available — see `boogy:boogy-capability-limits`.)
 

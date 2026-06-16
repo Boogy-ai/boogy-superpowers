@@ -11,16 +11,18 @@ alternative up front beats deriving it from scratch — and beats faking it.
 
 ## Honest gap list
 
-**WebSockets / server-push / SSE-from-the-service.** The HTTP handler is
-strict request → one response. There is no streaming, WebSocket, or
-server-sent-events export *that your service authors*. *What to do
-instead:* a notifications table keyed `(recipient, created_at)` + a cheap
-keyset-paginated short-poll endpoint with a cursor; optionally fan out
-via SSE/WebSocket in the client's own web tier; optionally push to an
-external push provider via `outbound_http`. (The platform does stream
-*your own* observability data — guest logs and more — to you as the
-owner; see `boogy:boogy-observability`. That's an owner-side surface, not
-a push channel your service handlers can emit on.)
+**Real-time push — via the capability, not a handler upgrade.** Your HTTP
+handler is strict request → one response; you do **not** write a
+WebSocket-upgrade or SSE handler in your service code. But real-time
+server→client delivery **is** supported: declare channels in the manifest
+and publish to them with the `websockets` capability — the platform's
+streaming gateway fans messages out to subscribed clients (public,
+private-grant, or per-principal channels). See `boogy:boogy-websockets`.
+For simple cases a notifications table keyed `(recipient, created_at)` +
+a keyset-paginated short-poll endpoint is still a fine, cheaper option.
+(Separately, the platform streams *your own* observability data — guest
+logs and more — to you as the owner; see `boogy:boogy-observability`.
+That's an owner-side surface, distinct from the service push channel.)
 
 **Large files / blobs.** There is no file-storage capability. The `blob`
 column type is for *small binary values*, not files — it does not change
@@ -33,10 +35,6 @@ via a presigned-GET redirect.
 budget is killed. *What to do instead:* enqueue a background job
 (`background_jobs` capability + a `[background_jobs.handlers.*]` handler)
 and return immediately; the client polls for status.
-
-**Sub-second / instant push.** No realtime delivery primitive exists.
-Short-polling is the supported pattern; true push lives outside the
-service (client tier or an external provider via `outbound_http`).
 
 **Vector / semantic search.** Not yet available — there is no working
 embedding or similarity-search capability. *What to do instead:* keyword
@@ -107,7 +105,7 @@ allowlist still cannot reach the host's own network.
 |---------|---------|
 | "The blob column type exists, so it's fine for files." | Blob columns are for small binary values. Files blow the 32 MiB memory default and ~5s/10MB tx envelope — use presigned upload to object storage. |
 | "I'll just guess the outbound API shape / secret-header semantics." | Verify every `outbound_http` and `[secrets]` signature against the SDK source/docs; never ship an unverified call. |
-| "I'll add a WebSocket upgrade handler." | There is no ws/streaming export. Short-poll a keyset endpoint; push from the client tier or an external provider. |
+| "I'll add a WebSocket upgrade handler." | The handler stays request/response — you don't upgrade it. Real-time push is the `websockets` capability (declare channels + publish to them); see `boogy:boogy-websockets`. |
 | "It's just a demo, store the file in a column." | Same ceilings apply in a demo. Presigned upload + a metadata row is the fastest path that actually works. |
 | "I'll pull in whatever crates are convenient — size doesn't matter." | The compiled `.wasm` has an 8 MiB free-tier cap (32 MiB hard max, uncompressed) and binary size drives cold-start latency. Keep dependencies lean; move big embedded data out of the binary. |
 
