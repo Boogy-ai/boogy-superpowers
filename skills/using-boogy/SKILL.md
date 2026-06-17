@@ -41,6 +41,7 @@ questionnaire once installed; until then, answer them yourself first.
 | `boogy-secrets` | a service needs an API key or credential for an external call, host-side HMAC signature verification, or asking how secrets work |
 | `boogy-signing` | a service must produce a cryptographic signature — signing keys, per-user or wallet keys, blockchain transactions, signed receipts or attestations — with a private key the host holds and your code never touches |
 | `boogy-webhooks` | building a service that RECEIVES and verifies inbound webhooks from a third party (Stripe, GitHub, Twilio, any HMAC-signed callback) |
+| `boogy-serving-frontends` | a service must serve a web frontend — a reactive UI, SPA, dashboard, static HTML/JS/CSS, or a full-stack app serving both the page and its API (arrow-js, TypeScript-with-no-build, host-served assets) |
 | `boogy-rest-apis` | building HTTP/REST or JSON-RPC endpoints — routing, guards, request parsing/validation, response types, error wire format |
 | `boogy-mcp-services` | exposing MCP tools/resources/prompts to LLM clients, or adding MCP alongside an existing REST service |
 | `boogy-api-specs` | questions about the auto-served spec docs (openapi.json / openrpc.json / MCP discovery), Router::info, two-tier visibility, undocumented routes, or the JsonSchema derive requirement |

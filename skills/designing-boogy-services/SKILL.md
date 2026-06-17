@@ -38,9 +38,11 @@ ungoverned scaffold.
    other. Not a mandate: when nothing fits, external via `outbound_http`
    is fully sanctioned.
 
-3. **Surface(s)** — REST · JSON-RPC · MCP · hybrid. One service can serve
-   **REST and MCP together** (same data, two surfaces); a split is a
-   decision, not a default.
+3. **Surface(s)** — REST · JSON-RPC · MCP · **a web frontend** · hybrid. One
+   service can serve **REST and MCP together** (same data, two surfaces); a
+   split is a decision, not a default. If it needs a **UI** — a page, SPA, or
+   dashboard — the platform serves the frontend for you (declare `[frontend]`;
+   no JS build): see `boogy:boogy-serving-frontends`.
 
 4. **Capabilities** — deny-by-default; list only what you use:
    `store`, `auth`, `clock`, `entropy`, `logging`, `peer` (call other
