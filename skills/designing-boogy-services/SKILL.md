@@ -22,7 +22,26 @@ ungoverned scaffold.
 
 ## The questionnaire
 
-1. **Service kind** — pick one:
+1. **Shape, then kind** — two picks, **shape first**. Shape decides
+   whether you run a backend at all; don't answer "what kind of service"
+   before "is this even a service."
+
+   **1a. Deployment shape** — does your code run a backend?
+
+   | What you're building | Shape | What ships |
+   |------|------|-----------|
+   | A page/site, no backend logic | **Frontend** | `[frontend]`, **no wasm** — host serves static / SPA assets |
+   | A UI **and** an API behind it | **FullStack** | `[frontend]` + wasm under `api_prefix` |
+   | An API, tools, or mesh service — no UI | **Service** | wasm only (today's default) |
+
+   A **Frontend** deployment runs no wasm: it has **no capabilities, no
+   store, no ingress *mode*** (visibility is the `[frontend].private`
+   flag, not a mode). If that's you, answer step 7 and **skip steps 4–6
+   and 8** — they govern a wasm backend you don't have. See
+   `boogy:boogy-serving-frontends`.
+
+   **1b. Backend kind** — skip if **Frontend**; otherwise pick one for the
+   wasm:
 
    | Kind | Example | Typical ingress |
    |------|---------|-----------------|
@@ -38,11 +57,13 @@ ungoverned scaffold.
    other. Not a mandate: when nothing fits, external via `outbound_http`
    is fully sanctioned.
 
-3. **Surface(s)** — REST · JSON-RPC · MCP · **a web frontend** · hybrid. One
-   service can serve **REST and MCP together** (same data, two surfaces); a
-   split is a decision, not a default. If it needs a **UI** — a page, SPA, or
-   dashboard — the platform serves the frontend for you (declare `[frontend]`;
-   no JS build): see `boogy:boogy-serving-frontends`.
+3. **Backend surface(s)** — for a **FullStack** or **Service** shape, what
+   API does the wasm expose: REST · JSON-RPC · MCP · hybrid? One service can
+   serve **REST and MCP together** (same data, two surfaces); a split is a
+   decision, not a default. The frontend itself was decided in **1a** — a
+   **FullStack** wasm sits under `[frontend].api_prefix`
+   (`boogy:boogy-serving-frontends`); a **Frontend** shape has no backend
+   surface, so skip this.
 
 4. **Capabilities** — deny-by-default; list only what you use:
    `store`, `auth`, `clock`, `entropy`, `logging`, `peer` (call other

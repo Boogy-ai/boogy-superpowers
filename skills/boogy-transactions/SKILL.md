@@ -10,6 +10,22 @@ There is no transaction handle — inside the closure you call the *same*
 `store::*` / `db_*` / `find_row_by` functions as outside; they join the
 ambient transaction. `Ok` commits, `Err` rolls back, a panic discards it.
 
+**The request is your unit of work.** If anything in a handler fails, the caller
+must see *no* partial state change — the same transaction discipline you'd apply
+to any SQL-backed service. You reach that bar two ways, chosen deliberately:
+**wrap the writes in a `tx`** so an error rolls them back, **or** **sequence a
+single write last** so nothing fallible runs after it. That *intent* — integrity
+on error — decides the design, not a write count.
+
+**But do NOT reflexively wrap a handler in `tx`.** A `tx` guards **store writes
+only**. An *irreversible* side effect — an `outbound_http` call, a payment, an
+email — can **never** go inside a `tx`: the host **denies** it, because a sent
+HTTP request cannot be rolled back when the tx aborts. Those use a different
+pattern (a **staged job enqueued inside the tx**, or the call **after** the tx
+commits) — see *The side-effect decision* and *Sequencing discipline* below.
+Read this skill before you reach for `tx`; the right shape is often not "wrap
+everything."
+
 ## ⚖️ THE DECISION RULE — wrap writes in `tx` when an error must undo them
 
 Wrap store writes in `tx::<_, _, ApiError>(|| { … })` **whenever an error
@@ -38,10 +54,43 @@ A **single** write with **no fallible work after it** does **not** need an
 explicit `tx` — it is already atomic on its own. **Reads alone never** need
 one.
 
+### Single write + fallible work: two correct shapes (prefer write-last)
+
+When a handler has **one** write and fallible work around it, you have two
+correct shapes. Prefer the first when you can reorder:
+
+1. **Sequence the write LAST.** Do every fallible step first — parse, validate,
+   authorize, derive values, any `?`-returning call — and make the `db_*` write
+   the **final statement**, reached only once everything that could fail has
+   succeeded. Nothing runs after it, so no error can strand it and you need no
+   `tx`. Prefer this for a single write: design the handler so the irreversible
+   step happens last.
+2. **Wrap it in `tx`.** When the write *must* precede later fallible work — you
+   need its generated id to do more fallible work, or the steps genuinely can't
+   be reordered — put it in `tx::<_, _, ApiError>(|| …)` so `Err` rolls it back.
+
+```rust
+// WRITE-LAST: all fallible work proves out BEFORE the single write.
+fn rename(req: &mut Req<'_>) -> Result<Json<NoteDto>, ApiError> {
+    let id: u64 = req.params.get("id").parse().map_err(|_| ApiError::bad_request("id"))?;
+    let body: RenameBody = req.json()?;                 // can fail
+    let note = auth::load_owned::<Note>(id)?;           // can fail (404 if not yours)
+    let title = validate_title(&body.title)?;           // can fail (422)
+    // …every fallible step is above this line. The write is last — nothing
+    // after it can fail and orphan it, so no tx is needed.
+    let updated = db_update(id, &Note { title, ..note })?;
+    Ok(Json(updated.into()))
+}
+```
+
+Reach for `tx` (not reordering) whenever there are **≥2 writes**, a
+read-modify-write upsert, or writes you genuinely can't move after the fallible
+work.
+
 | What the handler does | Wrap in `tx`? |
 |-----------------------|:-------------:|
 | One write, nothing fallible after it | **No** — already atomic |
-| One write **then** fallible work that should undo it on `Err` | **YES** — rollback-on-error |
+| One write **then** fallible work that should undo it on `Err` | **`tx`** — or **reorder the write last** so nothing fallible follows it |
 | Reads only (list, point-lookup, query) | **No** |
 | ≥ 2 writes that must all land or none (insert + dependent update, debit + credit) | **YES** |
 | Read-modify-write upsert (find → update-or-insert) | **YES** |
@@ -259,7 +308,8 @@ Scan a handler for these. Each is a partial-write waiting to corrupt data:
 | Rationalization | Reality |
 |-----------------|---------|
 | "It's just two writes, they'll both succeed" | Until one doesn't — partial write, corrupt state. ≥ 2 dependent writes ⇒ `tx`. |
-| "It's only one write, so no `tx` needed" | Not the test. If fallible work runs after the write and a partial state would be invalid, the write must roll back on `Err` — wrap it. |
+| "It's only one write, so no `tx` needed" | Not the test. If fallible work runs after the write, a partial state is invalid — wrap it in `tx`, **or move the write after all fallible work** so nothing can strand it. |
+| "I'll write the row, then validate / call out / derive the rest" | Backwards. Do the fallible work FIRST; the irreversible write goes LAST (or in a `tx`). A write before a step that can `?` is a partial-state bug. |
 | "Snapshot the balance before the tx" | Read it INSIDE — read-your-writes closes the TOCTOU window. |
 | "The callee should open its own tx" | It must NOT — it auto-enrolls; a callee `tx` fails at commit. |
 | "Call outbound inside the tx so it's atomic" | Denied + irreversible. Enqueue a staged job instead. |

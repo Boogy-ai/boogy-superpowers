@@ -12,10 +12,13 @@ covers your task, work against the SDK reference docs — never invent
 APIs.
 
 **Design-first hard gate.** For a new service or feature, answer the
-design questions — service kind, surface (REST / MCP / RPC),
+design questions — **deployment shape (frontend / full-stack / backend
+service)**, then backend kind + surface (REST / MCP / RPC),
 capabilities, ingress mode, data sketch — BEFORE writing any code or
-scaffolding. The `designing-boogy-services` skill runs this
-questionnaire once installed; until then, answer them yourself first.
+scaffolding. Shape comes first: a frontend-only site runs no wasm, so it
+skips capabilities, ingress, and data entirely. The
+`designing-boogy-services` skill runs this questionnaire once installed;
+until then, answer them yourself first.
 
 ## Skill catalog
 
@@ -62,3 +65,5 @@ docs rather than guessing.
 | "It's a small service, I'll just start from the template." | Small services still need ingress mode and capabilities decided. Design, then scaffold. |
 | "I know the SDK from training data." | The SDK surface is specific and moves. Confirm every call against the docs; never fabricate signatures. |
 | "This endpoint is too simple to need the catalog." | Simple endpoints still hit store/query/auth invariants. Scan first; if no skill fits, say what you're relying on. |
+| "I'll wire the happy path and worry about integrity later." | Treat each request as a **unit of work** — on ANY error the caller sees no partial state. Decide transactions and write-ordering as you write the handler, not after — **read `boogy:boogy-transactions` first**. |
+| "Integrity = wrap the whole handler in a `tx`." | No — a `tx` guards **store writes only**, and an `outbound_http` call (or other irreversible effect) inside one is **denied**. `boogy:boogy-transactions` already has the rule + the patterns to use instead (staged job in-tx, or after commit). Don't guess — read it. |
