@@ -237,8 +237,18 @@ allowed (no token for public channels); private channels carry the
 service-minted `grant`; principal channels carry the `principal` field
 (and a `grant` for guests).
 
+**Client version + bundling.** Use **`socket.io-client` v4.x** — the gateway
+speaks Socket.IO v5 / engine.io v4. For a browser frontend **served by Boogy**
+(`boogy:boogy-serving-frontends`), vendor a single-file ESM build under
+`web/vendor/` (e.g. `web/vendor/socket.io-client.js` from the package's
+`dist/socket.io.esm.min.js`, or `esm.sh/socket.io-client@4`) and import it by a
+**mount-relative path** — `import { io } from "./vendor/socket.io-client.js"` —
+NOT the bare specifier `"socket.io-client"`. The generated import map uses a
+host-root `/vendor/...` URL that **404s under a service mount**, which silently
+breaks the page; the mount-relative import sidesteps it.
+
 ```js
-import { io } from "socket.io-client";
+import { io } from "./vendor/socket.io-client.js";   // vendored, mount-relative
 
 const socket = io("https://<host>", { path: "/v1/stream" });
 
@@ -286,16 +296,22 @@ socket.emit("subscribe", {
   grant: PRINCIPAL_GRANT,      // from ws_mint_principal_subscribe_grant
 }, (ack) => { /* ... */ });
 
-// On subscribe to a replay channel: one snapshot of recent messages first.
-socket.on("svc:snapshot", (messages) => {
-  for (const m of messages) handle(m);
+// ⚠️ WIRE SHAPE — get this exactly right or you'll connect, subscribe, and
+// silently receive nothing. The gateway wraps every message as
+// `{ channel, payload }` (live) / `{ channel, payloads }` (snapshot), and the
+// `payload`/`payloads[*]` are STRING envelopes (the JSON your service
+// published) — you must `JSON.parse` each to get `{ type, v, ts, data }`.
+
+// On subscribe to a replay channel: one snapshot batch first.
+socket.on("svc:snapshot", ({ channel, payloads }) => {
+  for (const raw of payloads) handle(JSON.parse(raw));   // each parsed = { type, v, ts, data }
 });
 
-// Then live messages — each is a typed envelope.
-socket.on("svc", (message) => {
-  // message = { type, v, ts, data }
-  if (message.type === "order.placed" && message.v === 1) {
-    handleOrderPlaced(message.data);
+// Then live messages, one per publish.
+socket.on("svc", ({ channel, payload }) => {
+  const env = JSON.parse(payload);                       // { type, v, ts, data }
+  if (env.type === "order.placed" && env.v === 1) {
+    handleOrderPlaced(env.data);
   }
   // unknown types are safely ignored — forward-compatible
 });
@@ -306,8 +322,10 @@ socket.emit("unsubscribe", {
 });
 ```
 
-Events: `svc:snapshot` (oldest-first replay batch, sent once on subscribe
-to a channel with replay) then `svc` (one event per live publish).
+Events: `svc:snapshot` → `{ channel, payloads }` (oldest-first replay batch,
+sent once on subscribe to a replay channel) then `svc` → `{ channel, payload }`
+(one per live publish). In both, the envelope is the **stringified** `payload` /
+`payloads[*]` — `JSON.parse` it; it is NOT the top-level event object.
 
 For principal channels, a subscriber can only join **their own** room: an
 authenticated agent cannot request another principal's room — the gateway

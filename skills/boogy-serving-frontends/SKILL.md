@@ -37,23 +37,52 @@ The shape is derived from your manifest: a `[frontend]` with no wasm → `Fronte
 
 ## The `[frontend]` manifest section
 
+A **FullStack** manifest (`[service]` + a wasm + `[frontend]` with `api_prefix`):
+
 ```toml
 [service]
 id = "notes"
-owner = "daniel"
+name = "Notes"
+version = "0.1.0"
+wasm = "target/wasm32-wasip2/release/notes.wasm"   # FullStack: your API wasm
+# owner: omit it — the platform sets it to your handle at deploy.
+
+[routing]             # `path` is the mount (see the mount rule below)
+path = "/notes"
+methods = ["GET", "POST"]
+
+[capabilities]        # optional — declare only what the wasm uses
+store = true
 
 [frontend]
 root = "web"          # your source dir: index.html + .ts/.js/.css/assets
-api_prefix = "/api"   # FullStack: requests under here go to the wasm. omit it for a Frontend site.
+api_prefix = "/api"   # FullStack: requests under <mount>/api go to the wasm. omit it for a Frontend site.
 index = "index.html"  # the SPA entry document (served for unmatched routes). default: index.html
 build = "ts"          # "ts" = the platform transpiles your TypeScript. "none" = you uploaded plain JS.
 private = false       # false (default) = assets are public. true = assets require the service ingress.
 allow_cdn = false     # false = bare imports must be vendored. true = a bare import may resolve to a pinned CDN.
 ```
 
-A **Frontend** site needs only `[service]` + `[frontend]` (no `service.wasm`). A
-**FullStack** app adds a wasm and an `api_prefix`. (A Frontend deployment must **not**
-set `api_prefix` — there's no wasm to route to.)
+A **Frontend-only** site runs no wasm, so it's smaller — `wasm`,
+`[capabilities]`, and `[limits]` are all optional, and it **omits** `api_prefix`:
+
+```toml
+[service]
+id = "mysite"
+name = "My Site"
+version = "0.1.0"
+
+[routing]
+path = "/mysite"
+methods = ["GET"]
+
+[frontend]
+root = "web"
+build = "ts"
+```
+
+Only `[service]` (id/name/version), `[routing]`, and `[frontend]` are needed for a
+Frontend; a **FullStack** app adds a `wasm` and an `api_prefix`.
 
 ## Write TypeScript or JavaScript — there is no build step
 
@@ -68,6 +97,32 @@ already have built JS and don't want the transpile, set `build = "none"`.)
 default — fully self-hosted), or, with `allow_cdn = true`, to a pinned CDN URL. The
 platform generates the `<script type="importmap">` and injects it into your
 `index.html`. Relative `./foo.ts` imports are rewritten to `./foo.js` for you.
+
+### ⚠️ In HTML, reference the transpiled `.js` — never `.ts`
+
+The `.ts`→`.js` rewrite applies to **imports inside a module**, NOT to the HTML
+`<script>` tag. If your entry lives in a separate file `web/app.ts` and you load
+it with `<script type="module" src="./app.ts">`, it **404s** — the platform
+serves the transpiled `./app.js` and does **not** serve raw `.ts` — so the module
+never loads and you get a **blank page** (just whatever static HTML you wrote).
+
+You author `app.ts`, but reference the **output** in your HTML:
+
+```html
+<script type="module" src="./app.js"></script>   <!-- ✓ the transpiled output -->
+<script type="module" src="./app.ts"></script>   <!-- ✗ 404 → blank page -->
+```
+
+(An **inline** `<script type="module">…</script>` sidesteps it — its imports are
+rewritten normally.)
+
+**The deploy enforces this now.** A frontend bundle with a **dangling reference**
+(a `<script src>`/`<link href>`/`<img src>` or relative import that points at a
+file not in the bundle) **fails the deploy** with the list — a blank-page app
+can't ship. A `.ts` reference in your HTML is **auto-rewritten to `.js`** (with a
+warning, so you learn to reference the output). `boogy check` reports both
+**before** you deploy. Still **load the page** to confirm *runtime* behavior —
+the gate catches missing assets, not logic bugs.
 
 ## arrow-js: the reference framework
 
@@ -100,6 +155,30 @@ reactive runtime you `import` directly, no compiler required. A minimal `web/ind
 platform transpiles it.) Include arrow-js at `web/vendor/@arrow-js/core.js`, or set
 `allow_cdn = true`.
 
+## Responsive by default — it must work on phone, desktop, AND wide screen
+
+A Boogy frontend is served to real users on real devices. Build it
+**mobile-first and fluid** so it works from a ~360px phone to a 4K monitor — not
+just at whatever width you happened to test. This is not optional polish.
+
+- **Viewport meta is mandatory:** `<meta name="viewport" content="width=device-width, initial-scale=1" />` in `<head>`. Without it, mobile browsers render at a fake ~980px and zoom out — everything tiny.
+- **Fluid, not fixed.** Size with `%`, `rem`, `fr`, `min()/max()/clamp()`, flexbox, and grid — never a hardcoded `width: 1200px`. Constrain the reading column with `max-width` + `margin-inline: auto` and let it shrink: `width: min(100% - 2rem, 60rem)`.
+- **Mobile-first CSS:** write the single-column phone layout as the base, then *add* complexity at wider widths with `@media (min-width: …)`. Two breakpoints is usually enough (e.g. `48rem` tablet, `80rem` desktop). On a wide screen, cap the content width or use a grid so lines don't stretch unreadably across 2560px.
+- **Touch + readability:** interactive targets ≥ ~44px tall; base font ≥ 16px (smaller triggers iOS auto-zoom on inputs); wrap long content; make tables/wide content scroll or reflow.
+- **No horizontal scroll** at any width. `box-sizing: border-box` globally; test that nothing overflows at 360px.
+- **Verify at the extremes, not the middle.** Open it (or use a headless browser / dev-tools device mode) at ~**360px**, ~**768px**, and a **wide** ≥1920px width and confirm the layout holds, the page renders, and every control is reachable. "Looks fine on my screen" is not the test.
+
+A tiny responsive baseline:
+
+```css
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.5 system-ui, sans-serif; }
+.container { width: min(100% - 2rem, 60rem); margin-inline: auto; }
+.grid { display: grid; gap: 1rem; grid-template-columns: 1fr; }
+@media (min-width: 48rem) { .grid { grid-template-columns: repeat(2, 1fr); } }
+button, input { min-height: 44px; font-size: 1rem; }
+```
+
 ## Routing: api_prefix → wasm, everything else → assets + SPA fallback
 
 For a **FullStack** app: a request under `api_prefix` (`/api/...`) runs your wasm
@@ -110,6 +189,25 @@ extension is a 404. Hashed assets are cached immutably; `index.html` is revalida
 each load so a redeploy takes effect immediately. The page and the API are
 **same-origin** (`/{owner}/{service}/…`), so the page calls its API with relative
 URLs and there's no CORS.
+
+### ⚠️ The mount rule (FullStack) — get this right or every API call 404s
+
+Your `[routing] path` (the **mount**) MUST equal the path prefix your guest
+Router serves its routes under. The host forwards an API request to the guest
+with the mount **included** — it does not strip it. `api_prefix` is the API
+subtree **relative to the mount**, not an absolute path.
+
+So if your wasm Router registers `.get("/notes/api/items", …)`:
+- mount → `[routing] path = "/notes"`
+- `api_prefix = "/api"` (the subtree under the mount that goes to the wasm)
+- frontend assets serve at the mount root (`/{owner}/notes/…`, the paths **not**
+  under `api_prefix`).
+
+The trap: mounting at `/notes` but writing your guest routes as `/api/items`
+(without the mount). Then `/{owner}/notes/api/items` reaches the guest as
+`/notes/api/items`, your Router has no such route, and **every API call 404s with
+no other error**. Simplest convention: pick one mount, put ALL your guest routes
+under it (`<mount>/…`), and set `api_prefix` to the API sub-path.
 
 ## Visibility
 
