@@ -94,9 +94,15 @@ already have built JS and don't want the transpile, set `build = "none"`.)
 
 **Imports use native ES modules + an import map.** A bare specifier like
 `@arrow-js/core` resolves either to a copy you include under `web/vendor/` (the
-default — fully self-hosted), or, with `allow_cdn = true`, to a pinned CDN URL. The
+default — fully self-hosted), or, with `allow_cdn = true`, to a CDN URL. The
 platform generates the `<script type="importmap">` and injects it into your
 `index.html`. Relative `./foo.ts` imports are rewritten to `./foo.js` for you.
+
+> **Pin your CDN imports.** With `allow_cdn = true`, always write
+> `<pkg>@<version>` (e.g. `react@18.2.0`) rather than a bare `react`. A bare
+> specifier floats to the CDN's current latest — a supply-chain risk. The
+> platform logs a deploy-time warning for each unpinned CDN import. Scoped
+> packages follow the same rule: `@scope/pkg@1.0.0`, not `@scope/pkg`.
 
 ### ⚠️ In HTML, reference the transpiled `.js` — never `.ts`
 
@@ -234,8 +240,9 @@ csp = "default-src 'self'"   # opt-in Content-Security-Policy, emitted verbatim.
 frame_options = "same_origin" # same_origin (default → SAMEORIGIN) | deny (→ DENY) | none (omit the header, for apps meant to be embedded)
 ```
 
-`csp` is a pass-through string — you own the policy; an empty `csp` is rejected at
-manifest parse. This baseline is the right hardening for a **Frontend-only** (no-wasm)
+`csp` is a pass-through string — you own the policy; an empty `csp`, or one that
+isn't a legal HTTP header value (e.g. contains control characters), is rejected at
+manifest parse (fail-closed at deploy). This baseline is the right hardening for a **Frontend-only** (no-wasm)
 static site, which has no API surface to apply CORS to.
 
 ## Cross-origin (CORS) — opt-in, host-enforced, default-deny

@@ -46,16 +46,21 @@ footgun, so absence = denial.
 ```toml
 [ingress.delegation]
 allow_actor = ["boogy://owner/services/assistant"]  # exact workloads that may delegate
-max_delegated_scopes = ["notes:*"]                  # optional cap; every token scope must match
+max_delegated_scopes = ["notes:*"]                  # REQUIRED cap; every token scope must match
 require_principal_in_allowed_agents = false         # also gate the USER against allowed_agents
 ```
 
 - `allow_actor` — who may deliver delegated calls. **Empty = delegation
   disabled** even with the block present.
-- `max_delegated_scopes` — when non-empty, *every* scope on the call
-  must match at least one matcher (`*`, `resource:action`,
-  `resource:*`, `*:action`). A delegated call carrying **zero** scopes
-  is rejected when a cap is set.
+- `max_delegated_scopes` — **mandatory whenever `allow_actor` is
+  non-empty.** A delegated call forwards the principal's *full* inbound
+  scope set (there is no per-call narrowing), so the receiver's cap is
+  the only ceiling — omitting it would silently accept the principal's
+  entire scope set. A delegation block with `allow_actor` but no
+  `max_delegated_scopes` is **rejected at deploy** (manifest validation)
+  and, defensively, denied at runtime. *Every* scope on the call must
+  match at least one matcher (`*`, `resource:action`, `resource:*`,
+  `*:action`); a delegated call carrying **zero** scopes is rejected.
 
 ## Iron Law: authorize on the principal, never the actor
 
@@ -69,6 +74,7 @@ actor is *not* an authorization input.
 | Situation | Result |
 |---|---|
 | Callee has no `[ingress.delegation]` | Denied — "must opt in with an `[ingress.delegation]` block" |
+| `[ingress.delegation]` sets `allow_actor` but no `max_delegated_scopes` | **Rejected at deploy** — the cap is mandatory (would otherwise forward the principal's full scope set) |
 | Actor not in `allow_actor` | Denied — "actor not permitted to delegate" |
 | Token scope exceeds `max_delegated_scopes` | Denied — "scope not permitted in delegation" |
 | Delegated token on an `/_admin/*` route | 403 `audience_bound_token` — admin is never delegable |
@@ -87,6 +93,7 @@ actor is *not* an authorization input.
 | "Check `identity.actor` is our service and allow everything." | Breaks isolation — the actor is identical for every user. Authorize on the **principal**. |
 | "Pass the user's token through in a header." | Identity-bearing headers are **stripped** on every hop. The platform propagates identity for you. |
 | "Set `allow_actor = ["*"]` to be safe." | Inverted — that's maximally **unsafe** (any workload may impersonate users). Name exact workloads. |
+| "Leave `max_delegated_scopes` off — it's optional." | No longer accepted: a block with `allow_actor` and no cap is **rejected at deploy**. The cap is the only ceiling on forwarded scopes — always set it. |
 
 ## Integration
 
