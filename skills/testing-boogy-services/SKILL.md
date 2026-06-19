@@ -18,7 +18,10 @@ plain-Rust library crate with **no `boogy-sdk` / `wit-bindgen` deps**
 (default `rlib`, not `cdylib`). The service crate depends on it. This
 crate compiles for the host, so `cargo test` runs its `#[cfg(test)]`
 tests natively. Cover boundaries (`>=` vs `>`), monotonicity, and
-NaN/negative/empty guards here.
+NaN/negative/empty guards here — and **feed garbage to every parser /
+decoder and assert `Err`, never a panic** (malformed/oversized/wrong-type
+input). For any guardrail, cap, or validation logic, ambiguous or
+unparseable input must **fail closed** (reject), never silently allow.
 
 **Layer 2 — the wasm crate is glue. Keep it thin; do NOT unit-test it.**
 The service crate is `[lib] crate-type = ["cdylib"]` with WIT bindings.
@@ -42,6 +45,29 @@ integration layer; there is no local substitute. Cover, per endpoint:
 - **One error-shape check** — malformed body / bad input returns the
   documented error, not a 500.
 
+**Adversarial cases are first-class — and matter MOST for the service that
+doesn't *look* risky** (the attacker doesn't care that it's "just a notes
+app"; the un-tested hole ships in the boring service). Beyond the authz
+negatives above, cover, where they apply:
+
+- **Identity can't be forged from the body.** A request whose body carries
+  an `owner` / `author` / `principal` / `actor` field naming someone else is
+  IGNORED — the resource stays owned/authorized by the *attested caller*. A
+  404 on a cross-principal `GET` does **not** prove a `POST`/`PUT` body can't
+  set ownership to another principal; test that directly. (The
+  deployed-request proof of authorize-on-the-attested-principal.)
+- **Guardrail / limit bypass.** If the service enforces a cap, quota,
+  allowlist, or state machine, attack it: exactly-at vs over the limit;
+  concurrent / duplicate requests racing a capped or single-use resource; a
+  disallowed transition. The limit must hold under the race, and a *rejected*
+  request must leave **no partial side effect** — nothing written, nothing
+  sent/signed/broadcast.
+- **Hostile external responses.** If the service calls outbound (webhook,
+  API, RPC, oracle), a dependency that returns **malformed / oversized /
+  unexpected / hostile data** — not just an unreachable one — must not crash,
+  hang, or be trusted blindly. Point it at a hostile stub, not only a down
+  one, and assert it fails closed on a bad or missing response.
+
 MCP tools: same three layers — extract pure logic to Layer 1, then
 exercise the tools through a **real MCP client connection** (same
 auth/principal path), never by calling the tool function in isolation.
@@ -60,6 +86,9 @@ requests — including the authz negatives — returned the right answers.
 | "I'll write a local integration harness for the handler." | There isn't one. The cdylib + WIT crate has no test target and no constructible request type. Deploy-and-exercise IS the integration layer. |
 | "Unit tests pass, ship it." | Which tests? The store write and the authz boundary are untested until a real request hits the deployed service. |
 | "It's read-only, auth doesn't matter." | The existence-mask (404 not 403) is a behavior you must verify, not assume. |
+| "It's a mundane CRUD app — adversarial testing is overkill." | The boring-looking service is exactly where the un-tested forgery/limit hole ships. Test identity-from-body, limit-bypass, and hostile upstream responses regardless of domain. |
+| "Auth is enforced, so ownership is safe." | A 404 on a cross-principal `GET` doesn't prove a `POST`/`PUT` body can't set `owner`/`principal` to someone else. Test that the body can't forge identity. |
+| "I tested the dependency being down." | Down is the easy half. Also test the dependency returning malformed / oversized / hostile DATA — that's where a parser panics or a bad value gets trusted. |
 
 ## Integration
 

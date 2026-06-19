@@ -57,6 +57,23 @@ ungoverned scaffold.
    other. Not a mandate: when nothing fits, external via `outbound_http`
    is fully sanctioned.
 
+   **2b. Build-vs-buy for complex subsystems** (wasm backends) — when a
+   feature needs a genuinely complex or error-prone subsystem the platform
+   does **not** hand you as a capability — cryptography, a wire/serialization
+   format, a protocol client, a non-trivial parser, financial or
+   calendar/timezone math — reach for a **trusted, widely-used, audited
+   library** before hand-rolling it. Hand-rolled crypto/encoding/parsing is
+   where security holes and subtle correctness bugs live. Two checks before
+   you commit to a crate: (a) it's reputable and maintained, and (b) — the
+   Boogy-specific one agents forget — it **builds for `wasm32-wasip2`** in the
+   feature set you need. Confirm (b) with a quick spike *before* you design
+   around it: some crates pull native/C deps or `getrandom` and won't compile
+   to the component, and you want to discover that on day one, not after the
+   design is committed. If hand-rolling is genuinely the only option, treat it
+   as a flagged design risk, not a silent default. (When the platform DOES
+   provide the primitive — e.g. `signing` for host-held keys — use it; don't
+   pull a crate to re-implement a capability you already have.)
+
 3. **Backend surface(s)** — for a **FullStack** or **Service** shape, what
    API does the wasm expose: REST · JSON-RPC · MCP · hybrid? One service can
    serve **REST and MCP together** (same data, two surfaces); a split is a
@@ -64,6 +81,19 @@ ungoverned scaffold.
    **FullStack** wasm sits under `[frontend].api_prefix`
    (`boogy:boogy-serving-frontends`); a **Frontend** shape has no backend
    surface, so skip this.
+
+   **Two audiences, not one.** The public/business-logic API is only half the
+   surface. Design the **operator/admin surface** as a first-class part of the
+   service, not an afterthought: the high-value endpoints whoever *runs* this
+   service needs to inspect and intervene **across all principals** — list and
+   inspect everything (not just one caller's rows), intervene (revoke, cancel,
+   block/unblock an abuser, force a retry or refresh), and read an audit log of
+   those operator mutations. Mount them under an owner-gated `/admin/*` subtree
+   (only the service owner's identity passes; not regular callers). Sketch
+   these now alongside the user-facing routes — a service you can't inspect or
+   intervene in across principals is half-built, and retrofitting an operator
+   surface onto a data model that didn't plan for cross-principal reads is the
+   expensive path.
 
 4. **Capabilities** — deny-by-default; list only what you use:
    `store`, `auth`, `clock`, `entropy`, `logging`, `peer` (call other
@@ -151,6 +181,9 @@ fabrication happens.
 | "I know the right ingress mode without the flowchart." | The modes have non-obvious distinctions (`allowed_agents` vs `allowed_origins`; internal rejects humans; delegation is opt-in). Walk it. |
 | "I'll figure out request/response shapes when I write handlers." | Decide the surface now, but know the rule that binds it at implementation: every handler's request body and response is a typed `#[derive(…, schemars::JsonSchema)]` DTO (`Json<T>`/`Created<T>`) — a CI gate FAILS untyped I/O. See `boogy:boogy-rest-apis`. |
 | "id + name is enough manifest metadata." | A module with bare `id`+`name` is nearly invisible in the registry — sketch a precise `category`, distinct `keywords`, and a plain-words `description` (see step 7 + `boogy:scaffolding-a-service`). |
+| "I'll just hand-roll the crypto / parser / encoding — it's not that hard." | That's where security holes and subtle bugs live. Reach for a trusted, audited library and **confirm it builds for `wasm32-wasip2`** with a quick spike first; hand-rolling is a flagged risk, never a silent default (step 2b). |
+| "It compiles into the wasm, so the library's fine." | Not until you've checked. Crates with native/C deps or `getrandom` may not build for `wasm32-wasip2` — spike the compat on day one, before the design depends on it. |
+| "The public API is the service; admin can come later." | A service you can't inspect or intervene in across principals is half-built. Design the owner-gated `/admin/*` surface (list-all, revoke/cancel/block, force-retry, audit) alongside the public one — retrofitting cross-principal reads later is the expensive path. |
 
 ## Integration
 
