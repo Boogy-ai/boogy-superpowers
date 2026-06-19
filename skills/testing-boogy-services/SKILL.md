@@ -61,12 +61,31 @@ negatives above, cover, where they apply:
   concurrent / duplicate requests racing a capped or single-use resource; a
   disallowed transition. The limit must hold under the race, and a *rejected*
   request must leave **no partial side effect** — nothing written, nothing
-  sent/signed/broadcast.
+  sent/signed/broadcast. **Enumerate every path that performs the sensitive
+  action** (sign, send, broadcast, spend) and confirm they ALL gate — a green
+  test on `/send` does **not** cover a `/sign` that skips the same check.
+  Probe what the cap *doesn't* count: a cap on the transfer **value** but not
+  the **fee** is a drain (fees are often caller/node-influenced — bound
+  `value + fee`); a cap compared as a bare integer **across units/denoms**
+  collapses different assets into one bucket.
 - **Hostile external responses.** If the service calls outbound (webhook,
   API, RPC, oracle), a dependency that returns **malformed / oversized /
   unexpected / hostile data** — not just an unreachable one — must not crash,
   hang, or be trusted blindly. Point it at a hostile stub, not only a down
-  one, and assert it fails closed on a bad or missing response.
+  one, and assert it fails closed on a bad or missing response. A node value
+  that feeds an **allow/deny decision or a spend** (a gas price, an
+  "is-contract" flag) is the dangerous case — a lying node must not be able to
+  flip the decision.
+
+- **Verify the trust model and every security claim from the CODE.** Don't
+  inherit the framing from the PR description, a module comment, or a design
+  doc. "External-signer, small threat surface", "mirrors X exactly", "no
+  guardrails needed — validated upstream", "verified" — each is a **claim to
+  test, not a fact**. Read `boogy.toml` (what capabilities are granted — e.g.
+  `signing = true` means the service holds keys and is *custodial*, threat
+  surface maximal) and the actual call sites. A comment asserting a security
+  property must be backed by a test that exercises it; a provably-unreachable
+  "defense" branch is dead code masquerading as protection. Flag both.
 
 MCP tools: same three layers — extract pure logic to Layer 1, then
 exercise the tools through a **real MCP client connection** (same
@@ -89,6 +108,9 @@ requests — including the authz negatives — returned the right answers.
 | "It's a mundane CRUD app — adversarial testing is overkill." | The boring-looking service is exactly where the un-tested forgery/limit hole ships. Test identity-from-body, limit-bypass, and hostile upstream responses regardless of domain. |
 | "Auth is enforced, so ownership is safe." | A 404 on a cross-principal `GET` doesn't prove a `POST`/`PUT` body can't set `owner`/`principal` to someone else. Test that the body can't forge identity. |
 | "I tested the dependency being down." | Down is the easy half. Also test the dependency returning malformed / oversized / hostile DATA — that's where a parser panics or a bad value gets trusted. |
+| "I tested `/send`, the cap holds." | A `/sign` (or any sibling path) that skips the same gate is a separate hole. Enumerate every path that signs/sends/broadcasts and test each. |
+| "The cap is enforced." | Test what it doesn't count: an uncapped fee while value is capped, or a cap compared across denoms/units. Bound `value + fee`; never collapse units. |
+| "The PR says it's an external signer / it mirrors X." | That's a claim, not a fact. Verify the trust model and the invariant from `boogy.toml` + the code; a comment is not a test. |
 
 ## Integration
 

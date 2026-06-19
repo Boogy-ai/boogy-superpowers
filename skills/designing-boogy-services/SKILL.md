@@ -88,12 +88,16 @@ ungoverned scaffold.
    service needs to inspect and intervene **across all principals** — list and
    inspect everything (not just one caller's rows), intervene (revoke, cancel,
    block/unblock an abuser, force a retry or refresh), and read an audit log of
-   those operator mutations. Mount them under an owner-gated `/admin/*` subtree
-   (only the service owner's identity passes; not regular callers). Sketch
-   these now alongside the user-facing routes — a service you can't inspect or
-   intervene in across principals is half-built, and retrofitting an operator
-   surface onto a data model that didn't plan for cross-principal reads is the
-   expensive path.
+   those operator mutations. Mount them under an owner-gated `/admin/*` subtree.
+   **Decide the audience precisely now:** the gate admits ONLY the owner's
+   **agent** identity — a *workload* (any attested service, even one the owner
+   also operates) must be rejected. A "caller is the owner" check that admits
+   any owner-*workload* is the classic admin-boundary hole. Assert the gate's
+   claimed invariant with a test, and distrust a comment that says it "mirrors
+   X exactly" — verify it does. Sketch these now alongside the user-facing
+   routes — a service you can't inspect or intervene in across principals is
+   half-built, and retrofitting an operator surface onto a data model that
+   didn't plan for cross-principal reads is the expensive path.
 
 4. **Capabilities** — deny-by-default; list only what you use:
    `store`, `auth`, `clock`, `entropy`, `logging`, `peer` (call other
@@ -103,6 +107,22 @@ ungoverned scaffold.
    real-time messages to clients — see `boogy:boogy-websockets`).
    Each one you grant is attack surface — justify it. (Vector/semantic
    search is not yet available — see `boogy:boogy-capability-limits`.)
+
+   **Sensitive-action choke point.** When a capability performs an
+   **irreversible, sensitive action** — `signing`, a value-moving
+   `outbound_http` call, a broadcast — list *every* handler/path that
+   triggers it and route them all through **one shared gate**
+   (block-check → policy → accounting). Decide this now: a "sign-only" or
+   "draft" path that skips the gate the main path enforces is a bypass, and
+   it's cheap to design as one choke point and expensive to retrofit after
+   the paths have drifted. **External/RPC inputs feeding such an action are
+   adversarial** — a gas price, fee estimate, "is-contract" flag, nonce, or
+   amount from a node must never drive an allow/deny or an unbounded spend;
+   clamp + fail closed, and build allowlists from trusted config, not node
+   signals. If you grant `signing`, read `boogy:boogy-signing`; if you sign
+   or broadcast **on-chain** transactions, `boogy:boogy-blockchain-transactions`
+   is required background (total-outflow + fee bounds, denom-aware caps,
+   per-chain signature self-verify, nonce serialization).
 
 5. **Ingress mode** — answer the flowchart, then the delegation question:
 
@@ -184,6 +204,9 @@ fabrication happens.
 | "I'll just hand-roll the crypto / parser / encoding — it's not that hard." | That's where security holes and subtle bugs live. Reach for a trusted, audited library and **confirm it builds for `wasm32-wasip2`** with a quick spike first; hand-rolling is a flagged risk, never a silent default (step 2b). |
 | "It compiles into the wasm, so the library's fine." | Not until you've checked. Crates with native/C deps or `getrandom` may not build for `wasm32-wasip2` — spike the compat on day one, before the design depends on it. |
 | "The public API is the service; admin can come later." | A service you can't inspect or intervene in across principals is half-built. Design the owner-gated `/admin/*` surface (list-all, revoke/cancel/block, force-retry, audit) alongside the public one — retrofitting cross-principal reads later is the expensive path. |
+| "I'll gate the main sensitive path; the lighter path is fine." | Every path that performs the irreversible action (sign, value-moving outbound, broadcast) shares ONE gate. A skipped path is a bypass — design the choke point now (step 4). |
+| "`caller is owner` is the admin gate." | That can admit any owner-*workload*, not just the owner's agent. Admin is agent-only; assert the invariant with a test and distrust "mirrors X" comments. |
+| "The RPC/node told me the fee / that it's a contract." | External inputs are adversarial. Never let a node value drive an allow/deny or an unbounded spend — clamp + fail closed; allowlists come from trusted config, not node signals. |
 
 ## Integration
 

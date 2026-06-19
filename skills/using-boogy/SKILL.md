@@ -43,6 +43,7 @@ until then, answer them yourself first.
 | `boogy-registry-and-provisioning` | needing functionality that might already exist in the mesh, publishing a module, or deciding whether to run your own instance of one |
 | `boogy-secrets` | a service needs an API key or credential for an external call, host-side HMAC signature verification, or asking how secrets work |
 | `boogy-signing` | a service must produce a cryptographic signature — signing keys, per-user or wallet keys, blockchain transactions, signed receipts or attestations — with a private key the host holds and your code never touches |
+| `boogy-blockchain-transactions` | a service constructs, signs, or broadcasts on-chain transactions — a custodial wallet, on-chain payments/payouts, a swap or bridge relayer, or any EVM/Cosmos/Solana/Bitcoin signer that moves funds (fund-safety: one gate per sign path, total-outflow + fee bounds, denom-aware caps, signature self-verify, adversarial RPC, nonce serialization) |
 | `boogy-webhooks` | building a service that RECEIVES and verifies inbound webhooks from a third party (Stripe, GitHub, Twilio, any HMAC-signed callback) |
 | `boogy-serving-frontends` | a service must serve a web frontend — a reactive UI, SPA, dashboard, static HTML/JS/CSS, or a full-stack app serving both the page and its API (arrow-js, TypeScript-with-no-build, host-served assets) |
 | `boogy-rest-apis` | building HTTP/REST or JSON-RPC endpoints — routing, guards, request parsing/validation, response types, error wire format |

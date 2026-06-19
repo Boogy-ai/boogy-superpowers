@@ -121,6 +121,34 @@ fits "the service signs on the user's behalf." It cannot express "the user holds
 their own key and we can never sign without them" — that's non-custodial and
 outside this capability.
 
+**Know you are custodial, and verify it from the code — not from prose.** A
+comment, a PR description, or a design doc that calls the service
+"external-signer" or claims "signing is delegated, so the threat surface is
+small" is a claim to check, not a fact. `signing = true` in `boogy.toml` plus
+the `sign-digest`/`sign-message` calls mean the service holds the keys and the
+threat surface is maximal. Don't let the framing shrink the review.
+
+## One gate for every signing path; verify what you signed
+
+Two disciplines apply to *any* signer (a signed receipt or attestation, not
+only a blockchain tx):
+
+**One choke point.** If your service exposes more than one path that produces a
+signature, route them ALL through **one shared authorization gate** (the
+block/policy/accounting checks that guard the sensitive action) before the sign
+call. A second "lighter" path that skips the gate the main path enforces is a
+bypass — the signature is the irreversible act, so gate at the signature, not at
+whatever happens after. Make the gate one function the handlers can't sidestep;
+copy-pasted per-handler checks drift, and one drifted copy is the hole.
+
+**Verify what you signed.** When you assemble a payload around the host
+signature, verify the signature against the **exact message it should sign**
+(recover/verify under the expected public key) before you return or broadcast
+it — "sign what you see." Fail closed on any mismatch; never return a partial or
+fabricated signature. (For on-chain transactions, the per-chain form of this —
+sighash/recovery-id/chain-id verification, fee bounds, denom-aware caps — lives
+in `boogy:boogy-blockchain-transactions`.)
+
 ## Importing an existing key (operator, out-of-band)
 
 Generate-in-place is the default and the strongest path (the key is born inside
@@ -154,6 +182,9 @@ another service is simply `UnknownKey`.
 | Load the private key and sign in my handler | No API returns a private key. You call `sign-digest`/`sign-message`; the host signs. |
 | Implement secp256k1 / RFC 6979 / low-S myself | The key isn't in your reach anyway, and the host produces a correct, non-malleable, deterministic signature. Don't hand-roll it. |
 | `label` = the `{user}` path param | Caller-controlled → sign-as-anyone. Key the label on `auth::current_principal()`. |
+| One signing path is gated, so I'm covered | Enumerate EVERY path that calls sign — they must ALL pass the same gate. A skipped one is a bypass. |
+| Return the assembled signature without re-checking it | Verify it against the message it should sign first; broadcasting a wrong signature is irreversible. |
+| The doc says it's an external signer | Verify from `boogy.toml` (`signing = true`) + the sign calls; custodial vs external-signer is the whole threat surface. |
 | `sign-digest` with the raw message bytes | ECDSA needs a 32-byte digest — hash first (keccak256 / SHA-256). A non-32-byte input is `BadInput`. |
 | `sign-message` for a secp256k1 key | `BadInput`. secp256k1/P-256 use `sign-digest`; only Ed25519 uses `sign-message`. |
 | Store the key in a table / env to "cache" it | There is nothing to store — your code never holds it. |
@@ -165,3 +196,7 @@ another service is simply `UnknownKey`.
 (verify an inbound signature / inject an outbound credential without holding the
 value) — `signing` is the *produce-a-signature* counterpart. → `boogy:boogy-account-auth`
 covers principals, which is what you key per-subject signing labels on.
+→ `boogy:boogy-blockchain-transactions` — if you sign or broadcast on-chain
+transactions, the on-chain rules (one gate per send/sign path, total-outflow +
+fee bounds, denom-aware caps, per-chain signature self-verify, adversarial RPC
+values, nonce serialization) build on this skill.

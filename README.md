@@ -83,6 +83,7 @@ Boogy task to the right skill. Open it first before any Boogy work.
 | `skills/boogy-obo-delegation/` | One service acting on a user's behalf when calling another service (on-behalf-of delegation) |
 | `skills/boogy-secrets/` | Bind API keys and external credentials so the value never enters service code |
 | `skills/boogy-signing/` | Produce cryptographic signatures (receipts, attestations, wallet transactions) without holding the private key |
+| `skills/boogy-blockchain-transactions/` | Construct, sign, and broadcast on-chain transactions safely (custodial wallets, on-chain payments, multi-chain signers) — fund-safety rules on top of signing |
 | `skills/boogy-capability-limits/` | What the platform supports and doesn't — identify gaps and sanctioned alternatives before designing a feature |
 
 ### Mesh & integration
