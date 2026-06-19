@@ -109,46 +109,16 @@ Boogy task to the right skill. Open it first before any Boogy work.
 ## How skills route
 
 ```mermaid
-graph TD
-    U[using-boogy] --> A[Start here]
-    U --> B[Build the service]
-    U --> C[Data & storage]
-    U --> D[Auth & security]
-    U --> E[Mesh & integration]
-    U --> F[Operate & scale]
-
-    A --> A1[designing-boogy-services]
-    A --> A2[scaffolding-a-service]
-
-    B --> B1[rest-apis]
-    B --> B2[mcp-services]
-    B --> B3[websockets]
-    B --> B4[webhooks]
-    B --> B5[serving-frontends]
-    B --> B6[api-specs]
-
-    C --> C1[data-modeling]
-    C --> C2[access-patterns]
-    C --> C3[transactions]
-    C --> C4[migrations]
-
-    D --> D1[auth]
-    D --> D2[account-auth]
-    D --> D3[obo-delegation]
-    D --> D4[secrets]
-    D --> D5[signing]
-    D --> D6[capability-limits]
-
-    E --> E1[mesh-architecture]
-    E --> E2[outbound-http]
-    E --> E3[background-jobs]
-
-    F --> F1[observability]
-    F --> F2[performance-and-scaling]
-    F --> F3[service-lifecycle]
-    F --> F4[registry-and-provisioning]
-    F --> F5[deploying-boogy-services]
-    F --> F6[testing-boogy-services]
+flowchart TB
+    U(["using-boogy — routes any Boogy task to the right area"])
+    U --> A
+    A["Start here<br/>designing-boogy-services · scaffolding-a-service"]
+    B["Build the service<br/>rest-apis · mcp-services · websockets · webhooks · serving-frontends · api-specs"]
+    C["Data & storage<br/>data-modeling · access-patterns · transactions · migrations"]
+    D["Auth & security<br/>auth · account-auth · obo-delegation · secrets · signing · capability-limits"]
+    E["Mesh & integration<br/>mesh-architecture · outbound-http · background-jobs"]
+    F["Operate & scale<br/>observability · performance-and-scaling · service-lifecycle · registry-and-provisioning · deploying-boogy-services · testing-boogy-services"]
+    A ~~~ B ~~~ C ~~~ D ~~~ E ~~~ F
 ```
 
 ---
