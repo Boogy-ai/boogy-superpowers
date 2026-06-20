@@ -21,8 +21,10 @@ cargo install --locked --git https://github.com/Boogy-ai/boogy-sdk boogy-cli
 | Host URL | `--host` | `BOOGY_HOST_URL` | `http://localhost:3000` |
 | Bearer token | `--token` | `BOOGY_TOKEN` | none (required) |
 
-Get a token from the Boogy web app or `POST /_agents/login`. Most
-commands need a valid token; `list`/`remove` need **admin scope**.
+Get a token by signing in — MCP-first: call the `login` tool then
+`login_status` (see `boogy:using-boogy` for the full flow), or run
+`boogy login` from the CLI (saves to `~/.config/boogy/credentials.toml`).
+Most commands need a valid token; `list`/`remove` need **admin scope**.
 
 ## Command quick reference
 

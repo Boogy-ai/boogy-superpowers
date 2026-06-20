@@ -59,6 +59,27 @@ until then, answer them yourself first.
 No matching skill? Say so explicitly and work from the SDK reference
 docs rather than guessing.
 
+## Sign in (get a deploy token)
+
+Deploying requires a token. Two paths — the MCP path requires no install:
+
+**MCP (primary — zero install):** If you are connected to Boogy's MCP server,
+call the `login` tool. It returns a `user_code`, a verification URL, and a
+`device_code`. Show the human the URL + `user_code` and ask them to open it,
+sign in, and confirm the code **matches** (anti-phishing). Then poll
+`login_status` with the `device_code` every few seconds until it returns
+`{status: "complete", token: "v4.public.…"}`. Pass that token as
+`BOOGY_TOKEN` or `--token`.
+
+**CLI (alternative):** `boogy login` — same device flow, auto-opens the
+browser, saves the token to `~/.config/boogy/credentials.toml` so later CLI
+commands pick it up automatically.
+
+`boogy-account-auth` is a different concern: it covers how a **service's own
+end-users** log in to your deployed service (passwords, passkeys, social
+OAuth). This section is about *you* (the developer / agent) signing in to the
+platform to deploy.
+
 ## Red flags
 
 | Thought | Reality |
