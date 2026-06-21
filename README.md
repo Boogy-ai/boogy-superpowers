@@ -44,7 +44,7 @@ Boogy task to the right skill. Open it first before any Boogy work.
 
 ## Skill map
 
-28 skills, grouped by concern. Every skill appears exactly once.
+29 skills, grouped by concern. Every skill appears exactly once.
 
 ### Start here
 
