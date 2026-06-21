@@ -44,8 +44,10 @@ Module ref shape: `boogy://<owner>/modules/<id>@<version>`.
 
 1. Build the wasm (`boogy build .` or `cargo build --target
    wasm32-wasip2 --release`).
-2. `boogy deploy boogy.toml`. The manifest needs `[service]` (with
-   `[service.owner]`); `service.wasm` is **relative to the manifest
+2. `boogy deploy boogy.toml`. The manifest needs `[service]` (the owner
+   is set from your authenticated deploy — omit it; if you do set one it's
+   a bare `owner = "<handle>"` key under `[service]`, never a
+   `[service.owner]` table); `service.wasm` is **relative to the manifest
    file**, typically `target/wasm32-wasip2/release/<crate_name>.wasm`
    (Cargo turns `-` into `_`).
 3. Verify: `boogy list`, then `curl <host>/<user_id>/<path>`.

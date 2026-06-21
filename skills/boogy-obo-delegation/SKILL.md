@@ -60,7 +60,10 @@ require_principal_in_allowed_agents = false         # also gate the USER against
   `max_delegated_scopes` is **rejected at deploy** (manifest validation)
   and, defensively, denied at runtime. *Every* scope on the call must
   match at least one matcher (`*`, `resource:action`, `resource:*`,
-  `*:action`); a delegated call carrying **zero** scopes is rejected.
+  `*:action`). A delegated call carrying **zero** scopes trivially
+  satisfies the cap (nothing to match) and is **allowed** — it's denied
+  only by the other gates (no `[ingress.delegation]` block, an empty cap,
+  or an actor not on the allowlist), never by scopelessness itself.
 
 ## Iron Law: authorize on the principal, never the actor
 

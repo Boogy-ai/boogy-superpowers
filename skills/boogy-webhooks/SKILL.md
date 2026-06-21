@@ -193,11 +193,13 @@ fn record_and_enqueue(event_id: String) -> Result<Json<json::Value>, ApiError> {
 }
 ```
 
-> **Why two writes, not a transaction?** Enqueuing a job is denied inside
-> an open store transaction, so the event-record insert and the enqueue
-> are independent writes. The recorded `received` row is the durable
-> hand-off; the job's `idempotency_key` collapses a rare insert/enqueue
-> race. See `boogy:boogy-background-jobs` and `boogy:boogy-transactions`.
+> **Why two writes, not a transaction?** On purpose, not by force: the durable
+> `received` row is the hand-off, and the job's `idempotency_key` collapses a
+> rare insert/enqueue race. Enqueuing *inside* an open store transaction is
+> actually allowed — the host stages it into the transaction's outbox and it
+> commits atomically — so you *could* wrap both writes if you preferred.
+> (`outbound_http`, by contrast, IS denied inside a tx.) See
+> `boogy:boogy-background-jobs` and `boogy:boogy-transactions`.
 
 ## Reference implementation
 

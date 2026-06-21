@@ -77,8 +77,14 @@ mode = "authenticated"          # all routes; the handler gates /admin itself
 fn require_operator() -> Result<(), ApiError> {
     if caller_is_service_owner() { return Ok(()); }   // the owner: their agent OR own workload
     // OBO: the owner's backend acting for a user — the ATTESTED actor is the workload.
-    let id = current_identity();
-    let actor_owner = id.and_then(|i| i.actor).and_then(workload_owner);
+    // `current_identity()` is NOT an SDK free function — it's the full binding path.
+    // `actor` is `Option<String>`, set only on delegated calls.
+    let identity = bindings::boogy::platform::auth::current_identity();
+    let actor_owner = identity
+        .as_ref()
+        .and_then(|i| i.actor.as_deref())
+        .and_then(workload_owner);                    // workload_owner: a small helper YOU write —
+                                                      // parse <owner> out of "boogy://<owner>/services/<id>"
     if actor_owner == Some(self_identity().owner) { return Ok(()); }
     Err(ApiError::forbidden("operator only"))
 }

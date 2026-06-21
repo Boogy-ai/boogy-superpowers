@@ -111,6 +111,13 @@ fn admit_same_owner_only(req: &mut Req<'_>) -> Result<(), ApiError> {
 }
 ```
 
+> **Simpler when you only need the boolean:** if the rule is just "is the caller
+> one of *my* owner's apps (or the owner themselves)?", use the host-attested
+> **`caller_is_service_owner()`** helper instead of the parse above — no string
+> handling, and it also admits the owner's own agent token. Hand-roll the parse
+> only when you need the *specific* caller workload (e.g. to partition rows per
+> calling app). See `boogy:boogy-auth`.
+
 **Two ways to express "only my owner's apps", pick by where the rule
 belongs:**
 

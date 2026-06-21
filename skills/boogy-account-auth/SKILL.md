@@ -42,8 +42,10 @@ so they all produce the same token shape and the same opaque principal:
 | Agentkey | Ed25519 challenge for headless agents (`/_agents/agentkey/*`) |
 | Social OAuth | "Sign in with X" (`/_agents/oauth/*`) |
 
-**Providers live today: Google.** Other social providers are scaffolded
-but not enabled — don't promise them.
+**Providers live today: Google and GitHub** (plus a generic OIDC provider for
+self-hosted / enterprise issuers), each enabled by setting its client-id +
+secret env vars on the host. TikTok, X, and LinkedIn are scaffolded but not
+wired — don't promise those.
 
 ## How your service consumes it
 
@@ -85,7 +87,7 @@ Google credential.
 | "I'll mint `sk_*` keys as user sessions." | API keys aren't logins. Scoping every user to one service principal **breaks per-user isolation**. Send users through the platform login. |
 | "I'll register an agent per Google user and issue their token." | Your service **cannot sign platform tokens** and must not duplicate identity inside one tenant. Use the platform OAuth flow. |
 | "I'll store the user's password for re-auth." | Never. The platform owns credentials; your service only sees the resolved principal. Re-auth = send them through login again. |
-| "There's no social login, only password/agentkey." | Wrong — social OAuth (Google) is a real platform feature. |
+| "There's no social login, only password/agentkey." | Wrong — social OAuth (Google/GitHub) is a real platform feature. |
 
 ## Integration
 
