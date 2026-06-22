@@ -380,6 +380,10 @@ An agent deploying through the MCP admin tool passes the frontend source files (
 + contents) alongside the manifest — again, **no Node, no bundler, no build**. You
 ship `.ts`/`.js` source; the platform produces the served JavaScript.
 
+The transpiled `.ts` → `.js` output is **minified by default** (compacted at deploy);
+set `[frontend] minify = false` to ship readable JS while debugging. Minification is
+compaction only — your vendored `.js` is served verbatim.
+
 ## Red flags
 
 | Reach / claim | Reality |
