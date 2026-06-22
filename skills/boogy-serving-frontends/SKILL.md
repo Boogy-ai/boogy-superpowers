@@ -130,6 +130,36 @@ warning, so you learn to reference the output). `boogy check` reports both
 **before** you deploy. Still **load the page** to confirm *runtime* behavior —
 the gate catches missing assets, not logic bugs.
 
+### `boogy deploy --smoke` — automate the "load it in a browser" step
+
+The deploy gate and `boogy check` catch *static* problems; the bugs that survive
+them (blank `#app`, an import map that 404s a vendor file, a framework that
+mounts nothing, a stale-cache breakage) only show up when a **real browser runs
+the served page**. `--smoke` does that for you, against the **actually-deployed
+URL**:
+
+```bash
+boogy deploy app.boogy.toml --smoke
+# or, after a manual publish:
+boogy publish app.boogy.toml --provision --smoke
+```
+
+After the deploy succeeds it loads `<host>/<owner>/<id>/` in a detected headless
+Chrome/Chromium and asserts: the page renders non-empty content in `#app`
+(override with `--smoke-selector`), the console has no errors / uncaught
+exceptions, and no same-origin sub-resource returned ≥ 400. A failure prints a
+report (which assertion, the console errors, the failed request URLs) and exits
+non-zero — fix and re-ship with `boogy deploy --replace`.
+
+- **Opt-in and best-effort.** Without `--smoke` nothing changes. With it but **no
+  browser installed**, it prints a one-line note and exits cleanly (never blocks
+  a deploy) — point it at a binary with `BOOGY_SMOKE_BROWSER=/path/to/chrome`.
+- **Frontend deployments only** — a wasm-only service has nothing to render.
+- `--smoke-timeout <ms>` (default 10000) bounds the render wait.
+
+This is the concrete way to satisfy the "load the page in a real browser" rule
+below — run it as the last step of every frontend deploy.
+
 ## arrow-js: the reference framework
 
 [arrow-js](https://github.com/standardagents/arrow-js) is the recommended frontend
@@ -180,6 +210,7 @@ self-contained ES-module build and **pin the version**. Known-good for
 After vendoring, **load the page in a real browser** and confirm `#app` actually
 renders — a blank page with no console error is the signature of a bad arrow-js
 build (and of mount/caching bugs); curl and `boogy check` won't catch it.
+`boogy deploy --smoke` (above) automates exactly this check.
 
 ### Boolean attributes: prefer `checked="${…}"` over `.checked="${…}"`
 
