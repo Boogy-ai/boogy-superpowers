@@ -15,23 +15,45 @@ calls, and REST/JSON-RPC/MCP surfaces.
 
 ## Install
 
-### Recommended — vendor into your project
+Two supported paths — pick one. **(a) loose skills** is the simplest for Claude
+Code; **(b) plugin** gives namespaced `/boogy:<name>` commands. Don't mix them.
 
-From your project root:
+### (a) Loose skills — vendor flat into `.claude/skills/` (recommended)
+
+The skill folders must land **exactly one level** under `.claude/skills/`
+(`.claude/skills/<name>/SKILL.md`). That's the only layout Claude Code's skill
+scan discovers — nesting them under a wrapper folder (e.g. `.claude/skills/boogy/…`)
+makes **all of them silently invisible**.
+
+From your project root, use the CLI:
 
 ```bash
-boogy skills install          # via the boogy CLI
-# or, without the CLI:
-npx degit Boogy-ai/boogy-superpowers/skills .claude/skills/boogy
+# one-time: install the boogy CLI itself
+cargo install --locked --git https://github.com/Boogy-ai/boogy-sdk boogy-cli
+
+boogy skills install      # vendors flat into .claude/skills/ — safe to re-run
 ```
 
-Claude Code auto-discovers `.claude/skills/`. Re-run `boogy skills update`
-(or the same degit command) to refresh.
+…or vendor without the CLI (note: target is `.claude/skills`, **no** wrapper suffix):
 
-### Use as a plugin
+```bash
+npx degit Boogy-ai/boogy-superpowers/skills .claude/skills
+```
+
+Then have the user run **`/reload-plugins`** — the new skills register in the
+current session, **no restart needed** (editing an existing `SKILL.md` is picked
+up automatically). Re-run `boogy skills install` to update; it replaces only
+Boogy's skills and never touches your own `.claude/skills` entries.
+
+> Skills are plain markdown — an agent can also just **Read** them directly
+> (start at `using-boogy/SKILL.md`) with no install step at all.
+
+### (b) Plugin — namespaced install
 
 The repo ships `.claude-plugin/plugin.json` (Claude Code) and
-`gemini-extension.json` (Gemini CLI); marketplace listings will follow.
+`gemini-extension.json` (Gemini CLI). Installing it as a plugin exposes the skills
+namespaced as `/boogy:<name>` (plugin skills are discovered via the manifest, so no
+flat-layout requirement applies). Marketplace listings will follow.
 
 ---
 
