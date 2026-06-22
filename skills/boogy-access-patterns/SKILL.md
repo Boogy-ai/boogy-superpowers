@@ -19,6 +19,17 @@ Each query you write maps to a verb you declared on the struct. Raw
 `store::find` / `FindOptions` is an **escape hatch** for shapes the DSL
 can't express — never the default for normal reads.
 
+**Every list read is bounded — there is no "fetch the whole table."** A
+list a client (or your own agent) walks through **keyset-paginates**
+(`.keyset_by(…).cursor(…).fetch_page(…)` → `CursorPage`); a one-shot
+internal read carries an explicit `.limit(n)`. **`.fetch_all()` with no
+`.limit()` is a bug** — it streams every matching row into memory and is
+exactly the "blindly load the whole table" mistake. Size the cap to row
+density: **~100** when rows are fat (large text / blobs / nested JSON),
+up to **~1000** when they're slim (a few scalar columns). Past that — or
+for anything a client scrolls — **keyset-paginate; don't just raise the
+cap.** A bigger `.limit()` still has a ceiling; a cursor doesn't.
+
 ## Verb → query mapping
 
 The verb you put on the model (see `boogy:boogy-data-modeling`) is the
@@ -128,7 +139,7 @@ let items: Vec<Conversation> = rows.iter().map(Conversation::from_row).collect()
 for an OR-of-AND group. Order: `order_by_asc`/`order_by_desc`/`order_by`.
 
 **Terminals:**
-- `.fetch_all()` → `Result<Vec<Row>>` — all matches (subject to `.limit()`)
+- `.fetch_all()` → `Result<Vec<Row>>` — all matches **up to `.limit()`**; an unbounded `.fetch_all()` (no `.limit()`) loads the whole table and is a bug — always cap it (~100–1000 by row density) or keyset instead
 - `.fetch_one()` → `Result<Option<Row>>` — first match (`limit` forced to 1)
 - `.fetch_all_with_total()` → `Result<(Vec<Row>, u64)>` — rows + count
 - `.count()` → `Result<u64>` — count only (ignores `.or()`, sort, page)
@@ -200,6 +211,7 @@ genuinely intentional small/single-owner/admin scans (chat's
 - "I'll reach for `store::find` / `FindOptions`" → that's the escape hatch. Use `db_find_by` / `Query` and a declared access pattern.
 - "I'll hand-write the index name" → the derive names it (`ix_<table>_<cols>`); the `name` you declared is discarded. Reference data by **columns** via `db_find_by` / the Query DSL — never by a hardcoded index name. A literal name passed to `for_each_batch`/`open_cursor` drifts from the canonical one and the cursor returns NotFound at runtime.
 - "Offset pagination is fine" → not for deep pages. `fetch_page` (keyset).
+- "I'll just `fetch_all()` the table" / "no limit needed, it's small for now" → unbounded read; today's small table is tomorrow's OOM and a slow query. Keyset-paginate a list anyone scrolls; cap a one-shot read with an explicit `.limit(100..=1000)` sized to row density.
 
 ## Integration
 

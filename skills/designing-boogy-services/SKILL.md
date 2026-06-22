@@ -22,6 +22,17 @@ ungoverned scaffold.
 
 ## The questionnaire
 
+0. **Name it** — what is the service/app called? Use the name from the
+   user's prompt if they gave one; **if they didn't, ask before
+   scaffolding — never invent a slug silently.** You need two forms: a
+   display **`name`** ("My Notes API") and a **`service.id`** slug — ASCII
+   alphanumeric plus `-`/`_`, no dots/slashes/Unicode (`my-notes-api`). The
+   `id` becomes your route subtree *and* your workload identity
+   (`boogy://<owner>/services/<id>`), and it is **hard to change after
+   deploy** — one quick confirmation now beats renaming a live workload
+   later. (This is the human-readable name; the precise discovery metadata —
+   `category`/`keywords`/`description` — is step 7.)
+
 1. **Shape, then kind** — two picks, **shape first**. Shape decides
    whether you run a backend at all; don't answer "what kind of service"
    before "is this even a service."
@@ -231,6 +242,7 @@ fabrication happens.
 | "They said skip design, so design is skipped." | Skip = compress to six lines, never zero. The gate holds under pressure. |
 | "I know the right ingress mode without the flowchart." | The modes have non-obvious distinctions (`allowed_agents` vs `allowed_origins`; internal rejects humans; delegation is opt-in). Walk it. |
 | "I'll figure out request/response shapes when I write handlers." | Decide the surface now, but know the rule that binds it at implementation: every handler's request body and response is a typed `#[derive(…, schemars::JsonSchema)]` DTO (`Json<T>`/`Created<T>`) — a CI gate FAILS untyped I/O. See `boogy:boogy-rest-apis`. |
+| "I'll name it later / pick a slug myself." | The `service.id` is your route subtree + workload identity (`boogy://owner/services/<id>`) and is hard to change post-deploy. If the user didn't name it, ask before scaffolding (step 0). |
 | "id + name is enough manifest metadata." | A module with bare `id`+`name` is nearly invisible in the registry — sketch a precise `category`, distinct `keywords`, and a plain-words `description` (see step 7 + `boogy:scaffolding-a-service`). |
 | "I'll just hand-roll the crypto / parser / encoding — it's not that hard." | That's where security holes and subtle bugs live. Reach for a trusted, audited library and **confirm it builds for `wasm32-wasip2`** with a quick spike first; hand-rolling is a flagged risk, never a silent default (step 2b). |
 | "It compiles into the wasm, so the library's fine." | Not until you've checked. Crates with native/C deps or `getrandom` may not build for `wasm32-wasip2` — spike the compat on day one, before the design depends on it. |

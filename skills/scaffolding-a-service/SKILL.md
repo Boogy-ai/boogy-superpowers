@@ -62,6 +62,53 @@ A hand-written `cols` module, `Table::new(...).text(...)`, or
 see `boogy:boogy-data-modeling`. Routes MUST carry `Router::info(...)` +
 `.summary()` + `.description()` (see `boogy:boogy-rest-apis`).
 
+## What `wit_glue!` injects — declare the struct, don't re-import
+
+`wit_glue!(bindings, MyApi)` generates the glue **and brings the common
+SDK names into your crate root for you.** Two failure modes follow from
+forgetting that:
+
+**1. You declare the unit struct and `impl Api` — the macro does not.**
+You pass the macro a *name*; you still write the type and the trait impl,
+or the generated code fails with "cannot find type `MyApi`":
+
+```rust
+// src/lib.rs
+mod bindings {
+    wit_bindgen::generate!({ world: "service", path: "wit" });
+}
+boogy_sdk::wit_glue!(bindings, MyApi);
+
+struct MyApi;                        // <-- you declare this
+impl boogy_sdk::Api for MyApi {      // <-- and this
+    fn init_tables() { create_model::<Message>(); }
+    fn build_router() -> Router { Router::new()/* …routes… */ }
+}
+```
+
+**2. Don't re-`use` what the macro already put in scope.** After
+`wit_glue!`, these are already at crate root — a `use boogy_sdk::{Json,
+ApiError, …}` on top of them is a double-import (`E0252` / "unused import"
+/ shadowing):
+
+`Router`, `Req`, `Params` · `ApiError`, `parse_body`, `validate_body` ·
+`Json`, `Created`, `NoContent`, `Redirect`, `IntoResponse`, `response` ·
+`Serialize`, `Deserialize`, `json` (the serde derives are in scope — no
+`use serde::…`) · `Row`, `StoreError`, `Table` · `Ctx`, `Principal`,
+`Path`, `FromRequest`, `DEFAULT_OWNER_COL`, and the
+`store`/`peer`/`secrets`/`signing`/`background_jobs`/`websockets` binding
+modules. (Note: `boogy_sdk::Query` the *request extractor* lands as
+`QueryExtractor`, so it doesn't collide with the `Query` DSL builder you
+call as `Query::on(M::TABLE)` — both are already in scope; don't import
+either.)
+
+**Rule of thumb: SDK types/traits/derives → already in scope, never
+`use` them; crates → declare in `Cargo.toml`.** You still add `serde`
+(derives), `serde_json`, and `schemars` as deps — those are crates the
+macro's output *references*, not names it re-exports. If the compiler
+flags an SDK name as "unused import" or "defined multiple times", delete
+your `use` — `wit_glue!` already has it.
+
 ## Every handler I/O is a typed `JsonSchema` DTO
 
 The first time you write a handler, define a typed DTO for its request
@@ -214,6 +261,8 @@ cargo build --target wasm32-wasip2 --release
 
 | Mistake | Do instead |
 |---------|------------|
+| Forgetting `struct MyApi;` after `wit_glue!(bindings, MyApi)` | Declare the unit struct **and** `impl Api for MyApi` yourself — the macro takes the name but doesn't define the type |
+| Re-importing SDK names the macro injects (`use boogy_sdk::{Router, Json, ApiError}`, `use serde::{Serialize, Deserialize}`) | Delete them — `wit_glue!` already brings `Router`/`Req`/`Json`/`Created`/`ApiError`/`Serialize`/`Deserialize`/… into scope. Add `serde`/`serde_json`/`schemars` as *deps*, not `use`s |
 | Copying template `path`/`workspace` deps into a real project | Git deps pinned to a rev (above) |
 | Omitting `serde_json` | Add it — `wit_glue!` needs it as a direct dep |
 | No `.gitignore` → generated `wit/` gets committed | Gitignore `/wit/` and `/target/` |

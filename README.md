@@ -71,13 +71,14 @@ validation (`validate_manifest`, `check_service`) and sign-in (`login`).
 
 ## Skill map
 
-29 skills, grouped by concern. Every skill appears exactly once.
+30 skills, grouped by concern. Every skill appears exactly once.
 
 ### Start here
 
 | Skill | Purpose |
 |---|---|
 | `skills/using-boogy/` | Entry point — routes any Boogy task (services, agent backends, MCP tools, meshes) to the right skill |
+| `skills/growing-boogy-meshes/` | Build with a person in the loop — walk them through the high-level choices in plain language while you handle the wiring, growing their mesh service-by-service |
 | `skills/designing-boogy-services/` | Run before writing any code — questionnaire that produces a design artifact covering routing, data, auth, and capabilities |
 | `skills/scaffolding-a-service/` | Turns a design artifact into a buildable project: manifest, Cargo setup, build loop |
 
@@ -140,7 +141,7 @@ validation (`validate_manifest`, `check_service`) and sign-in (`login`).
 flowchart TB
     U(["using-boogy — routes any Boogy task to the right area"])
     U --> A
-    A["Start here<br/>designing-boogy-services · scaffolding-a-service"]
+    A["Start here<br/>growing-boogy-meshes · designing-boogy-services · scaffolding-a-service"]
     B["Build the service<br/>rest-apis · mcp-services · websockets · webhooks · serving-frontends · api-specs"]
     C["Data & storage<br/>data-modeling · access-patterns · transactions · migrations"]
     D["Auth & security<br/>auth · account-auth · obo-delegation · secrets · signing · capability-limits"]
