@@ -161,6 +161,43 @@ reactive runtime you `import` directly, no compiler required. A minimal `web/ind
 platform transpiles it.) Include arrow-js at `web/vendor/@arrow-js/core.js`, or set
 `allow_cdn = true`.
 
+### Vendor a KNOWN-GOOD build — not every CDN artifact works
+
+arrow-js is pre-1.0 and not all published artifacts are usable standalone. Vendor a
+self-contained ES-module build and **pin the version**. Known-good for
+`@arrow-js/core@1.0.0-alpha.9`:
+
+- ✅ `https://cdn.jsdelivr.net/npm/@arrow-js/core@1.0.0-alpha.9/+esm` (self-contained, no external imports — recommended to vendor)
+- ✅ `https://unpkg.com/@arrow-js/core@1.0.0-alpha.9?module`
+- ✅ the esm.sh **default** entry (`https://esm.sh/@arrow-js/core@1.0.0-alpha.9`)
+- ❌ **`https://esm.sh/@arrow-js/core@1.0.0-alpha.9/es2022/core.bundle.mjs`** — loads,
+  exports the right names, throws nothing, and then **silently renders nothing**.
+  This is the easy-to-reach path and the worst to debug. Avoid it.
+- ⚠️ Fetching `esm.sh/...?bundle` **server-side** (curl/agent) returns a ~160-byte
+  re-export *shim*, not the module — so "download it with curl" mis-vendors. Use a
+  `/+esm` or `?module` build that is the actual code.
+
+After vendoring, **load the page in a real browser** and confirm `#app` actually
+renders — a blank page with no console error is the signature of a bad arrow-js
+build (and of mount/caching bugs); curl and `boogy check` won't catch it.
+
+### Boolean attributes: prefer `checked="${…}"` over `.checked="${…}"`
+
+In this arrow-js version, the **`.`-prefixed property binding** (`.checked`) can
+throw under multiple bindings on one element (`Cannot use 'in' operator … '$on'`),
+silently breaking the render. Use the **bare boolean-attribute binding**
+(`checked="${() => done}"`) — it reflects state correctly and avoids the bug. Same
+caution for other `.`-prefixed property bindings until the framework stabilizes.
+
+**Mount-correct by construction.** Your service is served under a mount
+(`/{owner}/{service}/…`), not the host root. You do **not** hand-write mount-aware
+URLs: the platform serves your index with a `<base href>` set to your mount and
+generates a **mount-relative** import map (`./vendor/…`), so a vendored bare
+import resolves correctly wherever the service is mounted and at any client-side
+route depth. Relative imports (`import "./vendor/core.js"`) and relative asset
+paths work the same way. Don't write host-root-absolute paths (`/vendor/…`,
+`/app.js`) — those ignore the mount and 404.
+
 ## Responsive by default — it must work on phone, desktop, AND wide screen
 
 A Boogy frontend is served to real users on real devices. Build it
@@ -184,6 +221,32 @@ body { margin: 0; font: 16px/1.5 system-ui, sans-serif; }
 @media (min-width: 48rem) { .grid { grid-template-columns: repeat(2, 1fr); } }
 button, input { min-height: 44px; font-size: 1rem; }
 ```
+
+## Discoverable by default — GEO/SEO is not optional
+
+A frontend served on Boogy is a real public page; build it so search engines and
+LLM/AI crawlers can find, read, and represent it. This is a **strong default**,
+not a footnote — ship it unless the user explicitly wants a private/internal tool.
+
+- **Document head, every page:** a unique, descriptive `<title>` and
+  `<meta name="description">`; `<meta name="viewport">` (already mandated above);
+  `<link rel="canonical">` to the page's own URL; `<html lang="…">`.
+- **Social/AI cards:** OpenGraph (`og:title`/`og:description`/`og:image`/`og:url`/
+  `og:type`) and Twitter card tags — this is what link unfurls and many AI
+  summaries read.
+- **Structured data:** a `<script type="application/ld+json">` JSON-LD block
+  describing the page (e.g. `WebSite`, `Organization`, `Product`, `Article`) so
+  engines and AI agents get typed facts, not guesses.
+- **Crawlability:** serve a `robots.txt` and a `sitemap.xml` (just files in your
+  `root`); use semantic HTML (`<header>/<main>/<nav>/<article>`, one `<h1>`,
+  meaningful headings) and `alt` text. Don't hide primary content behind a
+  click/interaction a crawler won't perform.
+- **SPA caveat — render meaningful HTML, not an empty shell.** A pure
+  client-rendered `<div id="app"></div>` gives crawlers nothing. At minimum put
+  the page's title/description/OG tags + core copy in the served `index` HTML so
+  the document is meaningful before JS runs; hydrate from there.
+- **Fast first paint** helps ranking and AI fetches: small critical assets,
+  no blocking work before content. (Assets revalidate via ETag — see caching.)
 
 ## Routing: api_prefix → wasm, everything else → assets + SPA fallback
 
@@ -221,6 +284,30 @@ Assets are **public by default** — anyone can load the page (including a clien
 login screen) — while the wasm `api_prefix` routes enforce the service's normal
 ingress. Set `private = true` to put asset serving behind the service ingress too
 (for an internal tool whose shell itself shouldn't be exposed).
+
+## Calling your API as a logged-in user
+
+For a same-origin FullStack app the auth token rides along **automatically** —
+the bare `fetch("./api/…")` shown above is usually all you write:
+
+- After a browser login (OAuth), the platform sets an HttpOnly `boogy_session`
+  cookie on your app's origin. A **same-origin** `fetch` sends it by default
+  (the Fetch API's default is `credentials: "same-origin"`), so you do **not**
+  set `credentials` and you do **not** build an `Authorization` header. The host
+  resolves the cookie to the principal exactly like a Bearer token, and your
+  `api_prefix` routes enforce the service's normal ingress.
+- Set `credentials: "include"` **only** for a *cross-origin* API (a different
+  origin) — which also requires `[ingress.cors]` with `allow_credentials = true`
+  (see *Cross-origin* below).
+- If you instead hold a token in JS (e.g. a password login that returned one in
+  its response body), attach it explicitly:
+
+```js
+fetch("./api/notes", { headers: { Authorization: `Bearer ${token}` } });
+```
+
+See `boogy:boogy-account-auth` for how a user gets that session and which login
+method delivers which transport.
 
 ## Security headers (always-on baseline + opt-in CSP)
 
@@ -303,6 +390,8 @@ ship `.ts`/`.js` source; the platform produces the served JavaScript.
 | Embed assets in the wasm binary | Assets live in object storage, served by the host — not in your wasm (no artifact-size hit). |
 | `import "@arrow-js/core"` will just work from anywhere | Bare imports resolve via the import map — vendor the file under `web/vendor/` or set `allow_cdn = true`. |
 | Put a big video in `root` and serve it from a handler | Large assets auto-offload to object storage via redirect; just drop the file in `root`. |
+| Ship a bare `<div id="app">` SPA with no head metadata | Crawlers and AI agents get nothing. Put title/description/OG + core copy in the served `index` HTML; add JSON-LD, `robots.txt`, `sitemap.xml`. GEO/SEO is a default, not a follow-up. |
+| Fold a reusable backend into this frontend service | If the API logic is generically useful, build it as its **own** (publicly provisionable) module — see `boogy:growing-boogy-meshes` — and keep this service the app-specific shell. |
 
 ## Integration
 

@@ -20,6 +20,19 @@ skips capabilities, ingress, and data entirely. The
 `designing-boogy-services` skill runs this questionnaire once installed;
 until then, answer them yourself first.
 
+## Interaction model — you wire, the person decides the shape
+
+When there's a person in the loop (a "vibe coder" who wants to build, not to learn
+the manifest), **you are the expert**: walk them through the few high-level choices
+that are genuinely theirs — who can use it, whether others can run their own copy,
+whether it needs a web page, anything that moves money or holds a secret — in plain
+language, **leading with a recommended answer**. Decide and apply everything else
+(ingress mechanism, capabilities, data model, transactions, wiring, the TOML)
+yourself with the smart default, then report those choices in one line each. Don't
+turn a build into an interrogation. `boogy:growing-boogy-meshes` is the full
+playbook (the ask/decide tiers, the interview loop, and how to grow a mesh
+service-by-service).
+
 ## Skill catalog
 
 *Catalog grows as skills ship; current entries below.*
@@ -27,6 +40,7 @@ until then, answer them yourself first.
 | Skill | Read when... |
 |-------|--------------|
 | `using-boogy` | starting any Boogy work — routes you to the right skill |
+| `growing-boogy-meshes` | building with a person in the loop — walking them through high-level choices in plain language while you handle the wiring, and growing their mesh service-by-service |
 | `designing-boogy-services` | starting a new service or major feature — runs the design questionnaire before any code |
 | `boogy-capability-limits` | a requirement might not be supported, or designing any new service/feature |
 | `scaffolding-a-service` | starting implementation of a designed service — project, manifest, build loop |
@@ -58,6 +72,17 @@ until then, answer them yourself first.
 
 No matching skill? Say so explicitly and work from the SDK reference
 docs rather than guessing.
+
+## Worked examples — the service catalog
+
+First-party example services live in the public catalog repo,
+**[Boogy-ai/boogy-catalog](https://github.com/Boogy-ai/boogy-catalog)** — real,
+deployable Boogy wasms you can read end-to-end as canonical, idiomatic
+references (manifest, capabilities, ingress, data layer, handlers). When a skill
+names one (e.g. `stripe-base`, `resend-base`), that's where the source lives.
+Before inventing structure for a new service, read the catalog example closest
+to your use case — it shows the conventions in working code. Each is
+BYO-config: you provision your own instance and bind your own keys.
 
 ## Sign in (get a deploy token)
 

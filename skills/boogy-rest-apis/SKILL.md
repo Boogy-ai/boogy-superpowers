@@ -143,6 +143,12 @@ fn create_widget(req: &mut Req<'_>) -> Result<Created<WidgetOut>, ApiError> {
 }
 ```
 
+`now_millis()` is **not an import** — `wit_glue!` emits it into your crate root, so
+call it bare (`now_millis()`) or as `crate::now_millis()` from a submodule. It
+returns the wall-clock time as `u64` epoch **milliseconds** (a thin wrapper over the
+`clock` capability's `runtime::now_millis`). There is no `boogy_sdk::clock::…` path
+to import; the macro provides it. (It needs the `clock` capability in your manifest.)
+
 Reads go through `db_get` / `db_find_by` / `Query` (see
 `boogy:boogy-access-patterns`). Raw `store::insert`/`find` is the escape
 hatch only.
@@ -210,6 +216,22 @@ NOT `0.20`. The derive macro emits `::garde::*` paths, so it's a direct
 dependency. Some rules are feature-gated: `#[garde(email)]` needs
 `features = ["email"]`, `#[garde(pattern(...))]` needs `["pattern"]` —
 enable them alongside `derive`.
+
+**Optional fields (`Option<T>`) — for PATCH/partial updates.** garde validates
+`Option<T>` by **skipping `None` and applying the rule to the inner value when
+`Some`** — exactly what you want for an optional PATCH field: omitted = unchanged,
+present = validated. Just put the rule on the field directly:
+
+```rust
+#[derive(Deserialize, garde::Validate)]
+struct PatchWidget {
+    #[garde(length(min = 1, max = 80))] name: Option<String>,  // checked only if present
+}
+```
+
+Do **not** reach for `inner(...)` here — `#[garde(inner(...))]` is for the elements
+of a **collection** (`Vec<String>`), not for `Option`. (Confirmed against garde
+0.22: every rule has an `impl … for Option<T>` that no-ops on `None`.)
 
 **`schemars = "0.8"` is required for spec generation.** Add it as a
 direct dep and derive `schemars::JsonSchema` on every DTO that appears

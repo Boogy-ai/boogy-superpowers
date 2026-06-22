@@ -70,7 +70,16 @@ shared singleton is fine; **stateful, sensitive, or isolation-critical**
 origin* regardless, so "consume" doesn't offload compute cost — it
 offloads operations.
 
-## Publishing a module
+## Publishing a module — a contribution to the shared library
+
+A **publicly-provisionable** module is more than your own deployment: it's a
+reusable building block anyone on the mesh can discover and stand up their own
+copy of — a shared library of running services. Publishing a clean, generic
+module (a data primitive, notifications, payments, an auth-ish utility) grows
+that library; the next person searches the registry and provisions yours instead
+of rebuilding it. Treat "is this generically useful?" as a first-class question
+when you build (`boogy:growing-boogy-meshes`, `boogy:designing-boogy-services`
+step 2c).
 
 ```bash
 boogy publish my-service.boogy.toml          # POST /v1/modules
@@ -97,6 +106,15 @@ allow = ["team-a", "team-b"]  # user_ids; required non-empty for allowlist
 - `public` (**default**) — anyone may provision.
 - `private` — only you (the author).
 - `allowlist` — only listed user_ids.
+
+**Which to pick (choose liberally).** The mode is *who may run their own copy* —
+not who may call your instance (that's `[ingress]`). Err toward open:
+- **`public`** for a **generic, stateless or bring-your-own-config** utility you
+  want others to run — this is what makes it a library contribution. The default,
+  and the right call for most reusable backends.
+- **`private`** for a module that **holds your data** or isn't meant to be re-run
+  by strangers — e.g. the backend of a specific full-stack app.
+- **`allowlist`** for named partners only.
 
 A caller who may not provision is **404-masked** (not 403) — your private
 module's existence isn't observable.

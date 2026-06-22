@@ -23,8 +23,11 @@ The platform exposes a self-serve account surface (mounted at
 - **Register** — `POST /_agents/register` with a handle + password (or
   for headless agents, register a keypair). Creates the account.
 - **Log in** — get back a bearer **token** + the account record.
-- **Use it** — the client sends that token as `Authorization: Bearer …`
-  on every request to your service.
+- **Use it** — the client presents that token on every request. *How* it's
+  presented depends on the login method (see the transport column below): a
+  readable `Authorization: Bearer …` header for password/passkey/agentkey, or
+  an HttpOnly `boogy_session` cookie for the browser OAuth flow. Either way the
+  platform resolves it to the same principal.
 
 The token is a signed, opaque bearer credential (a `v4.public.…` PASETO).
 **Only the platform can mint it** — your service cannot sign one and
@@ -35,17 +38,33 @@ must not try.
 Every method below runs through the **same single token-minting path**,
 so they all produce the same token shape and the same opaque principal:
 
-| Method | What it is |
-|---|---|
-| Password | handle + password |
-| Passkey | WebAuthn (`/_agents/passkey/*`) |
-| Agentkey | Ed25519 challenge for headless agents (`/_agents/agentkey/*`) |
-| Social OAuth | "Sign in with X" (`/_agents/oauth/*`) |
+| Method | What it is | Token transport |
+|---|---|---|
+| Password | handle + password | token in response body → client sets `Authorization: Bearer` |
+| Passkey | WebAuthn (`/_agents/passkey/*`) | token in response body → `Authorization: Bearer` |
+| Agentkey | Ed25519 challenge for headless agents (`/_agents/agentkey/*`) | token in response body → `Authorization: Bearer` |
+| Social OAuth | "Sign in with X" (`/_agents/oauth/*`) | **HttpOnly `boogy_session` cookie** set on the callback redirect — JS never sees the token |
 
 **Providers live today: Google and GitHub** (plus a generic OIDC provider for
 self-hosted / enterprise issuers), each enabled by setting its client-id +
 secret env vars on the host. TikTok, X, and LinkedIn are scaffolded but not
 wired — don't promise those.
+
+### Transport: header vs. cookie — same principal either way
+
+The login method differs in *how the token reaches your service*, but the
+platform resolves **both** transports to the same opaque principal before your
+code runs, so your service treats them identically:
+
+- **`Authorization: Bearer <token>`** — the primary path, and it always wins
+  when present. Password/passkey/agentkey logins return the token in the
+  response body and the client sets this header.
+- **`boogy_session` cookie** — the fallback, used by the browser OAuth flow
+  (which can't hand a token to JS). The host reads it only when no
+  `Authorization` header is present. **Service ingress resolves the
+  `boogy_session` cookie to the principal exactly like a Bearer token** — your
+  `authenticated`/owner-scoped routes work unchanged whether the caller sent a
+  header or rode the cookie.
 
 ## How your service consumes it
 
@@ -70,12 +89,18 @@ The **platform owns OAuth**. You do NOT implement it in your service.
    (`GET /_agents/oauth/providers`) and offers a "Sign in with Google"
    button.
 2. The button sends the user into the platform flow
-   (`/_agents/oauth/google/start`). The platform handles the redirect,
-   the callback, and find-or-create of the account.
-3. On success the user holds a platform token — the **same** token any
-   other login yields.
-4. Your service consumes the resulting principal via
-   `current_principal()`, exactly like every other login.
+   (`/_agents/oauth/google/start?return_to=<url>`). The platform handles the
+   redirect, the callback, and find-or-create of the account.
+3. On success the platform's callback
+   (`/_agents/oauth/{provider}/callback`) sets an **HttpOnly `boogy_session`
+   cookie** (`Secure; SameSite=Lax; Path=/`) — the **same** platform token any
+   other login yields, just delivered as a cookie because a server redirect
+   can't hand it to JS — then 302-redirects the browser to your `return_to`
+   URL (the query param you passed to `/start`; default `/`).
+4. The cookie is set on your app's origin, so the browser sends it
+   automatically on same-origin requests; the host resolves it to the
+   principal **exactly as it would a Bearer token**. Your service consumes that
+   principal via `current_principal()`, exactly like every other login.
 
 Your service implements no OAuth, mints no tokens, and never touches the
 Google credential.
@@ -88,10 +113,13 @@ Google credential.
 | "I'll register an agent per Google user and issue their token." | Your service **cannot sign platform tokens** and must not duplicate identity inside one tenant. Use the platform OAuth flow. |
 | "I'll store the user's password for re-auth." | Never. The platform owns credentials; your service only sees the resolved principal. Re-auth = send them through login again. |
 | "There's no social login, only password/agentkey." | Wrong — social OAuth (Google/GitHub) is a real platform feature. |
+| "After OAuth I'll read the token in JS and attach a Bearer header." | You can't — `boogy_session` is **HttpOnly** by design. You don't need to: a same-origin request sends the cookie automatically and the host resolves it like a Bearer. Don't try to extract it. |
 
 ## Integration
 
 ← `boogy:designing-boogy-services` picks the ingress mode that admits
 these tokens. → `boogy:boogy-auth` is what you do with the principal
 (ownership, scopes). → `boogy:boogy-obo-delegation` for one service
-acting on a user's behalf in another.
+acting on a user's behalf in another. ↔ `boogy:boogy-serving-frontends`
+for wiring this login into a FullStack SPA — the page calls its
+same-origin API and the `boogy_session` cookie rides along automatically.

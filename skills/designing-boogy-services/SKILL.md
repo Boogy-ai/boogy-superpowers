@@ -74,6 +74,17 @@ ungoverned scaffold.
    provide the primitive — e.g. `signing` for host-held keys — use it; don't
    pull a crate to re-implement a capability you already have.)
 
+   **2c. Reusability split** — is part of what you're building **generically
+   useful** beyond this one app (a data primitive, notifications, a payments or
+   auth-ish utility)? If so, prefer building that part as its **own backend
+   module** — default it to publicly provisionable (step 5) with rich metadata
+   (step 7) — so others can discover and run it: a healthy mesh grows from
+   reusable modules, not monoliths. **Default to a single full-stack service for
+   a simple app**, though — split only on a clear reuse signal, and surface the
+   split as a one-line check-in, not a forced restructure. (With a person in the
+   loop, `boogy:growing-boogy-meshes` drives this and the reach/provisioning
+   calls below in plain language.)
+
 3. **Backend surface(s)** — for a **FullStack** or **Service** shape, what
    API does the wasm expose: REST · JSON-RPC · MCP · hybrid? One service can
    serve **REST and MCP together** (same data, two surfaces); a split is a
@@ -108,7 +119,10 @@ ungoverned scaffold.
    Each one you grant is attack surface — justify it. (Vector/semantic
    search is not yet available — see `boogy:boogy-capability-limits`.)
 
-   **Sensitive-action choke point.** When a capability performs an
+   **Sensitive-action choke point.** *Skip this whole paragraph if you grant
+   none of those capabilities* — a plain owned-CRUD service (`store` + `auth`)
+   has no irreversible action to gate, so this collapses to nothing. Otherwise:
+   when a capability performs an
    **irreversible, sensitive action** — `signing`, a value-moving
    `outbound_http` call, a broadcast — list *every* handler/path that
    triggers it and route them all through **one shared gate**
@@ -156,9 +170,26 @@ digraph ingress {
    callers outright.
 
    **Delegation:** will another service act on a *user's* behalf when
-   calling you? If yes, opt in with `[ingress.delegation]` (`allow_actor`,
-   `max_delegated_scopes`); absent that block, on-behalf-of tokens are
-   rejected. Authorize on the **principal** (the user), never the actor.
+   calling you? A typical user-facing CRUD service needs none of this — leave
+   `[ingress.delegation]` out and on-behalf-of tokens are rejected by default.
+   If yes, opt in with `[ingress.delegation]` (`allow_actor`,
+   `max_delegated_scopes`). Authorize on the **principal** (the user), never the
+   actor.
+
+   **5b. Provisioning mode** — distinct from ingress: ingress is *who can call*
+   your running instance; `[provisioning]` is *who can stand up their **own**
+   copy* of the module. `mode = public (default) | private | allowlist`. Choose
+   liberally:
+   - **`public`** — a generic, **stateless or bring-your-own-config** utility you
+     want others to run (it joins the shared module library). The healthy
+     default for a reusable backend.
+   - **`private`** — a full app that **holds the owner's data**, or anything not
+     meant to be re-run by strangers. The right default for a full-stack app.
+   - **`allowlist`** — only named `user_ids` (partners). Requires a non-empty
+     `allow` list.
+
+   See `boogy:boogy-registry-and-provisioning` for the mechanics + the
+   library framing.
 
 6. **Data sketch** — the tables, each as a future `#[derive(Model)]`
    struct: its fields, the owner column (per-row ownership for
@@ -210,5 +241,9 @@ fabrication happens.
 
 ## Integration
 
-`boogy:using-boogy` routes new-service work here. Next, once the design
-artifact exists: `boogy:scaffolding-a-service` (ships in this release).
+`boogy:using-boogy` routes new-service work here. ↔ `boogy:growing-boogy-meshes`
+is the conversational layer for a person in the loop (the ask/decide tiers + the
+mesh-growth loop) — it calls this questionnaire for the per-service detail.
+→ `boogy:boogy-registry-and-provisioning` for discover-before-build + the
+provisioning modes (step 2 + 5b). Next, once the design artifact exists:
+`boogy:scaffolding-a-service` (ships in this release).

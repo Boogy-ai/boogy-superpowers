@@ -50,6 +50,26 @@ mode = "public"                 # anyone may reach /webhook
 | **Host-enforced at the edge.** Ingress runs *before* your wasm instantiates. | You do NOT self-gate a public route in code; but a public route means **anyone** reaches it — authenticate it some *other* way (e.g. an HMAC signature; see `boogy:boogy-webhooks`). |
 | **Delegation gate + rate limit stay SERVICE-WIDE.** | A public carve-out can't bypass the `[ingress.delegation]` gate, and shares the rate-limit bucket. |
 
+**FullStack / non-root-mounted services: the `path` is MOUNT-INCLUSIVE.** "The
+path your Router sees" includes the service mount — the host forwards the request
+to the guest *with* the mount, it does not strip it (the same frame as the mount
+rule in `boogy:boogy-serving-frontends`). So for a FullStack app mounted at
+`/todos` whose API lives under `api_prefix = "/api"`, a public carve-out for the
+SPA's auth-check endpoint must be the **mount-inclusive** path:
+
+```toml
+[ingress]
+mode = "authenticated"
+
+[[ingress.routes]]
+path = "/todos/api/me"          # NOT "/api/me" — include the mount
+mode = "public"
+```
+
+Writing the un-mounted `/api/me` is the trap: it never matches, the carve-out
+silently doesn't apply, and the route stays gated by the service default. (The
+`/webhook` example above works only because that service is mounted at root.)
+
 A manifest with no `[[ingress.routes]]` behaves exactly as before — this
 is purely additive.
 
@@ -108,10 +128,33 @@ workload" pattern also works but EXCLUDES direct human curl — prefer
 | `auth::load_owned(table, owner_col, id) -> Result<Option<Row>, _>` | Single load + ownership check for MCP/JSON-RPC (id in body, not path). `None` = missing OR not-yours. |
 | `auth::require_scope(scope) -> Guard` | Coarse capability gate: 401 if anonymous, **403 if logged in but lacks the scope**. |
 
-Owner column is always `DEFAULT_OWNER_COL` (`"owner_principal"`) — never
-invent `owner_id`/`created_by`. Wire item routes as
+**Owner column** — the `owner_col` argument above. Every per-user table has one
+column that records the **owning principal** of each row (the value from
+`auth::current_principal()`). Use the SDK constant **`DEFAULT_OWNER_COL`** for it
+— exported from `boogy_sdk` (`pub const DEFAULT_OWNER_COL: &str =
+"owner_principal"`) — both as the column name in your table *and* as the
+`owner_col` argument to the helpers. Don't invent `owner_id`/`created_by`:
+keeping the name uniform across services is what lets the ownership helpers,
+audit, and migration tooling work. Wire item routes as
 `.group([auth::owns_resource("things", DEFAULT_OWNER_COL, "id")], |g| …)`.
-Handlers behind that guard read the **ctx-stashed row** — don't re-fetch.
+
+**Reading the ctx-stashed row** — the guard already loaded + ownership-checked the
+row and put it in `req.ctx`; the handler reads it back, never re-fetches. The
+stashed value is a `boogy_sdk::store::Row`; pull it with `req.ctx.get::<Row>()`
+(default slot) or `req.ctx.get_at::<Row>("name")` when the guard used
+`.slot("name")`, then read columns off it:
+
+```rust
+fn get_thing(req: &mut Req<'_>) -> Result<Json<ThingOut>, ApiError> {
+    // owns_resource already loaded it + verified ownership + 404'd otherwise.
+    let row = req.ctx.get::<Row>().expect("owns_resource guard stashed the row");
+    Ok(Json(ThingOut { id: row.id(), name: row.text("name") }))
+}
+```
+
+(`Row` accessors: `.id()`, `.text(col)`, `.int(col)`, etc. — see
+`boogy:boogy-data-modeling`.) `get`/`get_at` return `Option<&T>`: present because
+the guard ran, so a missing value is a wiring bug, not a client error.
 
 **Owner-from-token rule:** on create, stamp the owner column from
 `auth::current_principal()`. NEVER read the owner from the request body

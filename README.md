@@ -40,6 +40,11 @@ The repo ships `.claude-plugin/plugin.json` (Claude Code) and
 `skills/using-boogy/SKILL.md` is the entry point — it routes every kind of
 Boogy task to the right skill. Open it first before any Boogy work.
 
+Or connect to Boogy's **public, anonymous MCP server** at `https://boogy.ai/mcp`
+(no account, no install — e.g. `claude mcp add boogy https://boogy.ai/mcp`) and
+call `get_started` / `get_skill`: it serves these same skills plus host-truth
+validation (`validate_manifest`, `check_service`) and sign-in (`login`).
+
 ---
 
 ## Skill map
