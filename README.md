@@ -40,7 +40,7 @@ boogy skills install      # vendors flat into .claude/skills/ — safe to re-run
 npx degit Boogy-ai/boogy-superpowers/skills .claude/skills
 ```
 
-Then have the user run **`/reload-plugins`** — the new skills register in the
+Then have the user run **`/reload-skills`** — the new skills register in the
 current session, **no restart needed** (editing an existing `SKILL.md` is picked
 up automatically). Re-run `boogy skills install` to update; it replaces only
 Boogy's skills and never touches your own `.claude/skills` entries.
