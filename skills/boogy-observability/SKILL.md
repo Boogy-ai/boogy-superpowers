@@ -78,7 +78,7 @@ the one id:
 
 ```bash
 RID=$(curl -sD - -o /dev/null -H "Authorization: Bearer $TOKEN" \
-  "https://<host>/alice/notes/api/notes" \
+  "https://alice.<base>/notes/api/notes" \
   | tr -d '\r' | awk -F': ' '/^x-boogy-request-id:/{print $2}')
 
 curl -H "Authorization: Bearer $TOKEN" \

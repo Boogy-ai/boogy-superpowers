@@ -180,6 +180,12 @@ digraph ingress {
    · `*`). They are not interchangeable — internal rejects human/anonymous
    callers outright.
 
+   **EndUser (SSO) and ingress modes:** an end-user who signs in via "Sign in
+   with Boogy" arrives as an `EndUser` pairwise principal. `EndUser` is admitted
+   by `public` and `authenticated`; it is **not** admitted by `allowlist`,
+   `internal`, or `mixed` (those require agent handles or workload URIs). For a
+   service intended for end-users, `authenticated` is the correct mode.
+
    **Delegation:** will another service act on a *user's* behalf when
    calling you? A typical user-facing CRUD service needs none of this — leave
    `[ingress.delegation]` out and on-behalf-of tokens are rejected by default.

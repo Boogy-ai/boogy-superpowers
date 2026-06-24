@@ -100,10 +100,16 @@ sign in, and confirm the code **matches** (anti-phishing). Then poll
 browser, saves the token to `~/.config/boogy/credentials.toml` so later CLI
 commands pick it up automatically.
 
+**This token is a control-plane credential.** It works for deploy, provision,
+`/_admin`, and the CLI/MCP. It is **NOT accepted at a deployed app's non-public
+routes** (403 — control-plane/app-plane boundary). See `boogy:boogy-account-auth`
+for the end-user SSO flow, and `boogy:deploying-boogy-services` for what to do
+when smoke-testing your own service.
+
 `boogy-account-auth` is a different concern: it covers how a **service's own
-end-users** log in to your deployed service (passwords, passkeys, social
-OAuth). This section is about *you* (the developer / agent) signing in to the
-platform to deploy.
+end-users** log in to your deployed service (via "Sign in with Boogy" SSO —
+delivering a per-app pairwise pseudonym). This section is about *you* (the
+developer / agent) signing in to the platform to deploy.
 
 ## Red flags
 

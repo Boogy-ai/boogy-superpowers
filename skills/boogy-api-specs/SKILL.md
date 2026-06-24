@@ -204,7 +204,7 @@ There are two distinct levels of spec document:
 
 | Level | URL | Format | Covers | Auth |
 |---|---|---|---|---|
-| **Service spec** | `GET /<owner>/<service-id>/…/openapi.json` | OpenAPI 3.0.3 | One deployed service's own routes | Two-tier (see above) |
+| **Service spec** | `GET https://<handle>.<base>/<service-id>/…/openapi.json` | OpenAPI 3.0.3 | One deployed service's own routes | Two-tier (see above) |
 | **Platform spec** | `GET <host>/openapi.json` | OpenAPI 3.1.0 | Full deploy lifecycle: `/_agents/*`, `/_admin/*`, `/v1/*` | Anonymous — no token needed |
 
 Use the **platform spec** when you need to understand the host's own API

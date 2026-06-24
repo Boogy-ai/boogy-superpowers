@@ -50,7 +50,7 @@ Module ref shape: `boogy://<owner>/modules/<id>@<version>`.
    `[service.owner]` table); `service.wasm` is **relative to the manifest
    file**, typically `target/wasm32-wasip2/release/<crate_name>.wasm`
    (Cargo turns `-` into `_`).
-3. Verify: `boogy list`, then `curl <host>/<user_id>/<path>`.
+3. Verify: `boogy list`, then `curl https://<handle>.<base>/<service>/<path>`.
 
 ## Updating a deployed service
 
@@ -88,6 +88,23 @@ boogy provision <module-ref> <service-id>
 | **`cpu_deadline_ms` out of range** | Keep it in `1..=600000`. |
 | **Missing token** ("set --token or BOOGY_TOKEN") | Export `BOOGY_TOKEN` or pass `--token`. |
 | **wasm not found** | `service.wasm` resolves relative to the manifest; build first and point at the real output path. |
+
+## Calling your own deployed service (control-plane/app-plane boundary)
+
+**Deploy, provision, and login via CLI or MCP are unaffected** — your global
+operator token works for all of those.
+
+However, if you try to `curl` or script-test your OWN deployed service's
+`authenticated` (non-public) route with the same token, you will receive a
+**403 `app_plane_requires_app_credential`**. Non-public app routes require an
+app-plane credential:
+
+| What you want | How |
+|---|---|
+| Smoke-test a `public`-ingress route | `curl` with no auth — anyone can reach it |
+| Smoke-test an `authenticated` route | Use an `sk_*` API key (requires `api_keys_glue!` in the service) |
+| Full SSO flow | Use the "Sign in with Boogy" flow (see `boogy:boogy-account-auth`) |
+| Your own first-party service | Add it to `BOOGY_FIRSTPARTY_WORKLOADS` (host config, never a manifest field) |
 
 ## Integration
 

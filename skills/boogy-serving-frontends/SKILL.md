@@ -144,7 +144,7 @@ boogy deploy app.boogy.toml --smoke
 boogy publish app.boogy.toml --provision --smoke
 ```
 
-After the deploy succeeds it loads `<host>/<owner>/<id>/` in a detected headless
+After the deploy succeeds it loads `https://<handle>.<base>/<id>/` in a detected headless
 Chrome/Chromium and asserts: the page renders non-empty content in `#app`
 (override with `--smoke-selector`), the console has no errors / uncaught
 exceptions, and no same-origin sub-resource returned ≥ 400. A failure prints a
@@ -221,7 +221,7 @@ silently breaking the render. Use the **bare boolean-attribute binding**
 caution for other `.`-prefixed property bindings until the framework stabilizes.
 
 **Mount-correct by construction.** Your service is served under a mount
-(`/{owner}/{service}/…`), not the host root. You do **not** hand-write mount-aware
+(`/<service>/…` on your tenant origin `<handle>.<base>`), not the host root. You do **not** hand-write mount-aware
 URLs: the platform serves your index with a `<base href>` set to your mount and
 generates a **mount-relative** import map (`./vendor/…`), so a vendored bare
 import resolves correctly wherever the service is mounted and at any client-side
@@ -287,7 +287,7 @@ against your asset files by exact path; a miss with no file extension serves
 `index` so your client-side router takes over (SPA fallback); a miss **with** an
 extension is a 404. Hashed assets are cached immutably; `index.html` is revalidated
 each load so a redeploy takes effect immediately. The page and the API are
-**same-origin** (`/{owner}/{service}/…`), so the page calls its API with relative
+**same-origin** (`<handle>.<base>/<service>/…`), so the page calls its API with relative
 URLs and there's no CORS.
 
 ### ⚠️ The mount rule (FullStack) — get this right or every API call 404s
@@ -300,11 +300,11 @@ subtree **relative to the mount**, not an absolute path.
 So if your wasm Router registers `.get("/notes/api/items", …)`:
 - mount → `[routing] path = "/notes"`
 - `api_prefix = "/api"` (the subtree under the mount that goes to the wasm)
-- frontend assets serve at the mount root (`/{owner}/notes/…`, the paths **not**
+- frontend assets serve at the mount root (`<handle>.<base>/notes/…`, the paths **not**
   under `api_prefix`).
 
 The trap: mounting at `/notes` but writing your guest routes as `/api/items`
-(without the mount). Then `/{owner}/notes/api/items` reaches the guest as
+(without the mount). Then `<handle>.<base>/notes/api/items` reaches the guest as
 `/notes/api/items`, your Router has no such route, and **every API call 404s with
 no other error**. Simplest convention: pick one mount, put ALL your guest routes
 under it (`<mount>/…`), and set `api_prefix` to the API sub-path.

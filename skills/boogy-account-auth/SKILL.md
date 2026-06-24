@@ -15,7 +15,29 @@ re-implement — badly — what the platform already owns.
    reads the resolved principal and scopes rows to it. That's
    `boogy:boogy-auth`. This skill is about layer 1.
 
-## How a user gets a token
+## Two tiers of identity — control plane vs app plane
+
+Boogy has **two planes**, and credentials for one are not accepted on the other.
+
+- **Control plane** — deploying services, the console, admin, account management
+  (`/v1`, `/_admin`, `/_agents`). A **global `Agent`** credential lives here:
+  `agent_<uuid>`, stable everywhere, minted at `/_agents/login`. This is *you,
+  to Boogy*.
+- **App plane** — a deployed service running at `<handle>.<base>/<service>`.
+  A **per-app `EndUser`** credential lives here: a `pw_…` pairwise pseudonym,
+  different at each app for the same human, one-way (the app can never recover
+  the global id). This is *you, masked, to someone else's app*.
+
+**A bare global Agent token is rejected (403) at a non-public tenant route.**
+The separation is enforced at tenant dispatch, not at token minting — login
+tokens stay the same. Accepted at non-public app routes: an `EndUser` SSO
+session (`boogy_app` cookie), an `sk_*` API key on a `public`-ingress route, or
+an OBO workload credential.
+
+The third principal, **`Workload`** (`boogy://owner/services/name`), covers
+service-to-service calls in the mesh (unchanged — see `boogy:boogy-obo-delegation`).
+
+## How a user gets a token (control-plane / developer identity)
 
 The platform exposes a self-serve account surface (mounted at
 `/_agents` on the host):
@@ -32,6 +54,10 @@ The platform exposes a self-serve account surface (mounted at
 The token is a signed, opaque bearer credential (a `v4.public.…` PASETO).
 **Only the platform can mint it** — your service cannot sign one and
 must not try.
+
+> **Scope:** this token is valid on the **control plane** (deploy, console,
+> admin). It is NOT accepted at a deployed app's non-public routes — see
+> "Sign in with Boogy" below for the app-plane flow.
 
 ## Login methods — all converge
 
@@ -66,24 +92,73 @@ code runs, so your service treats them identically:
   `authenticated`/owner-scoped routes work unchanged whether the caller sent a
   header or rode the cookie.
 
-## How your service consumes it
+## Sign in with Boogy — end-user app-plane SSO (new)
+
+For end-users of a **deployed app** (app-plane), the flow is
+**"Sign in with Boogy"** — an authorization-code flow where the platform
+acts as the identity provider:
+
+1. The app (via the `@boogy/web` browser SDK — **forthcoming; not yet built**,
+   or driven manually) opens `https://auth.<base>/authorize?aud=<service-workload-uri>&…` in a
+   popup (full-redirect fallback when popups are blocked).
+2. The auth origin handles login (passkey / password / social) if no
+   bootstrap session (`boogy_session`) exists, then shows consent.
+3. The auth origin mints a one-time authorization code and redirects to the
+   app origin's `/boogy/callback`.
+4. The **host intercepts `/boogy/callback`**, exchanges the code in-process
+   (PKCE; no network hop), and sets an httpOnly, host-only **`boogy_app` cookie**
+   on the app origin — then 302s back to the original path.
+5. Subsequent same-origin requests carry the cookie automatically.
+   `auth_middleware` reads it; the wasm sees the **pairwise pseudonym** via
+   `auth::current_principal()`.
+
+**Pairwise pseudonym:** the `sub` in every `boogy_app` token is `pw_…` — the
+same human gets a **different** id at each app. The app can never recover the
+global id. Because `current_principal()` returns an opaque string, handler code
+is unchanged — `find_owned`/`owns_resource` scope rows by the `pw_…` value with
+no SDK changes.
+
+**Two cookies, two origins, never shared:**
+
+| Cookie | Origin | Contents |
+|---|---|---|
+| `boogy_session` | `auth.<base>` (host-only, httpOnly) | Bootstrap PASETO; proves platform login; **cannot call any app** |
+| `boogy_app` | `<handle>.<base>` (host-only, httpOnly) | App PASETO (`aud` = one service, `sub` = `pw_…`; ~15 min TTL); grants exactly one service |
+
+> **`@boogy/web` SDK is forthcoming (not yet built).** Until it ships, a
+> consuming app drives `/authorize` → `/boogy/callback` by hand. Treat any
+> reference to `@boogy/web` as pending.
+
+Social login (Google/GitHub) is brokered at the bootstrap level — an app gets
+it for free without registering its own OAuth app.
+
+## How your service consumes end-user identity
 
 Grant the `auth` capability in your manifest, then read
 `auth::current_principal() -> Option<String>`. That value is the SAME
-whether the user logged in by password, passkey, agentkey, or Google —
-the platform resolves the verified token into one principal before your
-code runs. Programmatic `sk_*` API keys unify into the same value too.
+whether the end-user arrived via SSO (`pw_…` pairwise id), a password/passkey
+login (platform operator), or a programmatic `sk_*` API key — the platform
+resolves the verified credential into one opaque string before your code runs.
 
 The principal is **opaque**: never parse it, prefix-strip it, or assume
 it's a UUID. Use it only as your owner-column value and as input to the
-`auth::*` helpers (see `boogy:boogy-auth`).
+`auth::*` helpers (see `boogy:boogy-auth`). A `pw_…` pairwise id works
+identically to any other principal as an owner-column value.
 
 Your service **never** sees the password, the passkey, or the OAuth
 provider token. It only ever sees the resolved principal.
 
 ## Sign-in-with-Google: the real answer
 
-The **platform owns OAuth**. You do NOT implement it in your service.
+**For control-plane logins (developer / operator identity)** — Google OAuth
+is handled at the bootstrap layer. You do NOT implement it in your service.
+
+Social login (Google/GitHub) for **end-users of a deployed app** is also
+handled by the platform: it is brokered at the bootstrap layer on the auth
+origin during the "Sign in with Boogy" flow (step 2 above). Your app gets it
+for free and never registers its own Google OAuth app.
+
+Specifically for bootstrap (control-plane) OAuth:
 
 1. Your front-end asks the platform what's available
    (`GET /_agents/oauth/providers`) and offers a "Sign in with Google"
@@ -91,35 +166,32 @@ The **platform owns OAuth**. You do NOT implement it in your service.
 2. The button sends the user into the platform flow
    (`/_agents/oauth/google/start?return_to=<url>`). The platform handles the
    redirect, the callback, and find-or-create of the account.
-3. On success the platform's callback
-   (`/_agents/oauth/{provider}/callback`) sets an **HttpOnly `boogy_session`
-   cookie** (`Secure; SameSite=Lax; Path=/`) — the **same** platform token any
-   other login yields, just delivered as a cookie because a server redirect
-   can't hand it to JS — then 302-redirects the browser to your `return_to`
-   URL (the query param you passed to `/start`; default `/`).
-4. The cookie is set on your app's origin, so the browser sends it
-   automatically on same-origin requests; the host resolves it to the
-   principal **exactly as it would a Bearer token**. Your service consumes that
-   principal via `current_principal()`, exactly like every other login.
+3. On success the platform's callback sets an **HttpOnly `boogy_session`
+   cookie** on the auth origin — the same platform token any other login
+   yields. For control-plane use (developer console), that cookie is the
+   credential.
 
-Your service implements no OAuth, mints no tokens, and never touches the
-Google credential.
+For app-plane (end-user) use the "Sign in with Boogy" SSO flow above is the
+correct path — the `boogy_session` bootstrap cookie lands on the auth origin
+and cannot directly call a deployed app.
 
 ## Red flags
 
 | Thought | Reality |
 |---|---|
-| "I'll mint `sk_*` keys as user sessions." | API keys aren't logins. Scoping every user to one service principal **breaks per-user isolation**. Send users through the platform login. |
-| "I'll register an agent per Google user and issue their token." | Your service **cannot sign platform tokens** and must not duplicate identity inside one tenant. Use the platform OAuth flow. |
+| "I'll mint `sk_*` keys as user sessions." | API keys aren't logins. Scoping every user to one service principal **breaks per-user isolation**. Send users through the SSO flow. |
+| "I'll register an agent per Google user and issue their token." | Your service **cannot sign platform tokens** and must not duplicate identity inside one tenant. Use the platform SSO / OAuth flow. |
 | "I'll store the user's password for re-auth." | Never. The platform owns credentials; your service only sees the resolved principal. Re-auth = send them through login again. |
-| "There's no social login, only password/agentkey." | Wrong — social OAuth (Google/GitHub) is a real platform feature. |
-| "After OAuth I'll read the token in JS and attach a Bearer header." | You can't — `boogy_session` is **HttpOnly** by design. You don't need to: a same-origin request sends the cookie automatically and the host resolves it like a Bearer. Don't try to extract it. |
+| "There's no social login, only password/agentkey." | Wrong — social OAuth (Google/GitHub) is brokered at the platform bootstrap layer; end-users get it via the "Sign in with Boogy" SSO flow. |
+| "After OAuth I'll read the token in JS and attach a Bearer header." | You can't — both `boogy_session` and `boogy_app` are **httpOnly** by design. You don't need to: a same-origin request sends the cookie automatically. Don't try to extract it. |
+| "My global deploy token works fine for calling my deployed service." | A bare global Agent token is **rejected (403)** at a non-public app route — the control-plane/app-plane boundary. Use an SSO `boogy_app` cookie, an `sk_*` key on a public route, or add the service to the first-party allowlist. |
+| "The `pw_…` pairwise id needs special handling in my code." | It is an opaque string to your service — exactly like any other principal. `find_owned`/`owns_resource` work unchanged. Never parse or assume the `pw_` prefix. |
 
 ## Integration
 
 ← `boogy:designing-boogy-services` picks the ingress mode that admits
 these tokens. → `boogy:boogy-auth` is what you do with the principal
-(ownership, scopes). → `boogy:boogy-obo-delegation` for one service
+(ownership, scopes, the control-plane/app-plane boundary). → `boogy:boogy-obo-delegation` for one service
 acting on a user's behalf in another. ↔ `boogy:boogy-serving-frontends`
-for wiring this login into a FullStack SPA — the page calls its
-same-origin API and the `boogy_session` cookie rides along automatically.
+for wiring this into a FullStack SPA — the page calls its same-origin API
+and the `boogy_app` cookie rides along automatically.

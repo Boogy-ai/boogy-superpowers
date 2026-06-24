@@ -64,6 +64,12 @@ nothing — it's removed by design. To convey who the call is for:
   identity for you; the callee opts in and keys on the principal. See
   `boogy:boogy-obo-delegation`.
 
+**End-user (SSO) identity does not ride `peer::fetch` in v1.** A peer
+call made while handling an end-user request flows as the calling
+**workload** — the callee sees the workload, not the end-user's pairwise
+id. Per-target pairwise OBO (re-deriving the user's pairwise for the
+callee) is deferred. Agent/workload OBO is unchanged and fully works.
+
 ## Knowing your OWN identity: `self_identity()`
 
 A service can ask the host who *it* is:

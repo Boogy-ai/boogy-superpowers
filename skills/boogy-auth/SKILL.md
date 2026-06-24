@@ -8,6 +8,32 @@ description: Use when adding authorization to a Boogy service — per-user data,
 Authorization on Boogy is three layers. Don't hand-roll any of them —
 the SDK emits verified helpers that keep the security invariants intact.
 
+## The control-plane / app-plane boundary
+
+Boogy enforces a hard split between two planes. **Non-public tenant (app)
+routes require an app-plane credential.** A bare global **Agent** token (your
+deploy / console credential) is **rejected with 403** at a non-public app route
+— unless the service is explicitly first-party-allowlisted.
+
+**Accepted at non-public app routes:**
+
+| Credential | Arrives as |
+|---|---|
+| `boogy_app` cookie (end-user SSO) | `EndUser { pairwise_id: "pw_…" }` |
+| `sk_*` API key on a `public`-ingress route | anonymous at host; wasm self-auths |
+| OBO `Workload` (peer call) | `Workload { uri }` |
+| Global `Agent` for first-party-allowlisted services only | `Agent` |
+
+Control-plane routes (`/v1`, `/_admin`, `/_agents`, `/mcp`, `/healthz`) match
+**before** tenant dispatch, so your global Agent token works there exactly as
+before. Deploy/provision/login via CLI or MCP are **unaffected**.
+
+> **Deploy/test caveat:** if you try to `curl` or smoke-test your OWN deployed
+> service's `authenticated` route with your global operator token, it will
+> **403**. Use an `sk_*` key on a `public`-ingress route, hit a public endpoint,
+> or (for your own first-party service) add it to `BOOGY_FIRSTPARTY_WORKLOADS`.
+> Login, deploy, and provision via CLI/MCP are unaffected.
+
 ## The three-layer model
 
 1. **Ingress admits** — the platform's ingress mode decides whether a
@@ -20,6 +46,23 @@ the SDK emits verified helpers that keep the security invariants intact.
 Resolve the caller with `auth::current_principal() -> Option<String>`.
 The principal is **opaque** — never parse, prefix-strip, or assume a
 UUID; use it only as your owner-column value and as input to `auth::*`.
+An end-user SSO session surfaces as a `pw_…` pairwise id; treat it exactly
+like any other principal (ownership scoping is unchanged).
+
+### EndUser ingress semantics
+
+| Ingress mode | `EndUser` admitted? |
+|---|---|
+| `public` | yes |
+| `authenticated` | yes (any non-anonymous identity) |
+| `allowlist` | **no** — `pw_…` is opaque, cannot match agent/handle entries |
+| `internal` | **no** — workload-only |
+| `mixed` | **no** — tries internal then allowlist; neither admits `EndUser` |
+
+An owner's own `allowlist`-gated or `private` surface will reject the owner's
+SSO session — after SSO they arrive as `EndUser`, which cannot match an
+`allowlist` entry. Use `BOOGY_FIRSTPARTY_WORKLOADS` (global identity) or an
+`sk_*` key on a `public` route if you need owner-level access to such a surface.
 
 ## Per-route ingress: a public route inside a restricted service
 
@@ -199,6 +242,8 @@ Invoke `api_keys_glue!(bindings)` next to `wit_glue!`, then:
 | "I'll add a custom api_keys table." | `api_keys_glue!` ships a hashed, isolated, scope-aware table. Use it. |
 | "Read the owner id from the request body." | Stamp it from `current_principal()`. The body is attacker-controlled. |
 | "A public `[[ingress.routes]]` route still needs an in-wasm auth check." | Public means anyone reaches it — authenticate it another way (HMAC signature for webhooks). The override doesn't self-gate. |
+| "I'll smoke-test my `authenticated` route with my deploy/operator token." | That token is a global Agent — **rejected 403** at a non-public tenant route (the control-plane/app-plane boundary). Use an `sk_*` key, a public route, or the SSO flow. Deploy/provision/login itself is unaffected. |
+| "The `pw_…` prefix means I need special ownership logic for end-users." | `current_principal()` is an opaque string regardless of type. `find_owned`/`owns_resource` work unchanged for pairwise ids. |
 
 ## Integration
 

@@ -88,6 +88,7 @@ Plain-language first; a concise technical aside for those who know the system.
 | "I'll build the thing they asked for." | Search the registry first — it may already exist. Reuse grows the mesh faster than rebuilding. |
 | "This util holds user data but I'll make it public-provisionable." | Public provisioning suits **stateless / bring-your-own-config** utilities. A data-holding app is `private`. |
 | "I built it; they'll trust it works." | Report the Tier-2 choices you made, in plain language. Transparency is part of the deal. |
+| "We'll smoke-test the `authenticated` route with the deploy token." | The deploy/operator token is **rejected 403** at non-public app routes (control-plane/app-plane boundary). Use an `sk_*` key, a public route, or the SSO flow to exercise it. Login/deploy/provision are unaffected. |
 
 ## Integration
 

@@ -37,6 +37,12 @@ down to Layer 1; verify everything else at Layer 3.
 hit the running service with `curl` or an API client. This IS the
 integration layer; there is no local substitute. Cover, per endpoint:
 
+> **Calling your OWN deployed service's non-public route:** your global operator
+> (deploy/console) token will be **rejected with 403** — non-public app routes
+> require an app-plane credential. Use an `sk_*` API key, hit a `public`-ingress
+> route, or use the SSO flow. Login, deploy, and provision are unaffected.
+> See `boogy:deploying-boogy-services`.
+
 - **Happy path** — expected status + response shape.
 - **Authz negatives** (non-negotiable): no credential on a protected
   route → **401**; a credential for a *different* principal asking for
