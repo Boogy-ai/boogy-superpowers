@@ -180,18 +180,25 @@ digraph ingress {
    · `*`). They are not interchangeable — internal rejects human/anonymous
    callers outright.
 
-   **EndUser (SSO) and ingress modes:** an end-user who signs in via "Sign in
-   with Boogy" arrives as an `EndUser` pairwise principal. `EndUser` is admitted
-   by `public` and `authenticated`; it is **not** admitted by `allowlist`,
-   `internal`, or `mixed` (those require agent handles or workload URIs). For a
-   service intended for end-users, `authenticated` is the correct mode.
+   **End-user (SSO) and ingress modes:** an end-user who signs in via "Sign in
+   with Boogy" arrives with a `pw_…` pairwise pseudonym — a per-service mask of
+   their real identity, stable and path-independent for that `(user, service)`.
+   The pairwise is admitted by `public` and `authenticated`; it is **not**
+   admitted by `internal` or `mixed` (those require workload URIs). For
+   `allowlist`, admission is conditional: the `pw_…` mask cannot match directly,
+   but the host resolves the user's real account for the admission check, so an
+   app-signed-in user CAN be admitted if their real account id or handle appears
+   in `allowed_agents` (the wasm still sees only the mask). For a service
+   intended for end-users, `authenticated` is the correct mode.
 
    **Delegation:** will another service act on a *user's* behalf when
    calling you? A typical user-facing CRUD service needs none of this — leave
-   `[ingress.delegation]` out and on-behalf-of tokens are rejected by default.
-   If yes, opt in with `[ingress.delegation]` (`allow_actor`,
-   `max_delegated_scopes`). Authorize on the **principal** (the user), never the
-   actor.
+   `[ingress.delegation]` out and on-behalf-of calls are denied by default. If
+   yes, opt in with `[ingress.delegation]` (`allow_actor`,
+   `max_delegated_scopes`). This gate also controls whether an end-user's
+   identity can arrive via a call chain — the calling service brings the user in,
+   re-masked as your service's own pairwise for that user. Authorize on the
+   **principal** (the user's pairwise), never the actor.
 
    **5b. Provisioning mode** — distinct from ingress: ingress is *who can call*
    your running instance; `[provisioning]` is *who can stand up their **own**

@@ -64,11 +64,16 @@ nothing — it's removed by design. To convey who the call is for:
   identity for you; the callee opts in and keys on the principal. See
   `boogy:boogy-obo-delegation`.
 
-**End-user (SSO) identity does not ride `peer::fetch` in v1.** A peer
-call made while handling an end-user request flows as the calling
-**workload** — the callee sees the workload, not the end-user's pairwise
-id. Per-target pairwise OBO (re-deriving the user's pairwise for the
-callee) is deferred. Agent/workload OBO is unchanged and fully works.
+**End-user identity rides `peer::fetch` when the callee opts in** (via
+`[ingress.delegation]`, deny-by-default). When a service handles a
+request for an end-user and calls another service via `peer::fetch`, the
+user's identity propagates through the chain. The callee receives the
+user's pairwise for **that callee's service** as `principal`, with
+`actor` = the calling workload. The pairwise is a path-independent
+fingerprint of `(user, callee-service)`, so the same user always lands
+on the same per-service pairwise whether they visited directly or arrived
+through a chain — "both notes are mine." Without `[ingress.delegation]`
+on the callee, the hop is denied.
 
 ## Knowing your OWN identity: `self_identity()`
 

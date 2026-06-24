@@ -19,10 +19,10 @@ deploy / console credential) is **rejected with 403** at a non-public app route
 
 | Credential | Arrives as |
 |---|---|
-| `boogy_app` cookie (end-user SSO) | `EndUser { pairwise_id: "pw_…" }` |
+| `boogy_app` cookie (end-user SSO) | `pw_…` pairwise (projected at this service boundary) |
 | `sk_*` API key on a `public`-ingress route | anonymous at host; wasm self-auths |
-| OBO `Workload` (peer call) | `Workload { uri }` |
-| Global `Agent` for first-party-allowlisted services only | `Agent` |
+| OBO delegation (peer call from another service) | `pw_…` pairwise for the delegated user (if delegation gate passes), or the calling workload URI |
+| Global agent token for first-party-allowlisted services only | `agent_<uuid>` |
 
 Control-plane routes (`/v1`, `/_admin`, `/_agents`, `/mcp`, `/healthz`) match
 **before** tenant dispatch, so your global Agent token works there exactly as
@@ -49,20 +49,34 @@ UUID; use it only as your owner-column value and as input to `auth::*`.
 An end-user SSO session surfaces as a `pw_…` pairwise id; treat it exactly
 like any other principal (ownership scoping is unchanged).
 
-### EndUser ingress semantics
+### End-user ingress semantics
 
-| Ingress mode | `EndUser` admitted? |
+An end-user who signs in via "Sign in with Boogy" arrives with a `pw_…` pairwise
+pseudonym — a per-service mask of their real identity. The mask is stable: the
+same user always lands on the same pairwise at a given service, whether they
+visited directly or arrived via a delegated call chain. Different services see
+different, mutually-unlinkable masks.
+
+| Ingress mode | App-scoped end-user (`pw_…`) admitted? |
 |---|---|
 | `public` | yes |
 | `authenticated` | yes (any non-anonymous identity) |
-| `allowlist` | **no** — `pw_…` is opaque, cannot match agent/handle entries |
+| `allowlist` | **conditionally** — `pw_…` is opaque and cannot match directly, but the host resolves the user's real account for the admission check, so an app-signed-in user IS admitted if their real account id or handle is in `allowed_agents` (wasm still sees only the mask) |
 | `internal` | **no** — workload-only |
-| `mixed` | **no** — tries internal then allowlist; neither admits `EndUser` |
+| `mixed` | **no** — tries internal then allowlist; neither admits a pairwise |
 
 An owner's own `allowlist`-gated or `private` surface will reject the owner's
-SSO session — after SSO they arrive as `EndUser`, which cannot match an
+SSO session — after SSO they arrive as a pairwise, which cannot match an
 `allowlist` entry. Use `BOOGY_FIRSTPARTY_WORKLOADS` (global identity) or an
 `sk_*` key on a `public` route if you need owner-level access to such a surface.
+
+**End-user identity in delegation chains:** when another service calls yours on
+a user's behalf (OBO), the user's identity propagates through the chain — gated
+by your `[ingress.delegation]` opt-in. Your service receives a delegated
+identity where `principal` = the user's pairwise for YOUR service and `actor` =
+the calling workload. The same user always lands on the same per-service pairwise
+regardless of path, so "both notes are mine" holds even when one note was filed
+directly and the other arrived via a chain.
 
 ## Per-route ingress: a public route inside a restricted service
 
@@ -243,7 +257,8 @@ Invoke `api_keys_glue!(bindings)` next to `wit_glue!`, then:
 | "Read the owner id from the request body." | Stamp it from `current_principal()`. The body is attacker-controlled. |
 | "A public `[[ingress.routes]]` route still needs an in-wasm auth check." | Public means anyone reaches it — authenticate it another way (HMAC signature for webhooks). The override doesn't self-gate. |
 | "I'll smoke-test my `authenticated` route with my deploy/operator token." | That token is a global Agent — **rejected 403** at a non-public tenant route (the control-plane/app-plane boundary). Use an `sk_*` key, a public route, or the SSO flow. Deploy/provision/login itself is unaffected. |
-| "The `pw_…` prefix means I need special ownership logic for end-users." | `current_principal()` is an opaque string regardless of type. `find_owned`/`owns_resource` work unchanged for pairwise ids. |
+| "The `pw_…` prefix means I need special ownership logic for end-users." | `current_principal()` is an opaque string regardless of how it was derived. `find_owned`/`owns_resource` work unchanged for pairwise ids. |
+| "If a user calls my service via a chain, they'll get a different owner than a direct visit." | No — the pairwise is a fingerprint of `(user, your-service)`, path-independent. Direct visit and chain arrival produce the same `pw_…` at your boundary. |
 
 ## Integration
 

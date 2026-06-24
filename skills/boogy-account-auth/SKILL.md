@@ -24,13 +24,14 @@ Boogy has **two planes**, and credentials for one are not accepted on the other.
   `agent_<uuid>`, stable everywhere, minted at `/_agents/login`. This is *you,
   to Boogy*.
 - **App plane** — a deployed service running at `<handle>.<base>/<service>`.
-  A **per-app `EndUser`** credential lives here: a `pw_…` pairwise pseudonym,
-  different at each app for the same human, one-way (the app can never recover
-  the global id). This is *you, masked, to someone else's app*.
+  An **app-scoped Agent** credential lives here: internally the same real agent,
+  but masked at each tenant-service boundary to a `pw_…` pairwise pseudonym —
+  different at each service for the same human, one-way (the service can never
+  recover the global id). This is *you, masked per service, to someone else's app*.
 
 **A bare global Agent token is rejected (403) at a non-public tenant route.**
 The separation is enforced at tenant dispatch, not at token minting — login
-tokens stay the same. Accepted at non-public app routes: an `EndUser` SSO
+tokens stay the same. Accepted at non-public app routes: an app-scoped SSO
 session (`boogy_app` cookie), an `sk_*` API key on a `public`-ingress route, or
 an OBO workload credential.
 
@@ -113,10 +114,12 @@ acts as the identity provider:
    `auth::current_principal()`.
 
 **Pairwise pseudonym:** the `sub` in every `boogy_app` token is `pw_…` — the
-same human gets a **different** id at each app. The app can never recover the
-global id. Because `current_principal()` returns an opaque string, handler code
-is unchanged — `find_owned`/`owns_resource` scope rows by the `pw_…` value with
-no SDK changes.
+same human gets a **different** id at each service. The service can never recover
+the global id. The mask is a path-independent fingerprint of `(user, service)`:
+the same user always lands on the same pairwise at a given service whether they
+visited directly or arrived via a delegation chain. Because `current_principal()`
+returns an opaque string, handler code is unchanged — `find_owned`/`owns_resource`
+scope rows by the `pw_…` value with no SDK changes.
 
 **Two cookies, two origins, never shared:**
 
@@ -186,6 +189,7 @@ and cannot directly call a deployed app.
 | "After OAuth I'll read the token in JS and attach a Bearer header." | You can't — both `boogy_session` and `boogy_app` are **httpOnly** by design. You don't need to: a same-origin request sends the cookie automatically. Don't try to extract it. |
 | "My global deploy token works fine for calling my deployed service." | A bare global Agent token is **rejected (403)** at a non-public app route — the control-plane/app-plane boundary. Use an SSO `boogy_app` cookie, an `sk_*` key on a public route, or add the service to the first-party allowlist. |
 | "The `pw_…` pairwise id needs special handling in my code." | It is an opaque string to your service — exactly like any other principal. `find_owned`/`owns_resource` work unchanged. Never parse or assume the `pw_` prefix. |
+| "If a user reaches my service via a chain, they get a different owner than a direct visit." | No — the pairwise is a fingerprint of `(user, your-service)`. Direct visit and chain arrival produce the same `pw_…`. |
 
 ## Integration
 
