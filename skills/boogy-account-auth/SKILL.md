@@ -45,6 +45,13 @@ The platform exposes a self-serve account surface (mounted at
 
 - **Register** — `POST /_agents/register` with a handle + password (or
   for headless agents, register a keypair). Creates the account.
+  - **A handle IS the subdomain** — it must be a DNS label: lowercase
+    `[a-z0-9-]` only (no `_`, `.`, or spaces). Services are reached at
+    `https://<handle>.<base>/<service>/<path>`. Registration coerces fixable
+    input to a valid label (`my_app` → `my-app`) and returns the final handle;
+    reserved or already-taken handles are rejected so the user picks another.
+    A handle that isn't a valid label would be unroutable — enforced at
+    registration, not discovered at deploy.
 - **Log in** — get back a bearer **token** + the account record.
 - **Use it** — the client presents that token on every request. *How* it's
   presented depends on the login method (see the transport column below): a

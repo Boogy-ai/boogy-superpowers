@@ -86,7 +86,14 @@ BYO-config: you provision your own instance and bind your own keys.
 
 ## Sign in (get a deploy token)
 
-Deploying requires a token. Two paths — the MCP path requires no install:
+Deploying requires a token. Two paths — the MCP path requires no install.
+
+A first-time sign-in picks a **handle**, and **your handle IS your subdomain** —
+a DNS label, lowercase `[a-z0-9-]` only (no `_`, `.`, or spaces). Your services
+are reached at `https://<handle>.<base>/<service>/<path>`. Messy input is coerced
+(`my_app` → `my-app`) and the final handle is returned; reserved/taken → pick
+another. (There is no path-based `/<owner>/<service>` form — routing is
+subdomain-only, so a non-label handle would be unroutable.)
 
 **MCP (primary — zero install):** If you are connected to Boogy's MCP server,
 call the `login` tool. It returns a `user_code`, a verification URL, and a
