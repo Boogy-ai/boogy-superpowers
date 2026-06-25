@@ -24,9 +24,12 @@ generated `openapi.json` lists each `Router::mcp` mount as a POST
 operation pointing clients at that flow.
 
 "Relative to service subtree" means the path is suffix-matched inside
-the service's own routing prefix. For a service deployed at
-`/alice/notes-api`, `GET /alice/notes-api/api/openapi.json` returns the
-doc.
+the service's own routing prefix. For a service `notes-api` deployed under
+handle `alice` (reached at `https://alice.<base>/notes-api/…`), its
+`GET /api/openapi.json` route is served at
+`https://alice.<base>/notes-api/api/openapi.json`. Services are addressed
+by **subdomain** (`<handle>.<base>/<service-id>/<path>`), never by an
+`/<owner>/<service>` URL path prefix.
 
 The host forwards spec-doc GETs to the service even when the manifest
 `[routing] methods` list excludes GET — no manifest change required.
