@@ -1,0 +1,13 @@
+{
+  "name": "boogy",
+  "owner": {
+    "name": "Boogy"
+  },
+  "plugins": [
+    {
+      "name": "boogy-superpowers",
+      "source": "./",
+      "description": "One-shot agent onramp for Boogy: skills, the builder MCP, and the setup gate."
+    }
+  ]
+}

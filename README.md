@@ -68,7 +68,22 @@ Boogy's skills and never touches your own `.claude/skills` entries.
 The repo ships `.claude-plugin/plugin.json` (Claude Code) and
 `gemini-extension.json` (Gemini CLI). Installing it as a plugin exposes the skills
 namespaced as `/boogy:<name>` (plugin skills are discovered via the manifest, so no
-flat-layout requirement applies). Marketplace listings will follow.
+flat-layout requirement applies).
+
+Install by name from the marketplace:
+
+```bash
+claude plugin marketplace add Boogy-ai/boogy-superpowers
+claude plugin install boogy-superpowers
+```
+
+Installing the plugin also wires the Boogy MCP (`login`, `validate_manifest`,
+`check_service` as tools) and the onramp gate — so you get skills + live
+host-truth validation in one step.
+
+> **Local dev / own host:** the MCP URL in `.claude-plugin/plugin.json` is
+> hardcoded to `https://api.boogy.ai/mcp`. If you run your own host, edit the
+> `mcpServers.boogy.url` value in that file to point at your instance.
 
 ---
 
@@ -77,8 +92,8 @@ flat-layout requirement applies). Marketplace listings will follow.
 `skills/using-boogy/SKILL.md` is the entry point — it routes every kind of
 Boogy task to the right skill. Open it first before any Boogy work.
 
-Or connect to Boogy's **public, anonymous MCP server** at `https://boogy.ai/mcp`
-(no account, no install — e.g. `claude mcp add boogy https://boogy.ai/mcp`) and
+Or connect to Boogy's **public, anonymous MCP server** at `https://api.boogy.ai/mcp`
+(no account, no install — e.g. `claude mcp add boogy https://api.boogy.ai/mcp`) and
 call `get_started` / `get_skill`: it serves these same skills plus host-truth
 validation (`validate_manifest`, `check_service`) and sign-in (`login`).
 

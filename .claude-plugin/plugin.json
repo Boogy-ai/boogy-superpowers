@@ -8,5 +8,11 @@
   "homepage": "https://boogy.ai",
   "repository": "https://github.com/Boogy-ai/boogy-superpowers",
   "license": "MIT",
-  "keywords": ["boogy", "skills", "wasm", "backend", "mcp", "agents"]
+  "keywords": ["boogy", "skills", "wasm", "backend", "mcp", "agents"],
+  "mcpServers": {
+    "boogy": {
+      "type": "http",
+      "url": "https://api.boogy.ai/mcp"
+    }
+  }
 }
