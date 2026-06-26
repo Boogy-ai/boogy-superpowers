@@ -52,6 +52,9 @@ Module ref shape: `boogy://<owner>/modules/<id>@<version>`.
    (Cargo turns `-` into `_`).
 3. Verify: `boogy list`, then `curl https://<handle>.<base>/<service>/<path>`.
 
+To serve your service on your own domain (`app.theircompany.com`) instead
+of the default URL, see `boogy:boogy-custom-domains`.
+
 ## Updating a deployed service
 
 `boogy deploy` is keyed by **`owner.user_id` + `service.id`** — not by
