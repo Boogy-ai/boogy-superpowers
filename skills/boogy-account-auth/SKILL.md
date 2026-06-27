@@ -43,20 +43,24 @@ service-to-service calls in the mesh (unchanged — see `boogy:boogy-obo-delegat
 The platform exposes a self-serve account surface (mounted at
 `/_agents` on the host):
 
-- **Register** — `POST /_agents/register` with a handle + password (or
-  for headless agents, register a keypair). Creates the account.
+- **Create an account / pick a handle** — A first-time user normally goes
+  through the **OAuth device-flow sign-in** (`boogy login` CLI / the `login`
+  MCP tool), which handles both authentication and handle selection in one
+  step. `POST /_agents/register` (handle + password) and the passkey/agentkey
+  endpoints remain available as alternative registration paths (useful for
+  headless agents or non-OAuth setups), but they are not the primary path.
   - **A handle IS the subdomain** — it must be a DNS label: lowercase
-    `[a-z0-9-]` only (no `_`, `.`, or spaces). Services are reached at
-    `https://<handle>.<base>/<service>/<path>`. Registration coerces fixable
-    input to a valid label (`my_app` → `my-app`) and returns the final handle;
-    reserved or already-taken handles are rejected so the user picks another.
-    A handle that isn't a valid label would be unroutable — enforced at
-    registration, not discovered at deploy.
+    `[a-z0-9-]`, **3–30 characters** (no `_`, `.`, or spaces). Services are
+    reached at `https://<handle>.<base>/<service>/<path>`. Registration coerces
+    fixable input to a valid label (`my_app` → `my-app`) and returns the final
+    handle; reserved or already-taken handles are rejected so the user picks
+    another. A handle that isn't a valid label would be unroutable — enforced
+    at registration, not discovered at deploy.
 - **Log in** — get back a bearer **token** + the account record.
 - **Use it** — the client presents that token on every request. *How* it's
   presented depends on the login method (see the transport column below): a
   readable `Authorization: Bearer …` header for password/passkey/agentkey, or
-  an HttpOnly `boogy_session` cookie for the browser OAuth flow. Either way the
+  an HttpOnly `__Host-boogy_session` cookie for the browser OAuth flow. Either way the
   platform resolves it to the same principal.
 
 The token is a signed, opaque bearer credential (a `v4.public.…` PASETO).
@@ -77,7 +81,7 @@ so they all produce the same token shape and the same opaque principal:
 | Password | handle + password | token in response body → client sets `Authorization: Bearer` |
 | Passkey | WebAuthn (`/_agents/passkey/*`) | token in response body → `Authorization: Bearer` |
 | Agentkey | Ed25519 challenge for headless agents (`/_agents/agentkey/*`) | token in response body → `Authorization: Bearer` |
-| Social OAuth | "Sign in with X" (`/_agents/oauth/*`) | **HttpOnly `boogy_session` cookie** set on the callback redirect — JS never sees the token |
+| Social OAuth | "Sign in with X" (`/_agents/oauth/*`) | **HttpOnly `__Host-boogy_session` cookie** set on the callback redirect — JS never sees the token |
 
 **Providers live today: Google and GitHub** (plus a generic OIDC provider for
 self-hosted / enterprise issuers), each enabled by setting its client-id +
@@ -93,10 +97,10 @@ code runs, so your service treats them identically:
 - **`Authorization: Bearer <token>`** — the primary path, and it always wins
   when present. Password/passkey/agentkey logins return the token in the
   response body and the client sets this header.
-- **`boogy_session` cookie** — the fallback, used by the browser OAuth flow
+- **`__Host-boogy_session` cookie** — the fallback, used by the browser OAuth flow
   (which can't hand a token to JS). The host reads it only when no
   `Authorization` header is present. **Service ingress resolves the
-  `boogy_session` cookie to the principal exactly like a Bearer token** — your
+  `__Host-boogy_session` cookie to the principal exactly like a Bearer token** — your
   `authenticated`/owner-scoped routes work unchanged whether the caller sent a
   header or rode the cookie.
 
@@ -110,7 +114,7 @@ acts as the identity provider:
    or driven manually) opens `https://auth.<base>/authorize?aud=<service-workload-uri>&…` in a
    popup (full-redirect fallback when popups are blocked).
 2. The auth origin handles login (passkey / password / social) if no
-   bootstrap session (`boogy_session`) exists, then shows consent.
+   bootstrap session (`__Host-boogy_session`) exists, then shows consent.
 3. The auth origin mints a one-time authorization code and redirects to the
    app origin's `/boogy/callback`.
 4. The **host intercepts `/boogy/callback`**, exchanges the code in-process
@@ -132,7 +136,7 @@ scope rows by the `pw_…` value with no SDK changes.
 
 | Cookie | Origin | Contents |
 |---|---|---|
-| `boogy_session` | `auth.<base>` (host-only, httpOnly) | Bootstrap PASETO; proves platform login; **cannot call any app** |
+| `__Host-boogy_session` | `auth.<base>` (host-only, httpOnly) | Bootstrap PASETO; proves platform login; **cannot call any app** |
 | `boogy_app` | `<handle>.<base>` (host-only, httpOnly) | App PASETO (`aud` = one service, `sub` = `pw_…`; ~15 min TTL); grants exactly one service |
 
 > **`@boogy/web` SDK is forthcoming (not yet built).** Until it ships, a
@@ -176,13 +180,13 @@ Specifically for bootstrap (control-plane) OAuth:
 2. The button sends the user into the platform flow
    (`/_agents/oauth/google/start?return_to=<url>`). The platform handles the
    redirect, the callback, and find-or-create of the account.
-3. On success the platform's callback sets an **HttpOnly `boogy_session`
+3. On success the platform's callback sets an **HttpOnly `__Host-boogy_session`
    cookie** on the auth origin — the same platform token any other login
    yields. For control-plane use (developer console), that cookie is the
    credential.
 
 For app-plane (end-user) use the "Sign in with Boogy" SSO flow above is the
-correct path — the `boogy_session` bootstrap cookie lands on the auth origin
+correct path — the `__Host-boogy_session` bootstrap cookie lands on the auth origin
 and cannot directly call a deployed app.
 
 ## Red flags
@@ -193,7 +197,7 @@ and cannot directly call a deployed app.
 | "I'll register an agent per Google user and issue their token." | Your service **cannot sign platform tokens** and must not duplicate identity inside one tenant. Use the platform SSO / OAuth flow. |
 | "I'll store the user's password for re-auth." | Never. The platform owns credentials; your service only sees the resolved principal. Re-auth = send them through login again. |
 | "There's no social login, only password/agentkey." | Wrong — social OAuth (Google/GitHub) is brokered at the platform bootstrap layer; end-users get it via the "Sign in with Boogy" SSO flow. |
-| "After OAuth I'll read the token in JS and attach a Bearer header." | You can't — both `boogy_session` and `boogy_app` are **httpOnly** by design. You don't need to: a same-origin request sends the cookie automatically. Don't try to extract it. |
+| "After OAuth I'll read the token in JS and attach a Bearer header." | You can't — both `__Host-boogy_session` and `boogy_app` are **httpOnly** by design. You don't need to: a same-origin request sends the cookie automatically. Don't try to extract it. |
 | "My global deploy token works fine for calling my deployed service." | A bare global Agent token is **rejected (403)** at a non-public app route — the control-plane/app-plane boundary. Use an SSO `boogy_app` cookie, an `sk_*` key on a public route, or add the service to the first-party allowlist. |
 | "The `pw_…` pairwise id needs special handling in my code." | It is an opaque string to your service — exactly like any other principal. `find_owned`/`owns_resource` work unchanged. Never parse or assume the `pw_` prefix. |
 | "If a user reaches my service via a chain, they get a different owner than a direct visit." | No — the pairwise is a fingerprint of `(user, your-service)`. Direct visit and chain arrival produce the same `pw_…`. |

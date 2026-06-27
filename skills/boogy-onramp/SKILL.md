@@ -1,6 +1,6 @@
 ---
 name: boogy-onramp
-description: Use when a user asks to build, deploy, or do anything on Boogy / boogy.ai — BEFORE writing code, calling the platform API, or any other action. Establishes the required setup contract.
+description: Use when a user asks to build, deploy, or do anything on Boogy — BEFORE writing code, calling the platform API, or any other action. Establishes the required setup contract.
 ---
 
 # Boogy onramp — do this before anything else

@@ -3,11 +3,21 @@
   "owner": {
     "name": "Boogy"
   },
+  "description": "Boogy's official agent onramp: build skills, the builder MCP, and the setup gate for shipping Boogy services.",
   "plugins": [
     {
       "name": "boogy-superpowers",
       "source": "./",
-      "description": "One-shot agent onramp for Boogy: skills, the builder MCP, and the setup gate."
+      "description": "One-shot agent onramp for Boogy: skills, the builder MCP, and the setup gate.",
+      "tags": ["development", "infrastructure", "backend"],
+      "relevance": {
+        "topic": "Boogy",
+        "signals": {
+          "cli": ["boogy"],
+          "hosts": ["api.boogy.ai"],
+          "filesRead": ["**/boogy.toml"]
+        }
+      }
     }
   ]
 }

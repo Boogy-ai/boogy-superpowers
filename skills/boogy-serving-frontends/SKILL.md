@@ -321,7 +321,7 @@ ingress. Set `private = true` to put asset serving behind the service ingress to
 For a same-origin FullStack app the auth token rides along **automatically** —
 the bare `fetch("./api/…")` shown above is usually all you write:
 
-- After a browser login (OAuth), the platform sets an HttpOnly `boogy_session`
+- After a browser login (OAuth), the platform sets an HttpOnly `__Host-boogy_session`
   cookie on your app's origin. A **same-origin** `fetch` sends it by default
   (the Fetch API's default is `credentials: "same-origin"`), so you do **not**
   set `credentials` and you do **not** build an `Authorization` header. The host

@@ -89,7 +89,7 @@ BYO-config: you provision your own instance and bind your own keys.
 Deploying requires a token. Two paths — the MCP path requires no install.
 
 A first-time sign-in picks a **handle**, and **your handle IS your subdomain** —
-a DNS label, lowercase `[a-z0-9-]` only (no `_`, `.`, or spaces). Your services
+a DNS label, lowercase `[a-z0-9-]`, **3–30 characters** (no `_`, `.`, or spaces). Your services
 are reached at `https://<handle>.<base>/<service>/<path>`. Messy input is coerced
 (`my_app` → `my-app`) and the final handle is returned; reserved/taken → pick
 another. (There is no path-based `/<owner>/<service>` form — routing is
