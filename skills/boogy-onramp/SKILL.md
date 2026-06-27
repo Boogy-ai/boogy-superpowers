@@ -10,7 +10,10 @@ code, calling the API, or improvising. Do NOT summarize, paraphrase, or
 "distill" the skills into your own words — INVOKE them.
 
 1. **The skills are already installed** (this plugin bundles them). Do not
-   re-install and do not build from a summary — you will invoke them.
+   re-install and do not build from a summary — you will invoke them. If the
+   plugin was just installed this session, tell the human to run
+   **`/reload-plugins`** first (or restart Claude Code) — otherwise the bundled
+   skills, the `login` MCP tool (step 2), and the gate are not active yet.
 2. **Authenticate the user now.** Call the `login` tool (from the bundled Boogy
    MCP server); show the human the URL + one-time code; poll `login_status`
    until it returns a token. (No CLI needed just to authenticate. CLI path:
