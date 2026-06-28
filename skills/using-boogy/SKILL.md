@@ -95,6 +95,17 @@ are reached at `https://<handle>.<base>/<service>/<path>`. Messy input is coerce
 another. (There is no path-based `/<owner>/<service>` form — routing is
 subdomain-only, so a non-label handle would be unroutable.)
 
+**`<base>` is the app plane — in production it is `boogy.app`, NOT `boogy.ai`.**
+Your live URL is `https://<handle>.boogy.app/<service>/`. `boogy.ai` is the
+**control/marketing plane** (`api.boogy.ai` for login + the `/v1` API, the docs
+site, the landing page) and **never serves your deployed app**. These two planes
+do not alias each other. Do **not** infer your app's domain from what the user
+typed ("deploy to boogy.ai"), from this skill's generic `<base>` placeholder, or
+from the host you logged in against — the **`boogy deploy` output prints the
+authoritative live URL** (`URL: https://<handle>.boogy.app/<service>`). Read it
+from there; treat anything you assembled by hand as a guess until the deploy
+confirms it. See `boogy:boogy-custom-domains` to serve on your own domain instead.
+
 **MCP (primary — zero install):** If you are connected to Boogy's MCP server,
 call the `login` tool. It returns a `user_code`, a verification URL, and a
 `device_code`. Show the human the URL + `user_code` and ask them to open it,
@@ -127,3 +138,4 @@ developer / agent) signing in to the platform to deploy.
 | "This endpoint is too simple to need the catalog." | Simple endpoints still hit store/query/auth invariants. Scan first; if no skill fits, say what you're relying on. |
 | "I'll wire the happy path and worry about integrity later." | Treat each request as a **unit of work** — on ANY error the caller sees no partial state. Decide transactions and write-ordering as you write the handler, not after — **read `boogy:boogy-transactions` first**. |
 | "Integrity = wrap the whole handler in a `tx`." | No — a `tx` guards **store writes only**, and an `outbound_http` call (or other irreversible effect) inside one is **denied**. `boogy:boogy-transactions` already has the rule + the patterns to use instead (staged job in-tx, or after commit). Don't guess — read it. |
+| "The user said 'boogy.ai', so my app is at `<handle>.boogy.ai`." | No. The app plane is **`boogy.app`**; `boogy.ai` is control/marketing only. Your live URL is whatever the **`boogy deploy` output prints** — read it from there, never reconstruct it from the user's words or the login host. |

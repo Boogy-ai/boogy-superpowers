@@ -154,6 +154,11 @@ non-zero — fix and re-ship with `boogy deploy --replace`.
 - **Opt-in and best-effort.** Without `--smoke` nothing changes. With it but **no
   browser installed**, it prints a one-line note and exits cleanly (never blocks
   a deploy) — point it at a binary with `BOOGY_SMOKE_BROWSER=/path/to/chrome`.
+  **A skipped smoke is NOT a pass — it verified nothing.** If you see
+  `Smoke: skipped — no headless browser found`, do not report the page as working:
+  install or point at a Chrome/Chromium and re-run `--smoke`, or open the printed
+  deploy URL in a real browser yourself and confirm it renders. "Deploy succeeded"
+  is not "the page works".
 - **Frontend deployments only** — a wasm-only service has nothing to render.
 - `--smoke-timeout <ms>` (default 10000) bounds the render wait.
 
@@ -262,6 +267,15 @@ not a footnote — ship it unless the user explicitly wants a private/internal t
 - **Document head, every page:** a unique, descriptive `<title>` and
   `<meta name="description">`; `<meta name="viewport">` (already mandated above);
   `<link rel="canonical">` to the page's own URL; `<html lang="…">`.
+- **Absolute URLs (`canonical`, `og:url`, `sitemap.xml` `<loc>`) must be the real
+  deployed origin — `https://<handle>.boogy.app/<service>/`.** Don't guess the
+  domain before you have it: it's `boogy.app` (the app plane), not `boogy.ai` (the
+  control/marketing plane), and the **`boogy deploy` output prints the exact URL**.
+  Either fill these in *after* the first deploy from that printed URL, or leave a
+  clear placeholder and reconcile before shipping. Note the gate trap: a *relative*
+  `<link rel="canonical" href="./">` (or any `href`/`src` pointing at a directory)
+  counts as a **dangling reference** and fails the deploy — canonical/OG want the
+  absolute deployed URL anyway, so use it.
 - **Social/AI cards:** OpenGraph (`og:title`/`og:description`/`og:image`/`og:url`/
   `og:type`) and Twitter card tags — this is what link unfurls and many AI
   summaries read.
@@ -426,6 +440,8 @@ compaction only — your vendored `.js` is served verbatim.
 | `import "@arrow-js/core"` will just work from anywhere | Bare imports resolve via the import map — vendor the file under `web/vendor/` or set `allow_cdn = true`. |
 | Put a big video in `root` and serve it from a handler | Large assets auto-offload to object storage via redirect; just drop the file in `root`. |
 | Ship a bare `<div id="app">` SPA with no head metadata | Crawlers and AI agents get nothing. Put title/description/OG + core copy in the served `index` HTML; add JSON-LD, `robots.txt`, `sitemap.xml`. GEO/SEO is a default, not a follow-up. |
+| Hardcode `canonical`/`og:url`/`sitemap` to a guessed domain (e.g. `boogy.ai`, or whatever the user typed) before deploying | The app plane is `boogy.app`; the real URL is printed by `boogy deploy`. Fill absolute URLs from that output, not from a guess. A relative `href="./"` canonical also fails the dangling-reference gate. |
+| "Deploy succeeded, so the page works" / treating a skipped `--smoke` as verification | A clean deploy only published + routed. `Smoke: skipped` verified nothing. Run `--smoke` with a real browser, or load the printed URL yourself, before claiming it renders. |
 | Fold a reusable backend into this frontend service | If the API logic is generically useful, build it as its **own** (publicly provisionable) module — see `boogy:growing-boogy-meshes` — and keep this service the app-specific shell. |
 
 ## Integration

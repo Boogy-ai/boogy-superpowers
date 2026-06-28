@@ -50,10 +50,48 @@ Module ref shape: `boogy://<owner>/modules/<id>@<version>`.
    `[service.owner]` table); `service.wasm` is **relative to the manifest
    file**, typically `target/wasm32-wasip2/release/<crate_name>.wasm`
    (Cargo turns `-` into `_`).
-3. Verify: `boogy list`, then `curl https://<handle>.<base>/<service>/<path>`.
+3. Verify (see **Verify it actually works** below) — do not stop at "deploy
+   succeeded".
 
 To serve your service on your own domain (`app.theircompany.com`) instead
 of the default URL, see `boogy:boogy-custom-domains`.
+
+## Your live URL — read it from the deploy output
+
+`boogy deploy` prints the authoritative live URL on success:
+
+```
+Published: boogy://<handle>/modules/<id>@<version>
+  URL: https://<handle>.boogy.app/<service>
+```
+
+That printed `URL:` is the source of truth. The app plane is **`boogy.app`**, not
+`boogy.ai` — `boogy.ai` is the control/marketing plane (`api.boogy.ai` for login +
+`/v1`, the docs, the landing page) and **never serves your app**. Do **not**
+reconstruct the URL from the generic `<handle>.<base>` placeholder, from the host
+you logged in against, or from a domain the user happened to mention. Copy it from
+the deploy output. Any absolute origin you wrote *before* this point (e.g. a
+`<link rel="canonical">`, `og:url`, or `sitemap.xml` in a frontend bundle — see
+`boogy:boogy-serving-frontends`) is a guess: reconcile it with the printed URL and
+redeploy if it differs.
+
+## Verify it actually works (deploy success ≠ working)
+
+A non-error deploy means the artifact published and routing was swapped — **not**
+that the page renders or the endpoint behaves. Before you claim it works:
+
+1. **Frontend / full-stack:** run `boogy deploy boogy.toml --smoke` (loads the real
+   deployed URL in a headless browser and asserts it renders). **A skipped smoke is
+   NOT a pass.** If the output says `Smoke: skipped — no headless browser found`,
+   you have verified nothing — install or point at a browser
+   (`BOOGY_SMOKE_BROWSER=/path/to/chrome`, or any Chrome/Chromium on `PATH`) and
+   re-run, or load the printed URL in a real browser yourself and confirm the
+   content renders. Only then is it verified. (See `boogy:boogy-serving-frontends`.)
+2. **Public API route:** `curl` the printed URL and check the status + body.
+3. `boogy list` confirms the deployment row, but a row is not a working page.
+
+Report what you actually observed (the rendered content / the response), not "the
+deploy succeeded".
 
 ## Updating a deployed service
 
