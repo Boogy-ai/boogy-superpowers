@@ -49,6 +49,18 @@ UUID; use it only as your owner-column value and as input to `auth::*`.
 An end-user SSO session surfaces as a `pw_…` pairwise id; treat it exactly
 like any other principal (ownership scoping is unchanged).
 
+For a human-readable identity, use `auth::current_handle() -> Option<String>`
+alongside `current_principal()`. It returns the signed-in end-user's
+**verified** platform handle — sourced from a signed platform-token claim,
+never browser-asserted, so it's safe to key on or display. It's `None`
+whenever the user hasn't consented to share their identity (also `None` for
+anonymous and API-key callers). The two accessors do different jobs:
+`current_principal()` stays your storage/ownership key — the opaque,
+per-service pairwise every row's owner column holds; `current_handle()` is a
+human-readable, cross-service-stable **display/routing** identity — the same
+person's handle looks the same at every service, so use it for showing a name
+or routing to a per-user page, not for scoping storage.
+
 ### End-user ingress semantics
 
 An end-user who signs in via "Sign in with Boogy" arrives with a `pw_…` pairwise

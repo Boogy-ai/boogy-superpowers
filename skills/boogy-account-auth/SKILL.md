@@ -168,6 +168,28 @@ opener in `popup` mode).
 The service reads the pairwise pseudonym via `auth::current_principal()`. Don't
 set `credentials`/`Authorization` — the cookie is httpOnly and same-origin.
 
+### Profile-share consent: handle, name & photo
+
+The consent screen in step 3 offers one pre-checked toggle bundling three
+things: the user's **handle**, display name, and photo. If it stays checked
+(default) — or the user re-enables it later from their connected-apps
+settings — your app gets two different channels for it:
+
+- **The handle — trusted, server-side.** Read it in your wasm via
+  `auth::current_handle() -> Option<String>` (see `boogy:boogy-auth`). It
+  rides the signed app token as a claim, so it's safe to treat as the user's
+  real, verified identity. `None` if they declined to share.
+- **Name + photo — browser-readable, via `/boogy/me`.** These aren't on the
+  token; fetch `GET <app-origin>/boogy/me` for `displayName`/`avatarUrl`
+  (both `null` when not shared — see "Sign out / session" below).
+
+> **Caution:** only the token handle (`current_handle()`) is trusted for
+> identity. Never treat a `/boogy/me` value, or a handle a client hands you
+> directly, as a unique or authoritative id — both are client-readable/-editable
+> and can be spoofed (impersonation risk). Key ownership on
+> `current_principal()`; use `current_handle()` for verified identity display
+> or routing, never a `/boogy/me` field or client-supplied value.
+
 ### Verify before you ship
 
 **`curl` your built `/authorize` URL and confirm it returns `200` (the sign-in
@@ -191,7 +213,7 @@ request.
 
 ### Sign out / session
 
-- `GET <app-origin>/boogy/me` → the current end-user session (`{ pairwiseId, connectedAt }`) or `null`. Live route.
+- `GET <app-origin>/boogy/me` → the current end-user session — `{ pairwiseId, connectedAt?, displayName, avatarUrl }` — or `null` if not signed in. `displayName`/`avatarUrl` are `null` unless the user's profile-share consent is on (see above); `connectedAt` is omitted if unavailable. Live route.
 - `POST <app-origin>/boogy/logout` → clears the `__Host-boogy_app` cookie (204). Live route.
 - The `__Host-boogy_app` token has a **~15 min TTL**. On a `401` to a
   previously-authenticated call, re-run the `/authorize` redirect — short TTL is by design.
@@ -273,6 +295,7 @@ and cannot directly call a deployed app.
 | "My global deploy token works fine for calling my deployed service." | A bare global Agent token is **rejected (403)** at a non-public app route — the control-plane/app-plane boundary. Use an SSO `__Host-boogy_app` cookie, an `sk_*` key on a public route, or add the service to the first-party allowlist. |
 | "The `pw_…` pairwise id needs special handling in my code." | It is an opaque string to your service — exactly like any other principal. `find_owned`/`owns_resource` work unchanged. Never parse or assume the `pw_` prefix. |
 | "If a user reaches my service via a chain, they get a different owner than a direct visit." | No — the pairwise is a fingerprint of `(user, your-service)`. Direct visit and chain arrival produce the same `pw_…`. |
+| "I'll use a `/boogy/me` field (or a handle the client sends me) as a unique user id." | Only the token handle — `auth::current_handle()`, read server-side — is verified. `/boogy/me` fields and client-supplied handles are browser-readable/-editable and can be spoofed; treat neither as authoritative. |
 
 ## Integration
 
