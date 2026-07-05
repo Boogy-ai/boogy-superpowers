@@ -291,6 +291,36 @@ standard error codes. `RpcError`: `parse_error`, `invalid_request`,
 `RpcError::application(code, msg)`. (MCP tools use the same substrate —
 see `boogy:boogy-mcp-services`.)
 
+## `boogy check` counts write call-sites, not runtime paths
+
+`boogy check` (the multi-write-without-transaction gate) counts write
+**call sites** statically, not which branch actually executes. An
+update-or-insert written as `match existing { Some(_) => db_update(...),
+None => db_insert(...) }` has **two** write call-sites in the source even
+though only one runs at runtime — the gate FAILS it as an unguarded
+multi-write. Wrap the whole `match` in `tx::<_, _, ApiError>(|| ...)?` to
+pass:
+
+```rust
+// FAILS `boogy check` — two write call-sites, no tx around them.
+match existing {
+    Some(c) => db_update(c.id.get(), &updated)?,
+    None    => { db_insert(&updated)?; }
+}
+
+// PASSES — the whole match (both call-sites) is inside one tx.
+tx::<_, _, ApiError>(|| {
+    match existing {
+        Some(c) => db_update(c.id.get(), &updated)?,
+        None    => { db_insert(&updated)?; }
+    }
+    Ok(())
+})?;
+```
+
+See `boogy:boogy-transactions` for the full decision rule on when a
+handler needs `tx`.
+
 ## Red flags
 
 | Thought | Reality |
@@ -302,6 +332,7 @@ see `boogy:boogy-mcp-services`.)
 | "No framework for JSON-RPC, I'll parse the envelope." | `Router::rpc(path, || Dispatcher::new()…)` does registration + spec capture + envelope + routing + typed params + standard codes. |
 | "I'll `store::insert` / `store::find` in the handler." | Use `db_insert` / `db_get` / `db_find_by` / `Query` on a `#[derive(Model)]` struct. Raw `store::*` for ordinary CRUD is a regression (see `boogy:boogy-data-modeling`). |
 | "The handler inserts a row and bumps a counter — that's fine as two calls." | Any write whose state must roll back if later work in the handler fails belongs in one `tx` — multi-write handlers (≥ 2 dependent writes, read-modify-write upsert, debit + credit) are the common case, but a single write with fallible work after it counts too — see `boogy:boogy-transactions`. |
+| "Only one branch of my `match` ever writes, so it's a single write." | `boogy check` counts write call-sites statically, not runtime branches — an update-or-insert `match` has two call-sites and FAILS the gate unless the whole `match` is inside one `tx`. |
 | "I'll wire the routes and skip the docs." | MANDATORY: `Router::info(...)` + `.summary()` + `.description()` on every route. They flow into the auto-served `openapi.json`/`openrpc.json` (the API console + clients surface them). An un-annotated route or identity-less spec is a defect, not a smell. |
 | "I'll just take/return `Json<json::Value>` / `Created<json::Value>` — it's flexible." | Your endpoint is undocumented: no request or response schema in `openapi.json`. The CI gate FAILS it. Define a typed `#[derive(…, schemars::JsonSchema)]` DTO. |
 | "My request struct only needs `Deserialize`." | A request struct that derives `Deserialize` without `JsonSchema` makes the request body invisible in the spec — `schemars` emits a schema only when `JsonSchema` is derived. Derive both. |

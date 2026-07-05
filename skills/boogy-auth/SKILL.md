@@ -195,6 +195,17 @@ keeping the name uniform across services is what lets the ownership helpers,
 audit, and migration tooling work. Wire item routes as
 `.group([auth::owns_resource("things", DEFAULT_OWNER_COL, "id")], |g| …)`.
 
+The same `.group([...], |g| …)` form gates collection routes with
+**`auth::required()`** — the most common guard, "must be logged in to
+write":
+
+```rust
+Router::new()
+    .group([auth::required()], |g| g
+        .post("/things", create)
+        .get("/things/mine", list_mine))
+```
+
 **Reading the ctx-stashed row** — the guard already loaded + ownership-checked the
 row and put it in `req.ctx`; the handler reads it back, never re-fetches. The
 stashed value is a `boogy_sdk::store::Row`; pull it with `req.ctx.get::<Row>()`
@@ -209,8 +220,22 @@ fn get_thing(req: &mut Req<'_>) -> Result<Json<ThingOut>, ApiError> {
 }
 ```
 
-(`Row` accessors: `.id()`, `.text(col)`, `.int(col)`, etc. — see
-`boogy:boogy-data-modeling`.) `get`/`get_at` return `Option<&T>`: present because
+**`Row` column accessors** — every accessor takes the plain column name
+(`&str`) and returns a plain value (never `Option`; a missing/null column
+comes back as that type's zero value):
+
+| Accessor | Returns |
+|---|---|
+| `.id()` | `u64` — the row's id (shortcut for the id column) |
+| `.text(col)` | `String` |
+| `.int(col)` | `i64` |
+| `.real(col)` | `f64` |
+| `.bool(col)` | `bool` |
+| `.to_json(fields)` | `serde_json::Value` — only the listed columns |
+| `.to_json_all()` | `serde_json::Value` — every column |
+
+See `boogy:boogy-data-modeling` for table/column conventions. `get`/`get_at`
+on `req.ctx` return `Option<&T>`: present because
 the guard ran, so a missing value is a wiring bug, not a client error.
 
 **Owner-from-token rule:** on create, stamp the owner column from

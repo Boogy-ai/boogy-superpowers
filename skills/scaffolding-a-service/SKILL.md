@@ -132,19 +132,36 @@ serde    = { version = "1", features = ["derive"] }
 ## Dep-form rule (the #1 scaffolding bug)
 
 The `smoke/` template uses `path` / `workspace` deps — those resolve
-**only inside the SDK repository**. ANY standalone project MUST use git
-deps pinned to a rev:
+**only inside the SDK repository, for in-repo development. Do NOT copy
+them into a standalone project** — those paths/workspace don't exist
+there and the build fails immediately. ANY standalone project MUST use
+git deps pinned to a rev. Here is a complete, standalone-ready
+`Cargo.toml`:
 
 ```toml
+[package]
+name = "my-service"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
 [dependencies]
 boogy-sdk   = { git = "https://github.com/Boogy-ai/boogy-sdk", rev = "<pin-rev>" }
 wit-bindgen = "0.46"
 serde       = { version = "1", features = ["derive"] }
 serde_json  = "1"   # REQUIRED: wit_glue! emits ::serde_json absolute paths
+schemars    = { version = "0.8", features = ["derive"] }
+garde       = { version = "0.22", default-features = false, features = ["derive"] }
 
 [build-dependencies]
 boogy-wit   = { git = "https://github.com/Boogy-ai/boogy-sdk", rev = "<pin-rev>" }
 ```
+
+**Rev policy:** pin `rev` to a real `Boogy-ai/boogy-sdk` commit — get one
+with `git ls-remote https://github.com/Boogy-ai/boogy-sdk HEAD` — OR omit
+the `rev` clause entirely to track the default branch.
 
 Copying the template's `{ path = ... }` / `{ workspace = true }` deps into
 a real project is a hard error — those paths/workspace don't exist there.

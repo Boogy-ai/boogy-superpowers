@@ -225,14 +225,55 @@ silently breaking the render. Use the **bare boolean-attribute binding**
 (`checked="${() => done}"`) — it reflects state correctly and avoids the bug. Same
 caution for other `.`-prefixed property bindings until the framework stabilizes.
 
-**Mount-correct by construction.** Your service is served under a mount
-(`/<service>/…` on your tenant origin `<handle>.<base>`), not the host root. You do **not** hand-write mount-aware
-URLs: the platform serves your index with a `<base href>` set to your mount and
-generates a **mount-relative** import map (`./vendor/…`), so a vendored bare
-import resolves correctly wherever the service is mounted and at any client-side
-route depth. Relative imports (`import "./vendor/core.js"`) and relative asset
-paths work the same way. Don't write host-root-absolute paths (`/vendor/…`,
-`/app.js`) — those ignore the mount and 404.
+### Asset paths at nested routes — there is no `<base href>`
+
+Your service is served under a mount (`/<service>/…` on your tenant origin
+`<handle>.<base>`), not the host root. **The platform does NOT inject a
+`<base href>` into your served `index` document.** Every `<script src>`,
+`<link href>`, and relative import resolves against whatever path the browser
+actually requested — nothing rewrites that for you.
+
+That's invisible as long as the browser only ever loads `index` from the
+mount root. It bites the moment the browser makes a real request to a
+**nested** path and gets `index` back via the SPA fallback — a hard refresh,
+a shared deep link, or (most commonly) an app whose "routes" are plain
+full-page loads rather than a client-side `pushState` router. At
+`/<mount>/p/42`, a document served from that URL resolves `./app.js` against
+`/<mount>/p/`, not `/<mount>/`.
+
+None of the obvious fixes survive that case — and the deploy gate rejects two
+of them outright:
+
+| You write | What happens |
+|---|---|
+| `./app.js` (relative) | Resolves against the *current* path. Works at the mount root, **404s at `/<mount>/p/42`** — the app never boots. |
+| `/<mount>/app.js` (host-root-absolute) | **Rejected at deploy** — the dangling-reference gate doesn't recognize it as a built asset in the bundle. |
+| `<base href="/<mount>/">` (author-supplied) | **Also rejected at deploy** — the gate flags the `/<mount>/` value itself as a dangling reference. |
+| a mount-root path string inside an HTML **comment** (e.g. documenting `href="/<mount>/"`) | **Also rejected** — the gate scans comment text too, not just live attributes. Keep mount-root path strings out of comments entirely. |
+| `https://<handle>.<base>/<mount>/app.js` (fully-qualified absolute URL) | ✅ The only form that both passes the gate and resolves correctly at any route depth. |
+
+**Fix: reference your entry assets by their fully-qualified deployed URL**,
+not a path:
+
+```html
+<script type="module" src="https://<handle>.<base>/<mount>/app.js"></script>
+<link rel="stylesheet" href="https://<handle>.<base>/<mount>/style.css" />
+```
+
+This hardcodes the host, so a **local preview server** needs to rewrite that
+prefix back to the mount when it serves the HTML locally — e.g. a small dev
+middleware that replaces `https://<handle>.<base>/<mount>/` with `/` before
+returning the document. Do this once in your preview tooling, not per file.
+
+**Verify with a headless browser at a NESTED route — a curl won't catch
+this.** A `curl` against the mount root only proves the shell HTML came back;
+it can't see that the app's own assets 404 once the browser is one level
+deeper. Load `https://<handle>.<base>/<mount>/<some-nested-path>` in a
+headless browser and confirm the app actually boots (non-empty `#app`, no
+console errors, no failed sub-resource) — not just the mount root.
+`boogy deploy --smoke` (above) checks the mount root by default; if your app
+serves nested paths, also open one of those paths yourself (or drive it with
+a headless browser) before calling the deploy done.
 
 ## Responsive by default — it must work on phone, desktop, AND wide screen
 
@@ -292,6 +333,24 @@ not a footnote — ship it unless the user explicitly wants a private/internal t
   the document is meaningful before JS runs; hydrate from there.
 - **Fast first paint** helps ranking and AI fetches: small critical assets,
   no blocking work before content. (Assets revalidate via ETag — see caching.)
+
+### FAQ: can I get a distinct OG/unfurl card per post or product?
+
+Not today. There's no server-side rendering — the SPA fallback always serves
+the same static `index` document for every unmatched path, so there's no
+per-route/per-item hook to inject a different `<title>` / `og:image` /
+`og:description` before a crawler or link-unfurler reads the page. Two ways
+to live with that:
+
+- **Accept one generic, site-level OG card** in the static `index` for every
+  URL under the mount — simplest; you lose per-item unfurl previews.
+- **Self-contained share links** — encode the content (or a short id the
+  client resolves) directly in the URL, so a shared link still renders the
+  right content once a human opens it, even though the unfurl *preview*
+  stays generic.
+
+Per-item OG cards need a prerender/SSR capability this platform doesn't
+offer — don't design a feature around getting one.
 
 ## Routing: api_prefix → wasm, everything else → assets + SPA fallback
 

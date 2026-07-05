@@ -102,7 +102,7 @@ fn push_price(req: &mut Req<'_>) -> Result<NoContent, ApiError> {
     let env = Envelope::new("price.updated", 1, now_millis(), json::json!({ "px": input.px }));
     match ws_publish("ticker", &env.to_json()) {
         Ok(()) => Ok(NoContent),
-        Err(PublishError::RateLimited)        => Err(ApiError::too_many_requests("slow down")),
+        Err(PublishError::RateLimited)        => Err(ApiError::service_unavailable("slow down")),
         Err(PublishError::PayloadTooLarge)    => Err(ApiError::bad_request("message too large")),
         Err(PublishError::UnknownChannel)     => Err(ApiError::internal("undeclared channel")),
         Err(PublishError::CapabilityDenied)   => Err(ApiError::internal("websockets not granted")),
@@ -110,6 +110,11 @@ fn push_price(req: &mut Req<'_>) -> Result<NoContent, ApiError> {
     }
 }
 ```
+
+The SDK's `ApiError` has no 429 ("too many requests") constructor — its
+throttling-shaped error is `ApiError::service_unavailable(msg)` (503,
+carries a retry hint). Other constructors you'll reach for: `bad_request`,
+`not_found`, `forbidden`, `conflict`, `internal`, `unprocessable`.
 
 `ws_publish(channel, payload)` sends a raw string payload to all
 subscribers. For broadcast channels, build a typed envelope with
@@ -147,7 +152,7 @@ fn notify_order(req: &mut Req<'_>) -> Result<NoContent, ApiError> {
     let principal = order.owner_principal.as_str();
     ws_publish_event("orders", principal, "order.placed", 1, json::json!({ "order_id": order.id, "status": order.status }))
         .map_err(|e| match e {
-            PublishError::RateLimited        => ApiError::too_many_requests("slow down"),
+            PublishError::RateLimited        => ApiError::service_unavailable("slow down"),
             PublishError::PayloadTooLarge    => ApiError::bad_request("message too large"),
             PublishError::UnknownChannel     => ApiError::internal("undeclared channel"),
             PublishError::CapabilityDenied   => ApiError::internal("websockets not granted"),
@@ -181,7 +186,7 @@ fn subscribe_token(req: &mut Req<'_>) -> Result<Json<json::Value>, ApiError> {
     // Gate this behind YOUR end-user auth and scope per user before minting.
     let grant = ws_mint_subscribe_grant("inbox", 300)   // ttl_seconds
         .map_err(|e| match e {
-            GrantError::RateLimited      => ApiError::too_many_requests("slow down"),
+            GrantError::RateLimited      => ApiError::service_unavailable("slow down"),
             GrantError::InvalidTtl       => ApiError::bad_request("ttl out of range"),
             GrantError::NotPrivate       => ApiError::bad_request("channel is not private"),
             GrantError::UnknownChannel   => ApiError::internal("undeclared channel"),
@@ -208,7 +213,7 @@ fn principal_subscribe_token(req: &mut Req<'_>) -> Result<Json<json::Value>, Api
     let principal = "usr_a1b2c3";  // opaque path-safe ref — not a raw email
     let grant = ws_mint_principal_subscribe_grant("orders", principal, 300)
         .map_err(|e| match e {
-            GrantError::RateLimited      => ApiError::too_many_requests("slow down"),
+            GrantError::RateLimited      => ApiError::service_unavailable("slow down"),
             GrantError::InvalidTtl       => ApiError::bad_request("ttl out of range"),
             GrantError::WrongClass       => ApiError::bad_request("channel is not a principal channel"),
             GrantError::UnknownChannel   => ApiError::internal("undeclared channel"),
@@ -246,6 +251,13 @@ speaks Socket.IO v5 / engine.io v4. For a browser frontend **served by Boogy**
 NOT the bare specifier `"socket.io-client"`. The generated import map uses a
 host-root `/vendor/...` URL that **404s under a service mount**, which silently
 breaks the page; the mount-relative import sidesteps it.
+
+> **`owner` is the service owner's handle — nothing else.** In the
+> `subscribe` envelope, `owner` is the `<handle>` label from that owner's
+> `<handle>.<base>` subdomain (e.g. `"alice"`). It is **not** the workload
+> URI (`boogy://alice/services/...`) and **not** a `pw_…` pairwise
+> principal. Getting this field wrong doesn't error — the ack still comes
+> back, subscribe "succeeds," and you silently receive no messages.
 
 ```js
 import { io } from "./vendor/socket.io-client.js";   // vendored, mount-relative

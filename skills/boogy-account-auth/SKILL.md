@@ -32,7 +32,7 @@ Boogy has **two planes**, and credentials for one are not accepted on the other.
 **A bare global Agent token is rejected (403) at a non-public tenant route.**
 The separation is enforced at tenant dispatch, not at token minting — login
 tokens stay the same. Accepted at non-public app routes: an app-scoped SSO
-session (`boogy_app` cookie), an `sk_*` API key on a `public`-ingress route, or
+session (`__Host-boogy_app` cookie), an `sk_*` API key on a `public`-ingress route, or
 an OBO workload credential.
 
 The third principal, **`Workload`** (`boogy://owner/services/name`), covers
@@ -104,44 +104,116 @@ code runs, so your service treats them identically:
   `authenticated`/owner-scoped routes work unchanged whether the caller sent a
   header or rode the cookie.
 
-## Sign in with Boogy — end-user app-plane SSO (new)
+## Sign in with Boogy — end-user app-plane SSO
 
-For end-users of a **deployed app** (app-plane), the flow is
-**"Sign in with Boogy"** — an authorization-code flow where the platform
-acts as the identity provider:
+For end-users of a **deployed app** (app-plane), the flow is **"Sign in with
+Boogy"** — a PKCE authorization-code flow where the platform is the identity
+provider. **This is NOT generic OAuth** — read the exact contract below and copy
+it; do not extrapolate from OAuth defaults.
 
-1. The app (via the `@boogy/web` browser SDK — **forthcoming; not yet built**,
-   or driven manually) opens `https://auth.<base>/authorize?aud=<service-workload-uri>&…` in a
-   popup (full-redirect fallback when popups are blocked).
-2. The auth origin handles login (passkey / password / social) if no
-   bootstrap session (`__Host-boogy_session`) exists, then shows consent.
-3. The auth origin mints a one-time authorization code and redirects to the
-   app origin's `/boogy/callback`.
-4. The **host intercepts `/boogy/callback`**, exchanges the code in-process
-   (PKCE; no network hop), and sets an httpOnly, host-only **`boogy_app` cookie**
-   on the app origin — then 302s back to the original path.
-5. Subsequent same-origin requests carry the cookie automatically.
-   `auth_middleware` reads it; the wasm sees the **pairwise pseudonym** via
-   `auth::current_principal()`.
+> ⚠️ **This is NOT generic OAuth.** There is **no** `client_id`, `response_type`,
+> `redirect_uri`, `scope`, or `code_challenge_method` — those are ignored, and
+> using them *instead of* the real params below gets you a `400 invalid
+> authorization request`. The real param set is exactly: `aud`, `app_origin`,
+> `redirect`, `state`, `code_challenge`, `mode`.
 
-**Pairwise pseudonym:** the `sub` in every `boogy_app` token is `pw_…` — the
+### The exact flow (drive it by hand)
+
+Your app has a service at `<owner>.<base>/<service>` (e.g.
+`alice.boogy.app/notes`). To sign a user in:
+
+**1. Generate PKCE (client-side, S256) and stash the verifier in a cookie.**
+The verifier stays on the app origin; the platform's callback reads it to
+complete the exchange.
+
+```js
+// verifier: 32 random bytes, base64url; challenge = base64url(SHA-256(verifier))
+const verifier  = base64url(crypto.getRandomValues(new Uint8Array(32)));
+const challenge = base64url(new Uint8Array(
+  await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
+const state = base64url(crypto.getRandomValues(new Uint8Array(16))); // CSRF nonce
+// Path-scoped to the callback, short-lived, on THIS (app) origin:
+document.cookie =
+  `boogy_pkce=${verifier}; Secure; SameSite=Lax; Path=/boogy/callback; Max-Age=300`;
+```
+
+**2. Redirect (or open a popup) to `/authorize` on the auth origin** with these
+exact params:
+
+```
+https://auth.<base>/authorize
+  ?aud=boogy://<owner>/services/<service>      # owner is the app's HANDLE (its subdomain label), NOT an agent id
+  &app_origin=https://<owner>.<base>           # the app's own origin
+  &redirect=<relative-path-on-the-app-origin>  # e.g. /notes/  — a path, NOT redirect_uri, NOT absolute
+  &state=<csrf-nonce>
+  &code_challenge=<base64url(SHA-256(verifier))>
+  &mode=redirect                               # or "popup"
+```
+
+Concrete example (`alice`/`notes`, redirecting back to `/notes/`):
+`https://auth.boogy.app/authorize?aud=boogy%3A%2F%2Falice%2Fservices%2Fnotes&app_origin=https%3A%2F%2Falice.boogy.app&redirect=%2Fnotes%2F&state=abc123&code_challenge=E9Melh…&mode=redirect`
+
+**3. The auth origin** logs the user in (Google / GitHub / passkey / password —
+new users pick a handle) if no `__Host-boogy_session` exists, shows consent,
+mints a one-time code, and 302s to `<app-origin>/boogy/callback?code=…&state=…`.
+
+**4. The platform handles `<app-origin>/boogy/callback`** (this route is LIVE and
+reserved — you do NOT implement it): it reads the code + `state` + your
+`boogy_pkce` cookie, verifies PKCE, mints the app token, sets the **httpOnly,
+Secure, host-only `__Host-boogy_app` cookie** (~15 min TTL), clears `boogy_pkce`,
+and 302s to your `redirect` path (or `postMessage`s `{boogy:'sso_done'}` to the
+opener in `popup` mode).
+
+**5. Subsequent same-origin `fetch()` sends `__Host-boogy_app` automatically.**
+The service reads the pairwise pseudonym via `auth::current_principal()`. Don't
+set `credentials`/`Authorization` — the cookie is httpOnly and same-origin.
+
+### Verify before you ship
+
+**`curl` your built `/authorize` URL and confirm it returns `200` (the sign-in
+page), not `400`.** A `400 invalid authorization request` means a missing/malformed
+param — the most common mistakes:
+
+| Symptom | Cause |
+|---|---|
+| `400 invalid authorization request` at `/authorize` | Missing/empty `app_origin`, `redirect`, `state`, or `code_challenge`; or you sent `redirect_uri`/`response_type` (ignored) instead of `redirect`; or `mode` isn't `redirect`/`popup` |
+| `400` even with all params present | `aud` owner ≠ the app_origin's **handle**; or `redirect` is an absolute URL / doesn't start with `/` |
+| `403 token audience does not match target` after callback lands back on the app | The `aud` owner isn't the service's handle owner — it MUST be `boogy://<handle>/services/<service>` (the handle everywhere: `aud`, routing, and the audience check all agree on the handle form) |
+| Sign-in never completes / app cookie missing | The `boogy_pkce` cookie wasn't set (or wrong name/path) before the redirect |
+
+### Owner form: always the handle
+
+The `aud` owner segment, the `app_origin` subdomain, routing, and the dispatch-time
+audience check all use the service's **handle** (e.g. `alice`) — the same value
+everywhere. Do not use an internal id form for `aud`; a token whose `aud` owner
+doesn't match the service's registered handle owner is rejected with 403 on every
+request.
+
+### Sign out / session
+
+- `GET <app-origin>/boogy/me` → the current end-user session (`{ pairwiseId, connectedAt }`) or `null`. Live route.
+- `POST <app-origin>/boogy/logout` → clears the `__Host-boogy_app` cookie (204). Live route.
+- The `__Host-boogy_app` token has a **~15 min TTL**. On a `401` to a
+  previously-authenticated call, re-run the `/authorize` redirect — short TTL is by design.
+
+**Pairwise pseudonym:** the `sub` in every `__Host-boogy_app` token is `pw_…` — the
 same human gets a **different** id at each service. The service can never recover
-the global id. The mask is a path-independent fingerprint of `(user, service)`:
-the same user always lands on the same pairwise at a given service whether they
-visited directly or arrived via a delegation chain. Because `current_principal()`
-returns an opaque string, handler code is unchanged — `find_owned`/`owns_resource`
-scope rows by the `pw_…` value with no SDK changes.
+the global id. It's a path-independent fingerprint of `(user, service)`: the same
+user always lands on the same pairwise whether they arrived directly or via a
+delegation chain. Because `current_principal()` returns an opaque string, handler
+code is unchanged — `find_owned`/`owns_resource` scope rows by the `pw_…` value.
 
-**Two cookies, two origins, never shared:**
+**Cookies — three names, never confused:**
 
-| Cookie | Origin | Contents |
-|---|---|---|
-| `__Host-boogy_session` | `auth.<base>` (host-only, httpOnly) | Bootstrap PASETO; proves platform login; **cannot call any app** |
-| `boogy_app` | `<handle>.<base>` (host-only, httpOnly) | App PASETO (`aud` = one service, `sub` = `pw_…`; ~15 min TTL); grants exactly one service |
+| Cookie | Origin | Set by | Contents |
+|---|---|---|---|
+| `__Host-boogy_session` | `auth.<base>` (host-only, httpOnly) | auth origin | Bootstrap PASETO; proves platform login; **cannot call any app** |
+| `__Host-boogy_app` | `<handle>.<base>` (host-only, httpOnly) | the callback | App PASETO (`aud` = one service, `sub` = `pw_…`; ~15 min); grants exactly one service |
+| `boogy_pkce` | `<handle>.<base>` (Path=`/boogy/callback`) | **you (the client)** | The PKCE verifier; short-lived; consumed + cleared by the callback |
 
-> **`@boogy/web` SDK is forthcoming (not yet built).** Until it ships, a
-> consuming app drives `/authorize` → `/boogy/callback` by hand. Treat any
-> reference to `@boogy/web` as pending.
+> **`@boogy/web` browser SDK** wraps all of the above (`boogy.connectApp('<owner>/<service>')`,
+> `boogy.fetch('<owner>/<service>', path)`). If it's available to you, prefer it;
+> otherwise drive `/authorize` → `/boogy/callback` by hand exactly as above.
 
 Social login (Google/GitHub) is brokered at the bootstrap level — an app gets
 it for free without registering its own OAuth app.
@@ -197,8 +269,8 @@ and cannot directly call a deployed app.
 | "I'll register an agent per Google user and issue their token." | Your service **cannot sign platform tokens** and must not duplicate identity inside one tenant. Use the platform SSO / OAuth flow. |
 | "I'll store the user's password for re-auth." | Never. The platform owns credentials; your service only sees the resolved principal. Re-auth = send them through login again. |
 | "There's no social login, only password/agentkey." | Wrong — social OAuth (Google/GitHub) is brokered at the platform bootstrap layer; end-users get it via the "Sign in with Boogy" SSO flow. |
-| "After OAuth I'll read the token in JS and attach a Bearer header." | You can't — both `__Host-boogy_session` and `boogy_app` are **httpOnly** by design. You don't need to: a same-origin request sends the cookie automatically. Don't try to extract it. |
-| "My global deploy token works fine for calling my deployed service." | A bare global Agent token is **rejected (403)** at a non-public app route — the control-plane/app-plane boundary. Use an SSO `boogy_app` cookie, an `sk_*` key on a public route, or add the service to the first-party allowlist. |
+| "After OAuth I'll read the token in JS and attach a Bearer header." | You can't — both `__Host-boogy_session` and `__Host-boogy_app` are **httpOnly** by design. You don't need to: a same-origin request sends the cookie automatically. Don't try to extract it. |
+| "My global deploy token works fine for calling my deployed service." | A bare global Agent token is **rejected (403)** at a non-public app route — the control-plane/app-plane boundary. Use an SSO `__Host-boogy_app` cookie, an `sk_*` key on a public route, or add the service to the first-party allowlist. |
 | "The `pw_…` pairwise id needs special handling in my code." | It is an opaque string to your service — exactly like any other principal. `find_owned`/`owns_resource` work unchanged. Never parse or assume the `pw_` prefix. |
 | "If a user reaches my service via a chain, they get a different owner than a direct visit." | No — the pairwise is a fingerprint of `(user, your-service)`. Direct visit and chain arrival produce the same `pw_…`. |
 
@@ -209,4 +281,4 @@ these tokens. → `boogy:boogy-auth` is what you do with the principal
 (ownership, scopes, the control-plane/app-plane boundary). → `boogy:boogy-obo-delegation` for one service
 acting on a user's behalf in another. ↔ `boogy:boogy-serving-frontends`
 for wiring this into a FullStack SPA — the page calls its same-origin API
-and the `boogy_app` cookie rides along automatically.
+and the `__Host-boogy_app` cookie rides along automatically.

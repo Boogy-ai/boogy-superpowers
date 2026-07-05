@@ -149,7 +149,13 @@ for an OR-of-AND group. Order: `order_by_asc`/`order_by_desc`/`order_by`.
 
 Keyset, not offset. `fetch_page` appends the keyset resume filter,
 overfetches by 1, builds the `Cursor` from the last kept row, and returns
-`CursorPage<T>` — no manual cursor arithmetic:
+`CursorPage<T>` — no manual cursor arithmetic.
+
+**Keyset endpoints take a single opaque `?cursor=`** (the encoded
+boundary returned as the previous page's `next_cursor`) — there is **no**
+`before`/`after`/`offset` param; do not design one. And `.keyset_by(col,
+dir)` MUST match the column/direction the model declared via its
+`ranked_by`/`list_by` order, or the read errors instead of paging.
 
 ```rust
 use boogy_sdk::pagination::decode;
