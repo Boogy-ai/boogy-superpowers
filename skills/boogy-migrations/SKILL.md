@@ -57,7 +57,8 @@ fn init_tables() {
 ```
 
 `MigrationCtx` (`m`) gives schema ops `add_column` / `rename_column` /
-`drop_column` / `create_table` / `create_index` / `drop_index`, plus
+`drop_column` / `create_table` / `create_index` / `drop_index` /
+`drop_table` (**destructive** — see *Resetting a table* below), plus
 backfill ops `find_rows` / `count` / `insert` / `update_where` /
 `delete_where`. Schema ops are **introspection-idempotent** (check the
 live schema, no-op if already applied) — a migration that crashed
@@ -89,6 +90,39 @@ Do **not** enqueue the backfill from inside a migration —
 `MigrationCtx` has no enqueue. Run the sweep from a background job or
 first-request logic.
 
+## Resetting a table (drop + recreate)
+
+Some changes can't be applied in place — e.g. adding a **unique** index to
+an already-populated table (existing rows collide), which traps
+`create_table_from`/`create_model` at init. When you must start the table
+over, `drop_table` removes it entirely — **all rows, every index, its
+counter, and its catalog entry, irreversibly** — then recreate it fresh.
+Two rules make this work:
+
+**1. Drop *and* recreate inside the migration.** Don't lean on
+`init_tables`' `create_model` to rebuild it: `init_tables` runs the
+`create_model`/`create_table_from` calls *before* `migrations()`, so by the
+time a drop migration runs the table was already (re)created this pass, and
+the drop is version-gated to run once. Recreate explicitly — the migration
+tx sees its own pending drop, so the recreate lands on a clean slate:
+
+```rust
+// one entry in your `migrations(&[ … ])` list in init_tables:
+migration(3, "reset_events", |m| {
+    m.drop_table("events")?;            // clear the incompatible table
+    m.create_table(&Event::schema())?;  // rebuild fresh from the model (columns + indexes)
+    Ok(())                              // the new unique index is now safe — empty table
+})
+```
+
+**2. Removing a *service* does not wipe its store.** Deleting or
+redeploying a service leaves its tables intact; a table reset is an
+in-migration `drop_table`, never an ops action.
+
+`drop_table` is idempotent (no-op if the table is already gone) and
+**irreversible** — treat it like `drop_column`: fix-forward only, never
+edited once shipped (Iron Law 1).
+
 ## Common Mistakes
 
 | Thought | Reality |
@@ -96,6 +130,8 @@ first-request logic.
 | "Just edit migration 3's bad default." | Version-skip means it never re-runs; existing data unchanged. Add a higher-version fix-forward migration. |
 | "One migration backfills the whole 2M-row table." | Blows the ~5s/10MB envelope → perpetual rollback. Two-step: DDL default + sentinel-filtered batch sweep. |
 | "Add the index by editing `init_tables` / `create_table_from`." | That only creates *missing* objects — it won't touch the deployed table. Add the index via a migration. |
+| "`drop_table` alone resets it — `init_tables` recreates it." | `migrations()` runs *after* `create_model`, so recreate *inside* the migration. Drop + recreate together. |
+| "Delete the service to wipe its data." | Removing a service leaves its store intact. Reset a table with an in-migration `drop_table`. |
 
 ## Integration
 
