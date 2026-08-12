@@ -93,6 +93,30 @@ that the page renders or the endpoint behaves. Before you claim it works:
 Report what you actually observed (the rendered content / the response), not "the
 deploy succeeded".
 
+### A clean retry can mean the platform reverted you, not that it's live
+
+If a version fails to start (it traps or errors on its very first real request), Boogy
+auto-reverts the service back to its last-known-good version — automatically, and slightly
+asynchronously. The failure mode this produces: your first request after `boogy deploy`/
+`boogy upgrade` gets a `500`, and a retry a moment later gets a clean `200`. **That `200` can
+be the OLD version still answering, not your new one** — don't treat "it recovered on retry"
+as "my new version works."
+
+To tell the difference, check which deployment actually answered:
+
+1. **Compare `X-Boogy-Deployment-Id`.** Every response carries this header. Capture the
+   `deployment_id` your `deploy`/`upgrade`/`provision` call returned, and compare it against
+   the header on the response you're verifying — a mismatch means a different deployment
+   served it than the one you just shipped.
+2. **`boogy list` (or `GET /v1/services`)** shows the service's current active
+   `module_version` — confirm it matches what you just deployed, not what you replaced.
+3. **`GET /v1/audit`** (works with your own token, no admin scope needed) records a
+   `deploy.rolled_back_on_migration_failure` entry when this happens.
+
+A mismatch means your new version never actually started. Retrying again will not fix it —
+find out why the first real request failed (a panicking migration, a missing granted
+capability, etc.), fix it, and redeploy.
+
 ## Updating a deployed service
 
 `boogy deploy` is keyed by **`owner.user_id` + `service.id`** — not by
