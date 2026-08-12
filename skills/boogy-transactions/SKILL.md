@@ -591,6 +591,13 @@ every callee it reached.
 
 ## Cross-service sketch (verified shapes)
 
+`peer_fetch` fails (`Err`) on a non-success status **by default**, so the
+plain `peer_fetch(...)?` shape already stops the closure — and therefore
+the commit — on a callee's rejection; you don't need to check
+`resp.is_success()` yourself. Reach for `peer_fetch_raw` (same signature)
+only when you want to map the callee's status to your OWN domain-specific
+error instead of the generic 502 upstream `?` would produce, as below:
+
 ```rust
 use boogy_sdk::peer::PeerRequest;
 use store::{Value, Column};
@@ -598,7 +605,7 @@ use store::{Value, Column};
 fn place_order(order_cols: Vec<Column>, reserve: serde_json::Value) -> Result<(), ApiError> {
     tx::<_, _, ApiError>(|| {
         store::insert("orders", &order_cols)?;
-        let resp = peer_fetch(                          // enrolls B in this tx
+        let resp = peer_fetch_raw(                       // enrolls B in this tx
             "boogy://owner/services/inventory",
             &PeerRequest::post("/reserve").body_json(&reserve)?,
         )?;
@@ -617,6 +624,16 @@ request-correlated logs — (`From<PeerError> for
 ApiError`); body construction (`body_json`/`resp.json`) lifts its
 `serde_json::Error` to **500** (`From<serde_json::Error>`). Match the variant
 first if you want a different status (e.g. treat the callee's 404 as your own).
+This also covers `PeerError::Rejected` — the variant `peer_fetch`'s checked
+default produces for a non-2xx response — the same way as any other
+dependency failure.
+
+**Probing a peer's status from inside a transaction requires the explicit
+`peer_fetch_raw` opt-in above.** The platform also enforces this
+independently at the host: a non-2xx participant response poisons the open
+ambient transaction regardless of which call a closure uses, so bypassing
+the checked default doesn't reopen a way to commit past a callee's
+rejection — it only changes whether YOUR closure notices before the host does.
 
 ## 🚩 Smells — a missing `tx` hides here
 

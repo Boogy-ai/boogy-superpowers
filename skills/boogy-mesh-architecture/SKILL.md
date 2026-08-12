@@ -151,13 +151,13 @@ use boogy_sdk::peer::PeerRequest;
 struct Reserved { ok: bool }
 
 fn reserve(payload: serde_json::Value) -> Result<(), ApiError> {
+    // `peer_fetch` already fails (`Err`) on a non-success status, so there's
+    // no separate `resp.is_success()` check to remember.
     let resp = peer_fetch(
         "boogy://acme/services/inventory",
         &PeerRequest::post("/api/reserve").body_json(&payload)?,
     )?;
-    if resp.is_success() {
-        let r: Reserved = resp.json()?;
-    }
+    let r: Reserved = resp.json()?;
     Ok(())
 }
 ```
@@ -166,13 +166,23 @@ fn reserve(payload: serde_json::Value) -> Result<(), ApiError> {
 - A failed peer call lifts to **502 upstream** via `?` (`From<PeerError>`);
   match the variant first if you want a different status.
 - `PeerError` variants: `TargetNotFound`, `Denied`, `Timeout`,
-  `DepthExceeded`, `CapabilityDenied`, `Internal`, `InvalidTarget`.
+  `DepthExceeded`, `CapabilityDenied`, `Internal`, `InvalidTarget`, and
+  `Rejected` — the callee responded with a non-2xx status, which `peer_fetch`
+  treats as failure by default. Reach for `peer_fetch_raw` (same signature)
+  when you genuinely need the raw status — a relay/proxy route, or mapping
+  the callee's status to your own domain error.
 - **Cross-service writes**: one ambient transaction spans the whole
-  `peer::fetch` call tree — callees never call `tx`, only the origin
+  `peer::fetch` call tree — callees never call `tx` (a callee that does
+  fails at commit rather than silently no-op'ing), only the origin
   commits. A commit conflict is **retried automatically**, which re-runs
   the closure and therefore **re-issues every `peer::fetch` in it** — so a
   callee must tolerate being called again. A **poisoned** transaction (a
-  participant failed) is deliberately *not* retried, and surfaces as 409.
+  participant failed — including a plain non-2xx rejection from its
+  handler, not only a store error) is deliberately *not* retried, and
+  surfaces as 409. Probing a peer's status from inside a transaction
+  requires the explicit `peer_fetch_raw` opt-in above — the host poisons the
+  tx on a non-2xx participant response independently of which call your
+  closure uses, so this only changes whether your own code notices first.
   See `boogy:boogy-transactions`.
 
 ## Origin billing
