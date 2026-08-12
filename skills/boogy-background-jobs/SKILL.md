@@ -16,14 +16,14 @@ exactly as in a request.
 A service that *processes* jobs targets the jobs world and exports the
 handler entry point:
 
-```rust
+```rust ignore-snippet: a second wit_glue! invocation; the gate crate already invokes it once, and the macro's trait impls are crate-level, so any harness holding both is a duplicate-impl error by construction
 // wit_bindgen::generate!({ world: "service-with-jobs", ... });
 wit_glue!(bindings, Api, with_jobs);   // 3-arg form adds the job export
 ```
 
 Implement `build_job_router()` on your `Api`:
 
-```rust boogy-snippet
+```rust
 use boogy_sdk::{job, JobRouter};
 
 #[derive(serde::Deserialize)]
@@ -68,7 +68,8 @@ schedule = "0 0 2 * * *"     # 6-field cron: sec min hour day month dow → 02:0
 ```
 
 A handler with a `schedule` fires on that cadence automatically — do NOT
-build your own cron loop or `tokio::spawn` timer.
+build your own cron loop or background timer. A service has no async runtime
+and no threads: a handler runs, returns, and the instance goes away.
 
 ## Which version runs a job
 
@@ -96,7 +97,7 @@ reason — pinned jobs don't pick up handler bug fixes.
 
 ## Enqueuing
 
-```rust boogy-snippet
+```rust
 use boogy_sdk::jobs::JobSpec;
 
 fn enqueue(p: &impl Serialize, user_id: u64, run_at: u64)
@@ -168,11 +169,17 @@ For a job scanning a big table (digests, exports, decay), use
 errors; `None` = primary-key order), and it cannot run inside a
 transaction (gather ids first).
 
+When you then act on those ids inside a `tx`, fetch them with `get_many`
+— point gets, which conflict only on the rows they return. Do **not**
+re-read them with `where_in`: `_id` leads no index, so an IN-list over
+ids scans, taking the whole table as the transaction's read set and
+undoing the batching. See `boogy:boogy-transactions`.
+
 ## Red flags
 
 | Thought | Reality |
 |---------|---------|
-| "I'll `tokio::spawn` a timer for the schedule." | Declare `schedule` on the handler; the platform fires it. |
+| "I'll spawn a background timer for the schedule." | There is no runtime to spawn on. Declare `schedule` on the handler; the platform fires it. |
 | "Jobs run exactly once." | At-least-once. Handlers must be idempotent. |
 | "`idempotency_key` guarantees one execution." | It dedupes enqueues, not handler runs. |
 | "Use the default world." | Processing jobs needs `service-with-jobs` + the job export, or it won't compile. |

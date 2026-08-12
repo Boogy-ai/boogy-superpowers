@@ -50,7 +50,7 @@ JsonSchema`, handler returns `Result<R, ApiError>`. Both `inputSchema`
 and `outputSchema` are auto-derived from the struct types, so the
 deserializer/serializer and the protocol surface can't drift.
 
-```rust boogy-snippet
+```rust
 use schemars::JsonSchema;
 
 #[derive(Deserialize, JsonSchema)]

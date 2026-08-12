@@ -60,7 +60,7 @@ own `Cargo.toml` and hash in-wasm before signing.
 The SDK glue (`wit_glue!`-emitted) gives you typed free functions; the result
 types live in `boogy_sdk::signing`.
 
-```rust boogy-snippet
+```rust
 use boogy_sdk::signing::{SigAlg, SignError};
 
 const ALG: SigAlg = SigAlg::EcdsaSecp256k1;
@@ -86,9 +86,10 @@ fn sign(label: &str, digest: &[u8; 32]) -> Result<(Vec<u8>, u8), ApiError> {
 // Fail closed; the inner strings never carry key material.
 fn map_sign_err(e: SignError) -> ApiError {
     match e {
-        SignError::UnknownKey(_) => ApiError::not_found(),
-        SignError::BadInput(m)   => ApiError::bad_request(m),
-        SignError::Internal(_)   => ApiError::internal("signing unavailable"),
+        SignError::CapabilityDenied(m) => ApiError::internal(m), // your bug, not the caller's
+        SignError::UnknownKey(_)       => ApiError::not_found(),
+        SignError::BadInput(m)         => ApiError::bad_request(m),
+        SignError::Internal(_)         => ApiError::internal("signing unavailable"),
     }
 }
 ```
@@ -149,6 +150,70 @@ fabricated signature. (For on-chain transactions, the per-chain form of this —
 sighash/recovery-id/chain-id verification, fee bounds, denom-aware caps — lives
 in `boogy:boogy-blockchain-transactions`.)
 
+## Never inside a transaction — sign first, then record
+
+**Every signing write is denied while a store transaction is open**:
+`signing_create_key`, `signing_sign_digest`, `signing_sign_message`, and
+`signing_remove_key` all return `SignError::CapabilityDenied("signing is not
+allowed inside a transaction…")` when called from inside a `tx(|| …)` closure.
+`signing_list_keys` is a read and is allowed.
+
+Match the **variant**, not the message. `CapabilityDenied` is also what an
+ungranted `[capabilities] signing` produces — the string tells you which of the
+two applies, and it is free to be reworded.
+
+The reason is the transaction closure itself: a commit conflict makes the
+platform **re-run** it, so a sign call inside would mint a fresh signature —
+and a fresh durable audit row — on every attempt, and a signature cannot be
+un-issued. Unlike an email, it also can't be deferred to after the commit,
+because the closure *consumes the returned value*.
+
+So the shape is always the same:
+
+```rust
+use boogy_sdk::model::{Id, Timestamp};
+use boogy_sdk::signing::SigAlg;
+use boogy_sdk::Model;
+
+// The row the signature is recorded in.
+#[derive(Model)]
+#[model(table = "receipts")]
+pub struct Receipt {
+    #[pk] pub id: Id<Receipt>,
+    pub subject: String,
+    pub sig_hex: String,
+    pub created_at: Timestamp,
+}
+
+// 1. Everything fallible + the signature, BEFORE the tx.
+//    `SignError` does NOT convert into `ApiError` on its own — map it
+//    (see `map_sign_err` above); a bare `?` here does not compile.
+// `fx_digest_of` / `fx_hex` stand in for your own hashing and hex encoding —
+// the platform signs a digest you compute, it does not compute one for you.
+let digest = fx_digest_of(&payload);
+let sig = signing_sign_digest(&label, &digest, SigAlg::EcdsaSecp256k1)
+    .map_err(map_sign_err)?;
+
+// 2. The tx records the result. Store writes only — re-runnable, no side effects.
+tx::<_, _, ApiError>(|| {
+    db_insert(&Receipt {
+        id: Id::new(0),
+        subject: p.clone(),
+        sig_hex: fx_hex(&sig.bytes),
+        created_at: Timestamp::new(now_millis() as i64),
+    })?;
+    Ok(())
+})?;
+```
+
+If you need a value *from* the transaction (a reserved nonce, an allocated id)
+in order to sign, split it: one transaction reserves and commits, then you
+sign, then a second transaction records. That is exactly the nonce-reservation
+shape in `boogy:boogy-blockchain-transactions`.
+
+A denial does **not** poison the transaction — it is an ordinary error your
+code handles, and the tx can still commit. See `boogy:boogy-transactions`.
+
 ## Importing an existing key (operator, out-of-band)
 
 Generate-in-place is the default and the strongest path (the key is born inside
@@ -161,15 +226,19 @@ existed outside the boundary once).
 
 ## Error model: deny-by-existence-mask, fail closed
 
-`SignError` (in `boogy_sdk::signing`) has three variants; the inner strings are
-for humans and never carry key material:
+`SignError` (in `boogy_sdk::signing`) has four variants; the inner strings are
+for humans, never carry key material, and are **not** the thing to match on:
 
+- `CapabilityDenied(String)` — the platform refused on capability grounds:
+  either `[capabilities] signing` isn't granted, or the call was made **inside
+  a transaction** (see above). Both are your bug, not the caller's, and the
+  string says which. Never transient — retrying cannot help.
 - `UnknownKey(String)` — no key by that label in this service's scope. A
   caller can't tell "never created" from "removed" from "another tenant's".
 - `BadInput(String)` — wrong digest length, an alg/key mismatch, an
   unsupported algorithm.
-- `Internal(String)` — the signing subsystem is unavailable. Operational,
-  transient.
+- `Internal(String)` — the signing subsystem is unavailable or the platform
+  faulted. Operational, and the only possibly-transient variant.
 
 **Fail closed on any error** — never return a partial result or fabricate a
 signature. Cross-tenant isolation is host-enforced: a label belonging to
@@ -188,6 +257,7 @@ another service is simply `UnknownKey`.
 | `sign-digest` with the raw message bytes | ECDSA needs a 32-byte digest — hash first (keccak256 / SHA-256). A non-32-byte input is `BadInput`. |
 | `sign-message` for a secp256k1 key | `BadInput`. secp256k1/P-256 use `sign-digest`; only Ed25519 uses `sign-message`. |
 | Store the key in a table / env to "cache" it | There is nothing to store — your code never holds it. |
+| Sign inside `tx(\|\| …)` so the signature and the row commit together | Denied by the host. The closure re-runs on a conflict, which would mint one signature per attempt. Sign first, then open the tx to record it. |
 
 ## Integration
 

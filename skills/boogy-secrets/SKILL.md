@@ -44,7 +44,7 @@ or logs.
 `(header-name, secret-name)` in `secret_headers`. The host resolves and
 injects the value as that header at the wire edge:
 
-```rust boogy-snippet
+```rust
 use bindings::boogy::platform::outbound_http;
 
 fn charge(form_bytes: Vec<u8>) -> Result<(), outbound_http::FetchError> {
@@ -105,7 +105,7 @@ CLI seals it client-side; a raw plaintext PUT is rejected).
 signed (usually `"{timestamp}.{raw_body}"`) and the expected hex tag from
 the signature header, then call the `wit_glue!`-emitted helper:
 
-```rust boogy-snippet
+```rust
 // SHA-256 convenience form (the webhook common case):
 //   secrets_verify_hmac_sha256(secret_ref, message, expected_hex)
 //     -> Result<bool, boogy_sdk::secrets::VerifyError>

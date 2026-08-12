@@ -92,7 +92,9 @@ Router::new()
     .rpc("/api/rpc", || rpc::Dispatcher::new()
         .method("search", search_notes)
         .method("share", share_note))
+```
 
+```rust
 // MCP: handler closure runs per request; endpoint appears in openapi.json
 Router::new()
     .mcp("/mcp", |req| {
@@ -137,11 +139,15 @@ type to contribute schema information to `openapi.json`.
 Add `schemars` as a **direct dependency** — `#[derive(JsonSchema)]`
 emits `::schemars::*` absolute paths:
 
-```toml
-# Cargo.toml (external consumer)
-schemars = "0.8"
+In a standalone project's `Cargo.toml`:
 
-# In-repo (workspace = true, already pinned)
+```toml
+schemars = "0.8"
+```
+
+Inside a workspace that already pins it:
+
+```toml
 schemars = { workspace = true }
 ```
 

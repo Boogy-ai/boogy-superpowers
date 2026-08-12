@@ -24,9 +24,13 @@ deploy / console credential) is **rejected with 403** at a non-public app route
 | OBO delegation (peer call from another service) | `pw_…` pairwise for the delegated user (if delegation gate passes), or the calling workload URI |
 | Global agent token for first-party-allowlisted services only | `agent_<uuid>` |
 
-Control-plane routes (`/v1`, `/_admin`, `/_agents`, `/mcp`, `/healthz`) match
+Control-plane routes (`/v1`, `/_admin`, `/_agents`, `/healthz`) match
 **before** tenant dispatch, so your global Agent token works there exactly as
-before. Deploy/provision/login via CLI or MCP are **unaffected**.
+before. The builder's own `/mcp` (guidance/login tools) matches before tenant
+dispatch the same way on the control host — but if your OWN service mounts a
+route at `/mcp`, that path is scoped to your service's own host and dispatches
+to your service like any other route. Deploy/provision/login via CLI or MCP
+are **unaffected**.
 
 > **Deploy/test caveat:** if you try to `curl` or smoke-test your OWN deployed
 > service's `authenticated` route with your global operator token, it will
@@ -192,8 +196,8 @@ workload" pattern also works but EXCLUDES direct human curl — prefer
 | Item | Use |
 |---|---|
 | `auth::required() -> Guard` | 401 if anonymous. Put on collection routes (`list`, `create`). |
-| `auth::owns_resource(table, owner_col, id_param) -> Guard` | Item routes (`GET/DELETE /things/{id}`). Loads the row, **404 if missing OR not-yours**, stashes it in `req.ctx`. `.slot("name")` for multiple loads. |
-| `auth::find_owned(table, owner_col) -> Result<Vec<Row>, _>` | Principal-scoped list for index endpoints. 401 when anonymous. |
+| `auth::owns_resource(table, owner_col, id_param) -> Guard` | Item routes (`GET/DELETE /things/{id}`). Loads the row, **404 if missing OR not-yours**, stashes it in `req.ctx`. `.slot("name")` for multiple loads. **Numeric `_id` path param ONLY** — it parses the param as `u64`; a slug/`public_id` route 404s on every request (see below). |
+| `auth::find_owned(table, owner_col) -> Result<Vec<Row>, _>` | Principal-scoped list, **small bounded per-principal sets ONLY**. It pages internally until the principal's *entire* set is in memory — no limit, no cursor, no ordering. Growing table → keyset (see below). 401 when anonymous. |
 | `auth::load_owned(table, owner_col, id) -> Result<Option<Row>, _>` | Single load + ownership check for MCP/JSON-RPC (id in body, not path). `None` = missing OR not-yours. |
 | `auth::require_scope(scope) -> Guard` | Coarse capability gate: 401 if anonymous, **403 if logged in but lacks the scope**. |
 
@@ -267,6 +271,109 @@ wire status stays 404. Do **not** fork or patch the SDK guard to split
 the mask. (`require_scope`'s 403 is a *different axis* — coarse
 capability, not resource ownership — and is correct.)
 
+The three sections below are cases where the SDK guard **cannot** enforce
+the mask for you. The 404 rule does not bend; you become the one who
+upholds it.
+
+## Items addressed by a natural or opaque key
+
+`owns_resource` parses its path param as the row's numeric `_id` (`u64`).
+Hand it a slug or a `public_id` and the parse fails **before any lookup**:
+the route returns **404 on every request** — a total, silent outage that
+reads like a data problem, not a guard problem.
+
+`boogy:boogy-data-modeling` tells you to expose an opaque `#[lookup_by]`
+`public_id` precisely because `Id<T>` is enumerable. That advice wins.
+Keep the guard off the route and hand-roll the three steps, in one place:
+
+```rust
+use boogy_sdk::store::Val;   // not re-exported by wit_glue! — import it
+
+// Seek the unique #[lookup_by] index, then check the owner. Both misses → 404.
+fn load_owned_thing(public_id: &str, principal: &str) -> Result<Thing, ApiError> {
+    let thing = db_find_by::<Thing>(Thing::PUBLIC_ID, Val::Text(public_id.to_string()))?
+        .into_iter().next()
+        .ok_or_else(ApiError::not_found)?;   // missing        → 404
+    if thing.owner_principal != principal {
+        return Err(ApiError::not_found());   // exists, not yours → the SAME 404
+    }
+    Ok(thing)
+}
+```
+
+Once the mask is yours:
+
+- **One helper per resource**, called by every route touching it. The
+  mask must never be re-typed per handler — that's how one route drifts.
+- **Resolve the principal first, fail closed**:
+  `auth::current_principal().ok_or_else(ApiError::unauthenticated)?`.
+  Never compare an owner column against a possibly-empty string.
+- The key column must be `#[lookup_by]` — otherwise the lookup is a scan,
+  not a seek. (Not `#[unique]`: it is rejected by the derive, and before it
+  was it built no index at all.)
+- Soft-deleted counts as missing: tombstone check → 404 as well.
+
+## Composite and parent-keyed rules
+
+Some rules are not "this row is mine". Moderation is the canonical one:
+*delete a post if you are its author **OR** the room's creator*. There is
+no single ownership fact to guard on — and stacking a second
+`owns_resource` on the parent is worse than nothing: it 404s exactly when
+the caller **is** the author but doesn't own the room, so the rule you
+wrote the guard for is the case it breaks.
+
+Load both facts, then decide in one pure predicate:
+
+```rust
+// Pure, unit-testable, fails closed on a blank viewer.
+pub fn can_delete_post(viewer: &str, author: &str, room_creator: &str) -> bool {
+    !viewer.trim().is_empty() && (viewer == author || viewer == room_creator)
+}
+
+let post = load_live_post(&public_id)?;                        // 404 if missing
+let room = db_get::<Room>(post.room_id as u64)?.ok_or_else(ApiError::not_found)?;
+if !can_delete_post(&principal, &post.owner_principal, &room.owner_principal) {
+    return Err(ApiError::not_found());   // Iron Law unchanged: 404, NEVER 403
+}
+```
+
+- **The existence mask still applies.** A caller who fails the composite
+  rule must not learn the row exists. Same status as "no such post".
+- Membership/role rules are the same shape: seek the junction row
+  (`where_eq(room_id).where_eq(member_principal)` on its unique index)
+  and feed the resulting boolean into the predicate.
+- Keep predicates in a `perms` module with unit tests, including
+  blank-viewer and blank-column cases. Handlers do lookups; predicates
+  decide; neither does the other's job.
+
+## Index endpoints: owner-scoped keyset, not `find_owned`
+
+`find_owned` is fine for a set bounded by construction (one settings row,
+a handful of keys). On a table that grows it loads every row the
+principal has ever created into wasm memory on **every** request —
+unbounded memory and latency that climbs with tenure, and it reads as a
+platform regression rather than a service bug.
+
+For anything that grows, scope by the owner column and page by keyset:
+
+```rust
+use boogy_sdk::store::SortDir;
+
+let principal = auth::current_principal().ok_or_else(ApiError::unauthenticated)?;
+let page = Query::on(Receipt::TABLE)
+    .where_eq(DEFAULT_OWNER_COL, principal.as_str())  // the whole privacy story
+    .keyset_by(Receipt::CREATED_AT, SortDir::Desc)
+    .limit(limit)          // clamp the client's requested limit
+    .cursor(cursor)        // pagination::decode() from the query string
+    .fetch_page(|row| ReceiptOut::from_row(row))?;    // → CursorPage<T>
+```
+
+The owner filter is part of the query, not a post-filter over a wider
+result — there must be no unscoped variant of this query anywhere in the
+service. Back it with a declared access pattern
+(`list_by(filter = owner_principal, newest = created_at)`) so it's a seek.
+Cursor/limit/ordering mechanics: `boogy:boogy-access-patterns`.
+
 ## API keys for programmatic callers (verified recipe)
 
 Invoke `api_keys_glue!(bindings)` next to `wit_glue!`, then:
@@ -289,7 +396,9 @@ Invoke `api_keys_glue!(bindings)` next to `wit_glue!`, then:
 | Thought | Reality |
 |---|---|
 | "403 'not yours' tells users why." | It's an id-enumeration oracle. Return 404 for both; explain client-side. |
-| "I'll check ownership in the handler after loading the row." | `owns_resource` does load + check + ctx-stash in one guard. Read the stashed row; don't re-implement the check. |
+| "I'll check ownership in the handler after loading the row." | Right for the **numeric-`_id`, single-owner** route: `owns_resource` does load + check + ctx-stash; read the stashed row. Wrong — and unavoidable — for an **opaque/slug key** (the guard parses `u64`) or a **composite/parent-keyed rule**. Hand-roll those: one helper per resource, 404 for both misses. |
+| "The parent's owner rule? I'll stack a second `owns_resource` on it." | It 404s the author who doesn't own the parent — it kills the very case you added it for. Load both facts, decide in one predicate. |
+| "`find_owned` is the list helper, so index endpoints use it." | It materializes the principal's whole set per request. Bounded sets only; growing tables use the owner-scoped keyset query. |
 | "I'll add a custom api_keys table." | `api_keys_glue!` ships a hashed, isolated, scope-aware table. Use it. |
 | "Read the owner id from the request body." | Stamp it from `current_principal()`. The body is attacker-controlled. |
 | "A public `[[ingress.routes]]` route still needs an in-wasm auth check." | Public means anyone reaches it — authenticate it another way (HMAC signature for webhooks). The override doesn't self-gate. |
@@ -304,3 +413,7 @@ Invoke `api_keys_glue!(bindings)` next to `wit_glue!`, then:
 the token you read). For acting on a user's behalf across services, see
 `boogy:boogy-obo-delegation`. A public per-route carve-out for a signed
 callback is the front half of `boogy:boogy-webhooks`.
+`boogy:boogy-data-modeling` decides the key an item route is addressed by
+(opaque `public_id` vs. numeric `_id`) — which decides whether
+`owns_resource` can guard it at all. `boogy:boogy-access-patterns` owns
+the keyset query every owner-scoped index endpoint should use.

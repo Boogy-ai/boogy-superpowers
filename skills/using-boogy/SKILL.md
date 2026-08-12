@@ -40,6 +40,7 @@ service-by-service).
 | Skill | Read when... |
 |-------|--------------|
 | `using-boogy` | starting any Boogy work — routes you to the right skill |
+| `boogy-onramp` | **BEFORE any build, deploy, or platform call** — establishes the required setup contract |
 | `growing-boogy-meshes` | building with a person in the loop — walking them through high-level choices in plain language while you handle the wiring, and growing their mesh service-by-service |
 | `designing-boogy-services` | starting a new service or major feature — runs the design questionnaire before any code |
 | `boogy-capability-limits` | a requirement might not be supported, or designing any new service/feature |
@@ -60,6 +61,7 @@ service-by-service).
 | `boogy-blockchain-transactions` | a service constructs, signs, or broadcasts on-chain transactions — a custodial wallet, on-chain payments/payouts, a swap or bridge relayer, or any EVM/Cosmos/Solana/Bitcoin signer that moves funds (fund-safety: one gate per sign path, total-outflow + fee bounds, denom-aware caps, signature self-verify, adversarial RPC, nonce serialization) |
 | `boogy-webhooks` | building a service that RECEIVES and verifies inbound webhooks from a third party (Stripe, GitHub, Twilio, any HMAC-signed callback) |
 | `boogy-serving-frontends` | a service must serve a web frontend — a reactive UI, SPA, dashboard, static HTML/JS/CSS, or a full-stack app serving both the page and its API (arrow-js, TypeScript-with-no-build, host-served assets) |
+| `boogy-custom-domains` | serving a service on a tenant's own domain instead of the platform subdomain — registration, DNS records, verification, root-serve semantics |
 | `boogy-rest-apis` | building HTTP/REST or JSON-RPC endpoints — routing, guards, request parsing/validation, response types, error wire format |
 | `boogy-mcp-services` | exposing MCP tools/resources/prompts to LLM clients, or adding MCP alongside an existing REST service |
 | `boogy-api-specs` | questions about the auto-served spec docs (openapi.json / openrpc.json / MCP discovery), Router::info, two-tier visibility, undocumented routes, or the JsonSchema derive requirement |

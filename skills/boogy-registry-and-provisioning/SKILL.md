@@ -33,7 +33,7 @@ GET /v1/registry/modules/{owner}/{name}        # full detail (404 if not visible
 Filters: `q`, `category`, `mode`, `owner`, `since` (RFC3339), `limit`.
 A deployed service can query it cross-service:
 
-```rust boogy-snippet
+```rust
 use boogy_sdk::peer::PeerRequest;
 
 fn search_mesh() -> Result<(), ApiError> {

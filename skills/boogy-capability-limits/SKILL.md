@@ -99,6 +99,52 @@ the allowlist, the runtime IP firewall blocks internal/loopback addresses
 (link-local, private ranges, `127.0.0.0/8`, `::1`, …), so a permissive
 allowlist still cannot reach the host's own network.
 
+## Pattern — bounding a client-supplied cost parameter
+
+Any endpoint that lets the caller size the work — iteration or round count, page
+size, batch width, fan-out degree, payload length — must bound that input against
+`cpu_deadline_ms`. Two facts make this non-optional:
+
+- The budget is **wall-clock**, not CPU-seconds. Store round-trips, cross-service
+  hops, outbound calls, and time lost to a busy host all spend it.
+- Exceeding it **traps the guest**. There is no catchable error, no `Result`, no
+  partial response — the handler is cut off mid-execution. And because a new
+  deployment is verified by its first request, a trap *there* can roll the
+  deployment back: one oversized first request can undo a deploy.
+
+The shape:
+
+```rust
+const DEFAULT_ROUNDS: u32 = 4;
+const MAX_ROUNDS: u32 = 16;
+const MAX_CONTENT_BYTES: usize = 64 * 1024;
+/// Your manifest's `[limits] cpu_deadline_ms` — the platform does not hand it
+/// to the guest, so keep the two in step yourself.
+const CPU_DEADLINE_MS: u64 = 30_000;
+
+/// Clamp, don't trust. A cost *hint* gets clamped; a nonsensical value is a 400.
+pub fn clamp_rounds(requested: Option<u32>) -> u32 {
+    requested.unwrap_or(DEFAULT_ROUNDS).min(MAX_ROUNDS)
+}
+
+#[test]
+fn worst_case_fits_the_cpu_budget() {
+    // `fx_time_one_call` stands in for your own measurement of one call.
+    let t = fx_time_one_call(MAX_CONTENT_BYTES, MAX_ROUNDS);
+    assert!(t < CPU_DEADLINE_MS / 10, "worst legal input must fit with margin");
+}
+```
+
+Put the bound in a **pure, host-testable function** with a test that runs the
+worst *legal* input and asserts it fits. Aim an order of magnitude under the
+deadline: `cargo test` builds in debug, which is far slower than the release wasm
+you deploy — so passing in debug is the conservative direction, and passing only
+in release proves very little. The host is shared, so the real number moves.
+
+If the honest worst case doesn't fit, you have two options and neither is
+"hope": raise `cpu_deadline_ms` (it is deployment-settable, bounded by the
+platform cap), or move the work into a background job and let the client poll.
+
 ## Red flags
 
 | Thought | Reality |
@@ -108,6 +154,7 @@ allowlist still cannot reach the host's own network.
 | "I'll add a WebSocket upgrade handler." | The handler stays request/response — you don't upgrade it. Real-time push is the `websockets` capability (declare channels + publish to them); see `boogy:boogy-websockets`. |
 | "It's just a demo, store the file in a column." | Same ceilings apply in a demo. Presigned upload + a metadata row is the fastest path that actually works. |
 | "I'll pull in whatever crates are convenient — size doesn't matter." | The compiled `.wasm` has an 8 MiB free-tier cap (32 MiB hard max, uncompressed) and binary size drives cold-start latency. Keep dependencies lean; move big embedded data out of the binary. |
+| "The client asked for 10 million rounds — that's their problem." | It's yours: exceeding the wall-clock budget **traps** the guest, and a trap on a deployment's first request can roll the deploy back. Clamp caller-supplied cost inputs and test the worst legal one. |
 
 ## Integration
 

@@ -48,7 +48,7 @@ default).
 
 There is no SDK wrapper — use the generated binding directly:
 
-```rust boogy-snippet
+```rust
 use bindings::boogy::platform::outbound_http;
 
 fn charge(payload_bytes: Vec<u8>) {

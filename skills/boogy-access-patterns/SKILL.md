@@ -10,7 +10,9 @@ for point reads and the `Query` DSL for lists, mapping rows back with
 `M::from_row`. Every query needs an index, or it degrades to a
 full-table scan — and you don't hand-name indexes: you declare the
 *access pattern* on the `#[derive(Model)]` struct (data-modeling skill)
-and the right index is derived.
+and the right index is derived. (Inside a `tx` a scan costs correctness
+under load rather than just ops, and some reads no declaration rescues —
+see *Inside a `tx`* below.)
 
 ## Iron Law
 
@@ -56,18 +58,35 @@ name.
 | Need | Call | Returns |
 |------|------|---------|
 | one row by primary key | `db_get::<M>(id)` | `Result<Option<M>>` |
-| all rows where `col == v` | `db_find_by::<M>(M::COL, val)` | `Result<Vec<M>>` |
+| all rows where `col == v` | `db_find_by::<M>(M::COL, val)` | `Result<Vec<M>>` — **bounded only on a unique column**, see below |
 | insert (auto-PK) | `db_insert(&m)` | `Result<u64>` (the new `_id`) |
 | overwrite a row | `db_update(id, &m)` | `Result<()>` |
 | delete a row | `db_delete(id)` | `Result<()>` |
 
 `db_find_by` takes a `boogy_sdk::store::Val` (e.g.
-`Val::Text(peer.to_string())`, `Val::Integer(post_id as i64)`). A
-`#[lookup_by]` lookup returns a `Vec` of length 0 or 1 — take
-`.into_iter().next()` for the single row. This is the canonical upsert
+`Val::Text(peer.to_string())`, `Val::Integer(post_id as i64)`) — so the
+calling module needs `use boogy_sdk::store::Val;`. Note the asymmetry with its
+neighbour: the `Query` DSL's `where_*` builders take bare `&str` / `i64` via
+`IntoVal`, while `db_find_by` takes a `Val` only. Two adjacent read APIs, two
+argument conventions.
+
+A `#[lookup_by]` lookup returns a `Vec` of length 0 or 1 — take
+`.into_iter().next()` for the single row.
+
+> **`db_find_by` is bounded ONLY on a unique / `#[lookup_by]` column.** It pages
+> internally until *every* matching row is in memory — no caller limit, no
+> cursor. On a unique column that is at most one row, which is the intended use.
+> On any other column it loads the whole matching set, the same failure mode as
+> an unbounded `.fetch_all()`. For a non-unique filter use the `Query` DSL:
+> `.fetch_one()` for a single row, `.limit(n)` for a capped read, `.fetch_page()`
+> for a client-paged list. This is the canonical upsert
 shape (from chat):
 
 ```rust
+// `Val` is the read-side value type; `wit_glue!` deliberately does NOT
+// re-export it, so import it explicitly for a by-column lookup.
+use boogy_sdk::store::Val;
+
 // Point-lookup by the natural key, then update-or-insert.
 let existing: Option<Conversation> =
     db_find_by::<Conversation>(Conversation::PEER, Val::Text(peer.to_string()))?
@@ -90,7 +109,7 @@ The two examples below end in `.limit(n).fetch_all()` — that is the
 unbounded list. **A list a client pages through defaults to keyset**
 (`.fetch_page` → `CursorPage`) — the recipe section right after these:
 
-```rust boogy-snippet
+```rust
 // The `Model` trait (in scope here) provides `TABLE` + `from_row` to the
 // query/read code below. In a real service the struct lives in its own
 // `models.rs` (which imports `boogy_sdk::Model` for the derive) and the
@@ -182,9 +201,17 @@ express:
 
 - **OR-groups the `.or()` builder can't represent** — a keyset OR that
   must merge with caller-supplied domain filters (`find_rows_grouped`).
+  An OR is seeked only when **every** arm carries an equality on a
+  column that leads an index; the `< c OR (= c AND < cursor)` keyset
+  shape has a bare range in its first arm, so it never qualifies. What
+  keeps this read narrow is therefore the AND-prefix: give it a filter
+  on a leading index column. See *Inside a `tx`* below.
 - **Junction hydration** — page the side table with `fetch_page`, then
   batch-hydrate parents in one read with `where_in(REFS, ids)` /
   `get_many`. The DSL has no JOIN primitive; this two-step is the pattern.
+  `where_in` seeks when its column **leads an index** — but `_id` leads
+  none, so hydrating *by id* means `get_many` (point gets), in a `tx` or
+  out.
 - **Streaming a whole table in a batch job** — `for_each_batch(...)`
   (`order_col` is an INDEX NAME, not a column; cannot run inside `tx`).
   Index names are **schema-canonical** — derived as `ix_<table>_<cols>`,
@@ -202,14 +229,122 @@ express:
 `keyset_resume_filter` live in `boogy_sdk::pagination` when you need them
 raw. Don't re-derive the overfetch logic — use the helper.
 
+## Counter columns — readable everywhere, sortable nowhere
+
+A `#[counter]` column (see `boogy:boogy-data-modeling`) is stored in its own
+cell, not inside the row. **Reads merge it back transparently** — a point
+read, a list page, an index walk, and `count` all see the live value, so
+nothing about the `db_*` / `Query` surface changes for reading one.
+
+What changes is what you may **declare**. A counter cannot back an index, so
+naming it in an access-pattern verb is a **compile error**:
+
+```rust ignore-snippet: shows code the derive is meant to REJECT — compiling it would assert the opposite of what it teaches
+// COMPILE ERROR — ranked_by is backed by an index, a counter can't back one.
+#[model(table = "posts", ranked_by(highest = "vote_score"))]
+pub struct Post {
+    #[counter] pub vote_score: i64,
+}
+```
+
+So there is no `keyset_by(Post::VOTE_SCORE, …)` page and no "top N by score"
+index read. Two sanctioned ways to get a ranked view anyway:
+
+| Approach | When |
+|---|---|
+| Scope to a **bounded sub-range** (a declared verb that *is* indexed — e.g. newest 500 in a room) and sort those in memory | the ranking is over a slice you can bound |
+| **Materialize** the counter into a separate plain column refreshed by a background job, and index *that* | you need a global ranked feed |
+
+The second is a deliberate staleness-for-scalability trade: the ranked column
+lags the live counter by the job interval. Say so in the endpoint's docs.
+
+### 🚩 Never branch on a counter you read, then write
+
+A counter read takes **no read-conflict range** — that is exactly what keeps
+reading one from re-introducing the conflict the atomic add removes. So a
+value you read may already be stale, and an increment landing before your
+commit **does not** conflict, so it does not trigger the automatic retry
+that would otherwise re-read it. The staleness is silently accepted.
+
+```rust
+// WRONG — a read-then-write decision on a counter, or anything derived
+// from one (a count, a filter, a sort over it).
+tx::<_, _, ApiError>(|| {
+    let post = db_get::<Post>(id)?.ok_or_else(ApiError::not_found)?;
+    if post.vote_score < -10 { db_delete::<Post>(id)?; }   // 🚩 stale
+    Ok(())
+})
+```
+
+When the decision must hold, express it as a **predicate** instead —
+`store::delete_where` / `store::update_where` with the counter in the
+filters. Those serialize the rows they actually MATCH against concurrent
+increments, so an increment that lifts a matched row out of the predicate
+becomes a serialization conflict rather than a row acted on with a stale
+value — and a serialization conflict is retried automatically, so the
+transaction re-runs against the settled value and you never see it.
+
+Reads that only *report* a value (get, list, count) need none of this. The
+rule is about branch-then-write.
+
 ## Unindexed-scan guardrail
 
 A query with no usable index that scans past the row threshold **errors**
-(strict mode), with a hint naming the fix: *declare an access pattern so
+(strict mode), with a hint naming the fix:
+*declare an access pattern so
 the index is derived.* `.allow_full_scan("reason")` is an audited
 **opt-out**, not a fix — the scan is still O(table). Use it only for
 genuinely intentional small/single-owner/admin scans (chat's
 `list_conversations` does this for a single-owner table).
+
+### Inside a `tx`, an unindexed read costs correctness, not just ops
+
+The planner is the same one; what changes is the price of an unindexed
+read. The guardrail applies inside a `tx(|| …)` closure too, at **half
+the row threshold** — because the same scan costs more here — and its
+error names the table, the conflict range the read just took, and either
+the index that would serve the query or, when you already have one, what
+would have bounded it (and when the query constrains no column at all,
+that there is nothing to index). Being a store error, the refusal also
+**poisons the transaction** — you cannot catch it and carry on; commit is
+refused and the closure rolls back. `.allow_scan("reason")` downgrades it to a warning
+here as it does outside, but it buys **strictly less**: outside a `tx` it
+means "this scan is intentional", inside one it also means "and I accept
+losing to any concurrent write to this table", because the scan
+puts **every row of the table into the transaction's read set**, so any
+concurrent write to that table aborts your commit, even to a row your
+filter never matched. An index-served read conflicts only on the
+sub-range it seeked plus the rows it fetched. Consequences for reads a
+`tx` closure performs:
+
+- **Give it a filter on a column that LEADS an index.** Equality,
+  `where_in`, `where_null` and a range all seek — including on the first
+  column of the composite a `list_by` derives. One such AND-filter is
+  enough; failing that, an `.or()` seeks when *every* arm carries an
+  equality on a leading index column. A filter on a column that appears
+  only *later* in a composite is applied per row, so it narrows the
+  result but not the conflict range; that one needs its own index.
+  The same rule narrows an `update_where` / `delete_where` predicate;
+  without a leading-index filter the sweep scans. So does a
+  bare `.count()` with no filter, which reads the whole key range without
+  consulting the planner at all (a *filtered* `.count()` does).
+  `boogy:boogy-transactions` has the detail.
+- **Don't ask for a total you won't use.** A read whose only narrowing is
+  its SORT takes the whole table inside a `tx` unless it skips the total.
+  `.fetch_page()`, `.fetch_one()` and a `.limit()`ed `.fetch_all()` ask
+  for no total — that, plus the page bound, is what lets such a read stop
+  at the page and ride the sort index. `.fetch_all_with_total()` and a
+  *filtered* `.count()` ask for an exact number, so they drain the whole
+  match set.
+- **Index-served is not the same as narrow.** The read set is the
+  sub-range the seek covered, so an equality matching most of the table
+  is index-served and still conflicts with nearly every writer. Seek on
+  the *selective* column.
+
+Either way there is a ceiling: a search inside a transaction that has to
+work through more than ~50,000 rows (matches on an index walk, rows touched
+on a scan) is refused with an error pointing you at the cursor/pagination
+API.
 
 ## Red flags
 
@@ -217,6 +352,10 @@ genuinely intentional small/single-owner/admin scans (chat's
 - "I'll reach for `store::find` / `FindOptions`" → that's the escape hatch. Use `db_find_by` / `Query` and a declared access pattern.
 - "I'll hand-write the index name" → the derive names it (`ix_<table>_<cols>`); the `name` you declared is discarded. Reference data by **columns** via `db_find_by` / the Query DSL — never by a hardcoded index name. A literal name passed to `for_each_batch`/`open_cursor` drifts from the canonical one and the cursor returns NotFound at runtime.
 - "Offset pagination is fine" → not for deep pages. `fetch_page` (keyset).
+- "I'll `ranked_by` my `#[counter]` column" → compile error; a counter can't back an index. Bounded sub-range sorted in memory, or materialize into a plain column via a job.
+- "I read the counter inside the tx, so the check is safe" → counter reads take no conflict range. The value may be stale, and because a concurrent increment doesn't conflict, the automatic retry never fires to re-read it. Use a `delete_where`/`update_where` predicate.
+- "The read inside my `tx` only touches a few rows" → only if a filter is on a column that LEADS an index, and only over the sub-range that seek covered — an equality matching most of the table is index-served and still conflicts with nearly every writer. If nothing seeked, the whole table is in the transaction's read set.
+- "I'll batch-hydrate by id inside the `tx` with `where_in`" → `_id` leads no index, so that scans. Use `get_many` (point gets by id), in a `tx` or out.
 - "I'll just `fetch_all()` the table" / "no limit needed, it's small for now" → unbounded read; today's small table is tomorrow's OOM and a slow query. Keyset-paginate a list anyone scrolls; cap a one-shot read with an explicit `.limit(100..=1000)` sized to row density.
 
 ## Integration

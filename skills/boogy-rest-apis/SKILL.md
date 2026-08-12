@@ -24,6 +24,11 @@ or another agent can use your API without reading your source. A handler
 that takes or returns `json::Value` produces an endpoint with **no
 schema**: an undocumented hole in the spec.
 
+The typed DTO is **necessary but not sufficient for request bodies**:
+whether the body's schema actually reaches the document depends on the
+handler shape you pick. Read *Documented request body vs. validated
+request body* below before writing your first `POST`.
+
 This is **enforced, not advised** — a CI gate FAILS untyped handler I/O.
 And a type-level bound can't catch it for you: `schemars` implements
 `JsonSchema` for `serde_json::Value`, so a `T: JsonSchema` bound on
@@ -31,6 +36,9 @@ And a type-level bound can't catch it for you: `schemars` implements
 "any" schema. That is exactly why the discipline AND the gate matter.
 
 ```rust
+use boogy_sdk::model::{Id, Timestamp};
+use boogy_sdk::Model;
+
 // GOOD — typed DTO in, typed DTO out. Both derive JsonSchema, so both
 // the request and the response shape land in openapi.json.
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -47,14 +55,38 @@ struct SendResult {
     status: String,
 }
 
-// The Json<T> extractor arg decodes + validates the typed body; the
-// Json<SendResult> return type publishes the response schema.
+// The stored row is its own type — a #[derive(Model)] struct, never the
+// wire DTO. See `boogy:boogy-data-modeling`.
+#[derive(Model)]
+#[model(table = "messages")]
+struct Message {
+    #[pk] id: Id<Message>,
+    to_addr: String,
+    from_addr: String,
+    subject: String,
+    body: String,
+    created_at: Timestamp,
+}
+
+// The Json<T> extractor arg decodes the typed body AND publishes its
+// schema; the Json<SendResult> return type publishes the response
+// schema. Note: the extractor does NOT run garde — see below.
 fn send(Json(req): Json<SendReq>) -> Result<Json<SendResult>, ApiError> {
-    let id = db_insert(&Message { /* … */ })?;
+    let id = db_insert(&Message {
+        id: Id::new(0),                     // placeholder PK; the store assigns _id
+        to_addr: req.to,
+        from_addr: req.from,
+        subject: req.subject,
+        body: req.body,
+        created_at: Timestamp::new(now_millis() as i64),
+    })?;
     Ok(Json(SendResult { message_id: id, status: "queued".into() }))
 }
 
 // Lists are a typed wrapper around a Vec<T> — never a bare Vec or Value.
+#[derive(Serialize, schemars::JsonSchema)]
+struct MessageOut { id: u64, subject: String }
+
 #[derive(Serialize, schemars::JsonSchema)]
 struct MessageList { items: Vec<MessageOut>, count: usize }
 ```
@@ -67,7 +99,9 @@ struct MessageList { items: Vec<MessageOut>, count: usize }
 #[derive(Deserialize)]                       // ← missing schemars::JsonSchema
 struct SendReq { to: String, body: String }
 
-fn send(Json(req): Json<json::Value>) -> Json<json::Value> { /* … */ }
+fn send(Json(req): Json<json::Value>) -> Json<json::Value> {
+    Json(json::json!({ "ok": true }))       // untyped in, untyped out
+}
 ```
 
 ## Routing — annotate every route, set the doc identity
@@ -77,7 +111,7 @@ identity; chain `.summary(…)` (one line) + `.description(…)` (prose)
 before each route — both apply to the NEXT route registered, then
 self-clear:
 
-```rust boogy-snippet
+```rust
 fn routes() -> Router {
     Router::new()
         .info("Widgets", "0.1.0", Some("CRUD over the widget catalog."))
@@ -124,6 +158,8 @@ missing test. Checklist before you call a router done:
 - [ ] `Router::info(title, version, Some(desc))` is set.
 - [ ] Every route has both `.summary()` and `.description()`.
 - [ ] Every DTO in an extractor or response derives `schemars::JsonSchema`.
+- [ ] You fetched `<routes>/openapi.json` and saw your request bodies in
+      it. The derive alone does not put them there (next-but-one section).
 
 ## Handler bodies use the model layer
 
@@ -131,7 +167,12 @@ A create handler inserts a typed model and returns it — no
 `store::insert`, no bare column strings:
 
 ```rust
-// `Widget` is a #[derive(Model)] struct (see boogy:boogy-data-modeling).
+use boogy_sdk::model::{Id, Timestamp};
+
+// `Widget` is a #[derive(Model)] struct (see boogy:boogy-data-modeling);
+// `CreateWidget` / `WidgetOut` are the DTOs declared in the next section.
+// This is the `&mut Req` shape: garde runs, but the request body does
+// NOT reach openapi.json. See the tradeoff section below.
 fn create_widget(req: &mut Req<'_>) -> Result<Created<WidgetOut>, ApiError> {
     let input: CreateWidget = validate_body(req.body())?;
     let id = db_insert(&Widget {
@@ -158,7 +199,7 @@ hatch only.
 Guards are NOT attached with a `.guard()` method — that does not exist.
 Use `.group(guards, |g| …)`:
 
-```rust boogy-snippet
+```rust
 fn routes() -> Router {
     Router::new()
         .group([auth::owns_resource("widgets", "owner_principal", "id")], |g| g
@@ -193,9 +234,9 @@ JSON **and** runs `garde` (missing body → 400, bad JSON → 400, failed
 validation → 422 with a per-field map). Use `parse_body` only when the
 type has no validation rules (avoids the `garde::Validate` bound).
 
-```rust boogy-snippet
-#[derive(serde::Serialize)]
-struct WidgetOut { id: u64 }
+```rust
+#[derive(serde::Serialize, schemars::JsonSchema)]
+struct WidgetOut { id: u64, name: String }
 
 #[derive(Deserialize, garde::Validate)]
 struct CreateWidget {
@@ -206,7 +247,7 @@ struct CreateWidget {
 fn create_widget(req: &mut Req<'_>) -> Result<Created<WidgetOut>, ApiError> {
     let input: CreateWidget = validate_body(req.body())?;
     // ... insert, return Created(...) ...
-    Ok(Created(WidgetOut { id: 1 }))
+    Ok(Created(WidgetOut { id: 1, name: input.name }))
 }
 ```
 
@@ -235,10 +276,68 @@ of a **collection** (`Vec<String>`), not for `Option`. (Confirmed against garde
 
 **`schemars = "0.8"` is required for spec generation.** Add it as a
 direct dep and derive `schemars::JsonSchema` on every DTO that appears
-in a typed extractor or response — this is what makes request/response
-shapes show up in the auto-served `…/openapi.json` document. Omitting
-it is not an error at runtime, but the generated schema will be empty
-for that type.
+in a typed extractor or response. Omitting it is not a runtime error —
+the type simply has no schema to publish. The derive is a
+**precondition**, not the mechanism; the mechanism is the next section.
+
+## Documented request body vs. validated request body
+
+Spec capture happens **at route registration**, from the handler's
+*types* — nothing inspects the handler body. So which shapes reach
+`openapi.json` depends on the handler signature, and the two signatures
+are not interchangeable:
+
+| Handler shape | Request body in the spec | `garde` runs |
+|---|---|---|
+| `fn h(Json(b): Json<Body>) -> R` | **yes** — the extractor records `Body`'s schema at registration | **no** — it only deserializes |
+| `fn h(req: &mut Req<'_>) -> R` + `validate_body::<Body>(req.body())?` | **no** — registration sees only the return type | **yes** |
+
+The **response** side is identical in both — the return type's schema is
+captured either way. Only the request body differs. Deriving
+`JsonSchema` on a DTO you only ever hand to `validate_body`/`parse_body`
+is **inert**: nothing reads it.
+
+The query string splits the same way: `Query<T>` documents and does not
+validate; `req.parse_query::<T>()` validates and does not document.
+
+**To get both**, take the typed extractor and validate explicitly:
+
+```rust
+use garde::Validate;
+
+// The extractor bound is `DeserializeOwned + JsonSchema` — that second
+// derive is what puts the request body in openapi.json, and the
+// `validate_body` shape above does NOT need it. Derive all three here.
+#[derive(Deserialize, garde::Validate, schemars::JsonSchema)]
+struct CreateWidget {
+    #[garde(length(min = 1, max = 80))] name: String,
+}
+
+#[derive(Serialize, schemars::JsonSchema)]
+struct WidgetOut { id: u64, name: String }
+
+// The extractor publishes CreateWidget's schema; the explicit
+// .validate() gives the same 422 + per-field map validate_body does.
+fn create_widget(Json(input): Json<CreateWidget>)
+    -> Result<Created<WidgetOut>, ApiError>
+{
+    input.validate().map_err(ApiError::validation)?;
+    // ... insert, return Created(...) ...
+    Ok(Created(WidgetOut { id: 1, name: input.name }))
+}
+```
+
+**When you can't:** the extractor shape hands you no `Req`, so no
+`req.ctx` (guard-stashed resources), no raw headers, no params beyond a
+`Path<T>`. A route whose guard loads a row into `Ctx` must stay on
+`&mut Req`, and its request body will be absent from the spec. Take the
+extractor shape wherever the handler doesn't need `Req`; accept the gap
+where it does, knowingly.
+
+**Passing CI is not evidence.** The typed-DTO gate keys on the DTO at
+the *use site* (`Json<Name>`, `parse_body::<Name>`), never on what
+reached the document — a service can be fully green with zero request
+bodies documented. Fetch `<routes>/openapi.json` and look.
 
 ## Responses
 
@@ -252,6 +351,26 @@ Return typed wrappers and let the framework set the status:
 | `Redirect::to(url)` | 302 |
 | `Option<T>` (`None`) | 404 |
 | `Result<T, ApiError>` (`Err`) | the error's status, as 7807 |
+| `HttpResponse` | whatever you built — and **undescribed**: the route loses its response schema. Escape hatch. |
+
+**Idempotent routes: one status + a boolean in the body.** Nothing in
+that table expresses a runtime-chosen status — "201 if I created it, 200
+if it already existed" — the natural REST reflex for every enrol,
+subscribe, ensure-exists, or upsert. Don't reach for `HttpResponse` to
+build it. The convention is a single status with a **discriminator field
+in the response DTO** (`already_member: bool`, `created: bool`):
+
+```rust
+#[derive(Serialize, schemars::JsonSchema)]
+struct MemberOut { room_id: u64, principal: String, already_member: bool }
+```
+
+The route asserts a post-condition — *this principal is a member* —
+equally true on the first call and the tenth, so it has one meaning and
+should have one status. Splitting it turns the status line into a side
+channel every client must branch on, and doubles the documented
+responses for that one meaning. Reserve `201` for routes that only ever
+create.
 
 ## Error wire format (RFC 7807)
 
@@ -266,10 +385,22 @@ Every SDK error is `application/problem+json`:
 `errors` (per-field map) appears only on validation. Construct via
 `ApiError`: `bad_request` 400, `unauthenticated` 401, `forbidden` 403,
 `not_found` 404 (also "exists but not yours" — existence-mask),
-`conflict` 409, `unprocessable` 422 (freeform domain rule),
-`validation(report)` **422** (per-field), `internal` 500. `ApiError`
+`conflict` 409 (version mismatch, "already in this state"),
+`constraint_violation` 409 (duplicate value on a unique index, a **not-null
+column written as null or omitted from a row-creating write**, or an FK /
+check violation), `unprocessable` 422 (freeform domain rule),
+`validation(report)` **422** (per-field), `service_unavailable` 503
+(transient — the store was too contended or the platform is at a
+concurrency cap), `internal` 500. `ApiError`
 converts to both `HttpResponse` and `RpcError`, so the same value flows
 through REST or JSON-RPC.
+
+**409 is never "retry me".** A store commit conflict is retried inside `tx`
+and does not reach the client; every 409 that does is deterministic and
+needs the caller to change something. Transient contention is a **503**
+whose retry hint rides in the problem+json `detail` (there is no
+`Retry-After` header on it — `ApiError` carries no headers). See
+`boogy:boogy-transactions`.
 
 ## JSON-RPC (it has a real layer)
 
@@ -303,14 +434,16 @@ pass:
 
 ```rust
 // FAILS `boogy check` — two write call-sites, no tx around them.
-match existing {
+match &existing {
     Some(c) => db_update(c.id.get(), &updated)?,
     None    => { db_insert(&updated)?; }
 }
 
 // PASSES — the whole match (both call-sites) is inside one tx.
+// Match on `&existing`, not `existing`: `tx` takes an `Fn` closure, so
+// moving a captured value out of it does not compile.
 tx::<_, _, ApiError>(|| {
-    match existing {
+    match &existing {
         Some(c) => db_update(c.id.get(), &updated)?,
         None    => { db_insert(&updated)?; }
     }
@@ -335,7 +468,9 @@ handler needs `tx`.
 | "Only one branch of my `match` ever writes, so it's a single write." | `boogy check` counts write call-sites statically, not runtime branches — an update-or-insert `match` has two call-sites and FAILS the gate unless the whole `match` is inside one `tx`. |
 | "I'll wire the routes and skip the docs." | MANDATORY: `Router::info(...)` + `.summary()` + `.description()` on every route. They flow into the auto-served `openapi.json`/`openrpc.json` (the API console + clients surface them). An un-annotated route or identity-less spec is a defect, not a smell. |
 | "I'll just take/return `Json<json::Value>` / `Created<json::Value>` — it's flexible." | Your endpoint is undocumented: no request or response schema in `openapi.json`. The CI gate FAILS it. Define a typed `#[derive(…, schemars::JsonSchema)]` DTO. |
-| "My request struct only needs `Deserialize`." | A request struct that derives `Deserialize` without `JsonSchema` makes the request body invisible in the spec — `schemars` emits a schema only when `JsonSchema` is derived. Derive both. |
+| "My request struct only needs `Deserialize`." | Without `JsonSchema` the body can never be described — `schemars` emits a schema only when the derive is present. Derive both. |
+| "My DTOs all derive `JsonSchema`, so my request bodies are documented." | Only under the `Json<T>` extractor signature. With `&mut Req` + `validate_body` the derive is inert and the body is absent from `openapi.json` — and the extractor form doesn't run `garde`, so you can't have both without an explicit `.validate()`. CI proves neither; fetch the document. |
+| "201 when I create it, 200 when it already existed." | No response type expresses a runtime-chosen status. Return **one** status and put a boolean discriminator in the body (`already_member: bool`). |
 
 → `boogy:boogy-api-specs` — the full picture of the auto-served
 `openapi.json`/`openrpc.json`, two-tier visibility, and overrides.

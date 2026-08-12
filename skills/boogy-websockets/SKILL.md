@@ -107,6 +107,7 @@ fn push_price(req: &mut Req<'_>) -> Result<NoContent, ApiError> {
         Err(PublishError::UnknownChannel)     => Err(ApiError::internal("undeclared channel")),
         Err(PublishError::CapabilityDenied)   => Err(ApiError::internal("websockets not granted")),
         Err(PublishError::BackendUnavailable) => Err(ApiError::service_unavailable("retry")),
+        Err(PublishError::WrongClass)         => Err(ApiError::internal("wrong publish fn for this channel class")),
     }
 }
 ```
@@ -134,6 +135,7 @@ Both return `Result<(), PublishError>`:
 | `UnknownChannel` | Channel not declared in the manifest |
 | `CapabilityDenied` | `websockets = true` not granted |
 | `BackendUnavailable` | Transient delivery-backend failure |
+| `WrongClass` | Wrong publish fn for the channel's class — broadcast `ws_publish` on a `principal` channel, or the per-principal fns on a `public`/`private` one |
 
 You can also publish from **background jobs** — same calls, same channels
 (useful for scheduled or async fan-out). Jobs can publish but cannot mint
@@ -157,6 +159,7 @@ fn notify_order(req: &mut Req<'_>) -> Result<NoContent, ApiError> {
             PublishError::UnknownChannel     => ApiError::internal("undeclared channel"),
             PublishError::CapabilityDenied   => ApiError::internal("websockets not granted"),
             PublishError::BackendUnavailable => ApiError::service_unavailable("retry"),
+            PublishError::WrongClass         => ApiError::internal("wrong publish fn for this channel class"),
         })?;
     Ok(NoContent)
 }
@@ -189,6 +192,7 @@ fn subscribe_token(req: &mut Req<'_>) -> Result<Json<json::Value>, ApiError> {
             GrantError::RateLimited      => ApiError::service_unavailable("slow down"),
             GrantError::InvalidTtl       => ApiError::bad_request("ttl out of range"),
             GrantError::NotPrivate       => ApiError::bad_request("channel is not private"),
+            GrantError::WrongClass       => ApiError::internal("wrong grant fn for this channel class"),
             GrantError::UnknownChannel   => ApiError::internal("undeclared channel"),
             GrantError::CapabilityDenied => ApiError::internal("websockets not granted"),
         })?;
@@ -216,6 +220,7 @@ fn principal_subscribe_token(req: &mut Req<'_>) -> Result<Json<json::Value>, Api
             GrantError::RateLimited      => ApiError::service_unavailable("slow down"),
             GrantError::InvalidTtl       => ApiError::bad_request("ttl out of range"),
             GrantError::WrongClass       => ApiError::bad_request("channel is not a principal channel"),
+            GrantError::NotPrivate       => ApiError::internal("grant fn/class mismatch"),
             GrantError::UnknownChannel   => ApiError::internal("undeclared channel"),
             GrantError::CapabilityDenied => ApiError::internal("websockets not granted"),
         })?;
@@ -231,6 +236,7 @@ the per-principal twin of `ws_mint_subscribe_grant`. Same TTL rules apply.
 | `RateLimited` | Mint rate exceeded (20/s, burst 100, per service) |
 | `InvalidTtl` | `ttl_seconds` outside 10..=3600 |
 | `NotPrivate` | Channel class doesn't require a grant |
+| `WrongClass` | Wrong grant fn for the channel's class — `ws_mint_subscribe_grant` on a `principal` channel, or `ws_mint_principal_subscribe_grant` on a `private` one |
 | `UnknownChannel` | Channel not declared |
 | `CapabilityDenied` | `websockets = true` not granted |
 

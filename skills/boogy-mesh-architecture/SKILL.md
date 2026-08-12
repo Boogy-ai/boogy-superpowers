@@ -79,7 +79,7 @@ on the callee, the hop is denied.
 
 A service can ask the host who *it* is:
 
-```rust boogy-snippet
+```rust
 fn who_am_i() {
     // wit_glue! emits this; no [capabilities] grant needed — knowing your
     // own identity is benign (conceptually like reading the clock).
@@ -99,7 +99,7 @@ or an inbound header, so it is **safe to authorize on**.
 The high-value use is gating "is this caller one of **my owner's** apps?"
 Compare the *attested caller's* workload owner to your own:
 
-```rust boogy-snippet
+```rust
 fn admit_same_owner_only(req: &mut Req<'_>) -> Result<(), ApiError> {
     // The attested caller (host-set; identity-bearing headers are stripped
     // on every hop, so this can't be forged). The raw Identity exposes the
@@ -144,7 +144,7 @@ can never read another's rows even if ingress were misconfigured.
 
 ## Peer mechanics (quick reference)
 
-```rust boogy-snippet
+```rust
 use boogy_sdk::peer::PeerRequest;
 
 #[derive(Deserialize)]
@@ -169,8 +169,11 @@ fn reserve(payload: serde_json::Value) -> Result<(), ApiError> {
   `DepthExceeded`, `CapabilityDenied`, `Internal`, `InvalidTarget`.
 - **Cross-service writes**: one ambient transaction spans the whole
   `peer::fetch` call tree — callees never call `tx`, only the origin
-  commits, a 409 means the client retries the whole request. See
-  `boogy:boogy-transactions`.
+  commits. A commit conflict is **retried automatically**, which re-runs
+  the closure and therefore **re-issues every `peer::fetch` in it** — so a
+  callee must tolerate being called again. A **poisoned** transaction (a
+  participant failed) is deliberately *not* retried, and surfaces as 409.
+  See `boogy:boogy-transactions`.
 
 ## Origin billing
 

@@ -98,10 +98,20 @@ an allow/deny decision or an unbounded spend.**
 Concurrent sends for one account race on the next nonce/sequence. Reserve it
 in a small dedicated transaction: `reserved = max(on-chain pending,
 stored_next); stored_next = reserved + 1`, then sign with `reserved`.
-Concurrent reservations conflict on the row → 409 (the client retries the
-whole request). Document the known caveat: a permanently-failed tx leaves a
-nonce gap (inherent to pending pipelines; a cancel/replace flow is separate
-scope).
+Concurrent reservations conflict on the row; the store retries the
+transaction automatically, so the loser re-reads the winner's committed
+`stored_next` and takes the following nonce. Keep that reservation
+transaction **side-effect free** — reserve, then sign *after* it commits —
+because a retried closure runs again, and signing twice for one send is the
+bug this ordering prevents. **The platform enforces this**: every `signing`
+write is denied inside a transaction, so a `sign-digest` in the reservation
+closure fails rather than double-signing. Getting the ordering right is still
+on you — the denial tells you the design is wrong, it does not fix it. A
+sustained pile-up on one account exhausts the
+retry budget and returns **503**, not 409: that is the signal to shard the
+account or serialize sends upstream. Document the known caveat: a
+permanently-failed tx leaves a nonce gap (inherent to pending pipelines; a
+cancel/replace flow is separate scope).
 
 ## Know you are custodial — verify it from the code
 

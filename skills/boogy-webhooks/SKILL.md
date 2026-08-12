@@ -56,7 +56,7 @@ Signatures are computed over the **exact bytes** the provider sent.
 Re-serializing parsed JSON changes whitespace/key order and breaks the
 HMAC. Read the body as raw bytes; pull the provider's signature header.
 
-```rust boogy-snippet
+```rust
 fn read_raw_body_and_sig(req: &mut Req<'_>) -> Result<(Vec<u8>, String), ApiError> {
     let body = req.body().unwrap_or(&[]).to_vec();          // RAW bytes
     let sig_header = req
@@ -88,7 +88,7 @@ back only a `bool`.
 webhook_secret = { usage = ["hmac-verify"] }
 ```
 
-```rust boogy-snippet
+```rust
 // secrets_verify_hmac_sha256(secret_ref, message, expected_hex)
 //   -> Result<bool, boogy_sdk::secrets::VerifyError>   (emitted by wit_glue!)
 fn verify_signature(signed_message: &[u8], expected_hex: &str) -> Result<(), ApiError> {
@@ -117,7 +117,7 @@ Providers **retry** deliveries (timeouts, your 5xx, at-least-once
 delivery), so the same event arrives more than once. Key idempotency on
 the provider's event id, not on your own row id:
 
-```rust boogy-snippet
+```rust
 use boogy_sdk::model::{Id, Timestamp};
 use boogy_sdk::store::Val;
 use boogy_sdk::Model;
@@ -158,7 +158,7 @@ real work as a background job (see `boogy:boogy-background-jobs`), then
 return 200. Providers treat a slow or non-2xx response as a failure and
 retry — so don't run the heavy processing inline.
 
-```rust boogy-snippet
+```rust
 use boogy_sdk::jobs::JobSpec;
 use boogy_sdk::model::{Id, Timestamp};
 use boogy_sdk::Model;
