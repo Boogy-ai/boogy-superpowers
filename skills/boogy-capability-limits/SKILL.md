@@ -61,6 +61,22 @@ service that hasn't been hit for a while may pay a one-time cold-start
 (reload + recompile) on its next request, and binary size drives that
 latency.
 
+**`clock` / `entropy` are real host-level grants, not app-level toggles.**
+Denying `clock` freezes the wall clock a guest observes at the Unix epoch —
+`std::time::SystemTime::now()` returns it, not just the SDK's
+`now_millis()` wrapper. Denying `entropy` returns an all-zero deterministic
+stream from `wasi:random/random` — `getrandom`, `rand`, `rand_core::OsRng`,
+and `uuid::Uuid::new_v4()` all get it, not just `random_bytes()`. There is no way
+to get real calendar time or real secure randomness into a service without
+granting the matching capability, regardless of which API (Boogy's wrapper
+or a raw crate) the code calls. `api_keys_glue!` needs *both*: key
+generation uses `OsRng` directly and expiry checks use the raw wall clock,
+so a service issuing API keys without `clock = true` / `entropy = true`
+gets keys generated from a constant stream and expiry that never advances.
+(Relative timing — `std::time::Instant` / `wasi:clocks/monotonic-clock` —
+stays real regardless of `clock`; it never reveals calendar time and every
+compiled component depends on it structurally.)
+
 ## Quick reference — ceilings
 
 | Limit | Default | Note |

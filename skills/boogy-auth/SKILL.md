@@ -390,6 +390,7 @@ Invoke `api_keys_glue!(bindings)` next to `wit_glue!`, then:
 | No escalation | A key carries only scopes the minter already holds (403 otherwise). |
 | Storage | Keys live hashed in the service's own store; never roll your own table. |
 | Format | `sk_<env>_<…>_<crc>`. |
+| Requires `clock` + `entropy` | Key generation and expiry checks use the raw wall clock and secure random source, not the gated `runtime::now-millis`/`random-bytes` wrapper — grant both in `[capabilities]` or every issued key comes from the same deterministic (denied) stream and expiry math never advances. |
 
 ## Red flags
 
