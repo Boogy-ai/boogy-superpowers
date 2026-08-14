@@ -320,13 +320,25 @@ socket.emit("subscribe", {
 // `payload`/`payloads[*]` are STRING envelopes (the JSON your service
 // published) — you must `JSON.parse` each to get `{ type, v, ts, data }`.
 
+// DEDUPE BY `seq`. Every message carries a per-channel sequence number that is
+// the SAME on the snapshot copy and the live copy. You need it: subscribing is
+// not instantaneous, so a message published while you were subscribing can
+// legitimately arrive BOTH ways. Delivery is at-least-once, and `seq` is how you
+// make it exactly-once for your handler.
+const seen = new Set();
+const fresh = (seq) => (seen.has(seq) ? false : (seen.add(seq), true));
+
 // On subscribe to a replay channel: one snapshot batch first.
-socket.on("svc:snapshot", ({ channel, payloads }) => {
-  for (const raw of payloads) handle(JSON.parse(raw));   // each parsed = { type, v, ts, data }
+// `seqs[i]` is the sequence of `payloads[i]`.
+socket.on("svc:snapshot", ({ channel, payloads, seqs }) => {
+  payloads.forEach((raw, i) => {
+    if (fresh(seqs[i])) handle(JSON.parse(raw));         // each parsed = { type, v, ts, data }
+  });
 });
 
 // Then live messages, one per publish.
-socket.on("svc", ({ channel, payload }) => {
+socket.on("svc", ({ channel, payload, seq }) => {
+  if (!fresh(seq)) return;                               // already had it from the snapshot
   const env = JSON.parse(payload);                       // { type, v, ts, data }
   if (env.type === "order.placed" && env.v === 1) {
     handleOrderPlaced(env.data);
@@ -340,10 +352,29 @@ socket.emit("unsubscribe", {
 });
 ```
 
-Events: `svc:snapshot` → `{ channel, payloads }` (oldest-first replay batch,
-sent once on subscribe to a replay channel) then `svc` → `{ channel, payload }`
-(one per live publish). In both, the envelope is the **stringified** `payload` /
-`payloads[*]` — `JSON.parse` it; it is NOT the top-level event object.
+Events: `svc:snapshot` → `{ channel, payloads, seqs }` (oldest-first replay
+batch, sent once on subscribe to a replay channel) then `svc` →
+`{ channel, payload, seq }` (one per live publish). In both, the envelope is the
+**stringified** `payload` / `payloads[*]` — `JSON.parse` it; it is NOT the
+top-level event object.
+
+**`seq` is a per-channel counter that increases with publish order**, and the
+same message carries the same `seq` however it reaches you. Two things follow,
+and ignoring either produces bugs that only appear under load:
+
+- **Expect an overlap, and dedupe it.** Joining a channel and reading its replay
+  history cannot be one atomic step, so a message published during your
+  subscribe can arrive in the snapshot *and* live. That is normal, not a fault.
+  Apply anything non-idempotent (incrementing a counter, appending to a list,
+  firing a notification) only for a `seq` you have not seen.
+- **A jump in `seq` means you missed something.** Delivery is best-effort under
+  backpressure — a slow consumer's frames can be dropped. If `seq` skips, you
+  have a hole, and for anything that must be complete you should re-fetch from
+  your REST endpoint rather than assume continuity. Without checking, a gap is
+  invisible.
+
+Sequences are per `(service, channel)`. Never compare them across channels, and
+do not treat them as a global clock or a message count.
 
 For principal channels, a subscriber can only join **their own** room: an
 authenticated agent cannot request another principal's room — the gateway

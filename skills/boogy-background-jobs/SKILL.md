@@ -137,10 +137,26 @@ in-flight job, a cron tick can double-fire. **Handlers MUST be
 idempotent.**
 
 `idempotency_key` dedupes *enqueues* — a collision returns the existing
-`job_id` and inserts no duplicate, within the active+terminal window. It
-does NOT make the handler body run once. For handler-level safety: use
-the stable `ctx.job_id` as the `Idempotency-Key` on outbound calls, and
-`INSERT … ON CONFLICT DO NOTHING` for store writes.
+`job_id` and inserts no duplicate. It does NOT make the handler body run
+once. For handler-level safety: use the stable `ctx.job_id` as the
+`Idempotency-Key` on outbound calls, and `INSERT … ON CONFLICT DO
+NOTHING` for store writes.
+
+**The dedup window is bounded, and you should size your key to it.** A key
+keeps deduping while the job is pending or running AND for a retention
+period after it reaches a terminal state — long enough to absorb the case
+this exists for, an upstream redelivering the same webhook minutes or
+hours later. Past that the binding is reclaimed and the same key enqueues
+fresh work.
+
+So a key must identify the WORK, not the caller's intent, and must stop
+being reused once the work is genuinely different. `welcome:{user_id}` is
+right if a user should get exactly one welcome ever — but understand that
+it stops protecting you once the window lapses, so the handler still needs
+to be safe to run twice. For recurring work, put the occurrence in the key
+(`digest:{user_id}:{yyyy-mm-dd}`) rather than reusing a bare name, which
+would either dedupe against a run you wanted or silently stop deduping
+once the old binding aged out.
 
 **Errors and retries.** A bare `Err(String)` is **retryable** — the worker
 backs off and re-runs (up to `max_attempts`, then dead-letters), the same as a
@@ -164,10 +180,22 @@ for fire-now cases outside a transaction.
 ## Large sweeps
 
 For a job scanning a big table (digests, exports, decay), use
-`for_each_batch` — bounded memory, every row visited once. Its
-`order_col` is an **index name, not a column name** (a bare column
-errors; `None` = primary-key order), and it cannot run inside a
-transaction (gather ids first).
+`for_each_batch` — bounded memory. Its `order_col` is an **index name,
+not a column name** (a bare column errors; `None` = primary-key order),
+and it cannot run inside a transaction (gather ids first).
+
+**Every row is visited once only in primary-key order** (`order_col =
+None`), where the cursor resumes from the row key and that key never
+moves. Walk an INDEX instead and the resume point is the index entry,
+which embeds the indexed VALUE — so a row whose indexed column is
+updated while the sweep runs moves: backward past the cursor it is
+visited **twice**, forward it is **skipped**.
+
+That is the difference between a digest that mails one summary and one
+that mails two. Sweeps are the place non-idempotent work lives, so
+either walk in primary-key order, or write the batch body so repeating
+it is harmless (check-then-act on a persisted marker, not a bare
+increment or send).
 
 When you then act on those ids inside a `tx`, fetch them with `get_many`
 — point gets, which conflict only on the rows they return. Do **not**

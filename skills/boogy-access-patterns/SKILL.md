@@ -172,9 +172,39 @@ overfetches by 1, builds the `Cursor` from the last kept row, and returns
 
 **Keyset endpoints take a single opaque `?cursor=`** (the encoded
 boundary returned as the previous page's `next_cursor`) — there is **no**
-`before`/`after`/`offset` param; do not design one. And `.keyset_by(col,
-dir)` MUST match the column/direction the model declared via its
-`ranked_by`/`list_by` order, or the read errors instead of paging.
+`before`/`after`/`offset` param; do not design one.
+
+**`.keyset_by(col, dir)` must be covered by an index that ALSO covers your
+filter — and if it is not, nothing tells you.** This is the single most
+expensive mistake you can make on a list endpoint, because every symptom of
+it is silent:
+
+- The read does **not** error. It returns the correct rows, in the correct
+  order, with a working cursor.
+- It is still index-backed, so no scan warning or scan counter fires.
+- It only hurts at volume, so it passes every small-data test you write.
+
+What actually happens: the filter is served by the index, the ORDER is not,
+so the store reads **every row matching your filter** and sorts them to hand
+back one page. Your `limit` bounds the response, not the work. Cost becomes
+O(rows the caller owns) instead of O(page) — measured at roughly 30
+microseconds per owned row, so a caller with a few thousand rows pays tens of
+milliseconds per request on an idle host, and seconds once the service is
+busy. The same endpoint costs ~1ms with a covering index, and stays flat as
+rows accumulate.
+
+The rule: **one index must cover the filter and the sort together, filter
+first.** Declare it on the model — `list_by(filter = "<filter col>", newest
+= "<sort col>")`, or an explicit `covering_index(cols = ["<filter col>",
+"<sort col>"])` — and keyset by that same sort column and direction.
+
+**Never keyset by `_id`.** The auto-primary-key is not a column and can
+never join a composite, so `where_eq(...)` + `keyset_by("_id", ...)` cannot
+be fixed by adding an index — it is O(rows matching the filter) forever. If
+you want insertion order, add a real `created_at: Timestamp` column, declare
+`list_by(filter = "<filter col>", oldest = "created_at")`, and keyset by
+that. (Ordering by `_id` with **no** filter is fine — that is the natural
+key order.)
 
 ```rust
 use boogy_sdk::pagination::decode;
@@ -190,9 +220,28 @@ let page = Query::on(Post::TABLE)
 // page: CursorPage<PostView> — { items, next_cursor? }
 ```
 
+**Ascending keyset can MISS a concurrently-inserted row — permanently, for
+that walk.** `_id` is handed out before the inserting transaction commits, so
+two concurrent inserts can take `_id` 100 and 101 and commit in the opposite
+order. A cursor walking ASCENDING that already passed 101 will never return
+100: it is not delayed, it is gone for that walk. A later, fresh walk sees it.
+
+Descending keyset (`SortDir::Desc`, newest-first) does not have this problem —
+it moves away from the region where new rows land, which is why every feed
+example here is `Desc`.
+
+So: **use `Desc` for client-facing feeds.** If you genuinely need ascending
+order — a chronological export, a catch-up sweep — do not treat one pass as
+complete. Either re-run from the last processed boundary until a pass yields
+nothing new, or drive the pass from a column you control (a `created_at` you
+stamp, with a lag window) rather than from `_id`.
+
 **Offset vs keyset:** offset shifts under concurrent inserts and
 `OFFSET 10000` scans 10001 rows — a deep-page cliff. Keyset is a
-constant-cost indexed lookup. Always keyset for client-facing lists.
+constant-cost indexed lookup **when a single index covers the filter and the
+sort together** (see above); without that it quietly costs O(rows matching
+the filter) per page. Always keyset for client-facing lists — and always
+declare the covering index alongside it.
 
 ## When raw `store::find` is the escape hatch
 
