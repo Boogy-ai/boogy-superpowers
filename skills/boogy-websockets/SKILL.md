@@ -326,7 +326,12 @@ socket.emit("subscribe", {
 // legitimately arrive BOTH ways. Delivery is at-least-once, and `seq` is how you
 // make it exactly-once for your handler.
 const seen = new Set();
-const fresh = (seq) => (seen.has(seq) ? false : (seen.add(seq), true));
+const fresh = (seq) => {
+  if (!seq) return true;              // 0/absent = unsequenced; never dedupe it
+  if (seen.has(seq)) return false;
+  seen.add(seq);
+  return true;
+};
 
 // On subscribe to a replay channel: one snapshot batch first.
 // `seqs[i]` is the sequence of `payloads[i]`.
@@ -367,14 +372,25 @@ and ignoring either produces bugs that only appear under load:
   subscribe can arrive in the snapshot *and* live. That is normal, not a fault.
   Apply anything non-idempotent (incrementing a counter, appending to a list,
   firing a notification) only for a `seq` you have not seen.
-- **A jump in `seq` means you missed something.** Delivery is best-effort under
-  backpressure — a slow consumer's frames can be dropped. If `seq` skips, you
-  have a hole, and for anything that must be complete you should re-fetch from
-  your REST endpoint rather than assume continuity. Without checking, a gap is
-  invisible.
+- **Do NOT treat a gap in `seq` as proof you missed something.** Numbers are
+  handed out atomically, so each message has its own — but a service running on
+  more than one host can hand out `9` and `10` and deliver them in either order.
+  A "missing" number may simply arrive next. Use `seq` to recognise a repeat,
+  not to reconstruct a sequence.
+- **`seq` may be `0` or absent, meaning "unsequenced".** That happens for
+  messages stored before sequencing existed, and if the counter is briefly
+  unavailable. Unsequenced messages are not distinguishable from each other, so
+  **always process them** — deduping them against each other would silently drop
+  real messages, which is why the helper above returns `true` for a falsy `seq`.
 
 Sequences are per `(service, channel)`. Never compare them across channels, and
-do not treat them as a global clock or a message count.
+do not treat them as a global clock, a message count, or a strict delivery
+order.
+
+**If you need guaranteed completeness** — a ledger, an audit trail, anything
+where a missed message is a correctness bug — do not derive it from the live
+channel. Treat the channel as a hint that something changed and re-read the
+authoritative state from your REST endpoint.
 
 For principal channels, a subscriber can only join **their own** room: an
 authenticated agent cannot request another principal's room — the gateway

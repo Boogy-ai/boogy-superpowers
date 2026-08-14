@@ -197,7 +197,7 @@ workload" pattern also works but EXCLUDES direct human curl — prefer
 |---|---|
 | `auth::required() -> Guard` | 401 if anonymous. Put on collection routes (`list`, `create`). |
 | `auth::owns_resource(table, owner_col, id_param) -> Guard` | Item routes (`GET/DELETE /things/{id}`). Loads the row, **404 if missing OR not-yours**, stashes it in `req.ctx`. `.slot("name")` for multiple loads. **Numeric `_id` path param ONLY** — it parses the param as `u64`; a slug/`public_id` route 404s on every request (see below). |
-| `auth::find_owned(table, owner_col) -> Result<Vec<Row>, _>` | Principal-scoped list, **small bounded per-principal sets ONLY**. It pages internally until the principal's *entire* set is in memory — no limit, no cursor, no ordering. Growing table → keyset (see below). 401 when anonymous. |
+| `auth::find_owned::<M>(owner_col) -> Result<Vec<Row>, _>` | Principal-scoped list. Takes the model `M` as a type parameter, **not** a table string — that is what lets it read `M`'s declared access patterns. If `M` declares an order over `owner_col` (a `list_by`, or an index leading with it) the call keyset-paginates the principal's whole set in that order. If it does not, the call reads **one page and errors** rather than silently returning a partial or duplicated list. Either way it loads the entire set into memory, so it is still for **bounded per-principal sets** — for a set that grows without limit, expose a cursor. 401 when anonymous. |
 | `auth::load_owned(table, owner_col, id) -> Result<Option<Row>, _>` | Single load + ownership check for MCP/JSON-RPC (id in body, not path). `None` = missing OR not-yours. |
 | `auth::require_scope(scope) -> Guard` | Coarse capability gate: 401 if anonymous, **403 if logged in but lacks the scope**. |
 

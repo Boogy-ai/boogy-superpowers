@@ -149,6 +149,14 @@ this exists for, an upstream redelivering the same webhook minutes or
 hours later. Past that the binding is reclaimed and the same key enqueues
 fresh work.
 
+**Cancelling frees the key immediately.** Cancel a job and you can re-enqueue
+the same key straight away — the retry queues real work rather than silently
+returning the cancelled job. One caveat: cancelling a job that is already
+RUNNING only *requests* cancellation, and the key stays bound until the worker
+actually stops (it notices on its next heartbeat). Re-enqueue in that gap and
+you get the still-running job back, which is correct — the work has not stopped
+yet.
+
 So a key must identify the WORK, not the caller's intent, and must stop
 being reused once the work is genuinely different. `welcome:{user_id}` is
 right if a user should get exactly one welcome ever — but understand that
