@@ -377,7 +377,7 @@ Cursor/limit/ordering mechanics: `boogy:boogy-access-patterns`.
 ## API keys for programmatic callers (verified recipe)
 
 Invoke `api_keys_glue!(bindings)` next to `wit_glue!`, then:
-1. `api_key_routes::install_table()` in `init_tables`.
+1. `api_key_routes::install_table()` in `schema`.
 2. Mount management routes via the `ApiKeyRoutes` ext trait:
    `Router::new().with_api_key_routes()` (`/_keys`) or
    `.with_api_key_routes_at("/admin/keys")`.

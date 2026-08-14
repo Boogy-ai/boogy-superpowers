@@ -15,7 +15,7 @@ A table is a Rust struct deriving `Model`. The derive maps each field to
 a typed column, emits the per-field column-name consts, generates the
 `schema()` (columns **and** the indexes implied by your declared access
 patterns), and gives you `from_row` / `to_columns` / `id`. You then
-register it in `init_tables` with `create_model::<M>()` and do all CRUD
+declare it in `schema` with `s.model::<M>()` and do all CRUD
 through `db_insert` / `db_get` / `db_find_by` / `db_update` / `db_delete`
 + the `Query` DSL. This is the canonical chat example — `Conversation`
 and `Message`:
@@ -57,19 +57,44 @@ Register both, then never touch raw columns again:
 
 ```rust
 impl Api for ChatApi {
-    fn init_tables() {
+    fn schema(s: &mut Schema) {
         // Each model's schema (columns + the indexes its declared access
-        // patterns imply) is created from the struct — no hand-built Table.
-        create_model::<Conversation>();
-        create_model::<Message>();
+        // patterns imply) comes from the struct — no hand-built Table.
+        // Declaration only: the SDK creates missing tables and reconciles
+        // the physical index set against what is declared here.
+        s.model::<Conversation>();
+        s.model::<Message>();
     }
-    // `build_router` is the trait's one required method — `init_tables`
+    // `build_router` is the trait's one required method — `schema`
     // has a no-op default, so an impl that omits the router does not build.
     fn build_router() -> Router {
         Router::new()   // …routes…
     }
 }
 ```
+
+### Indexes follow the model, automatically
+
+You never create or drop an index by hand. On each deploy the physical index
+set is **reconciled** against what your models declare:
+
+| You did | What happens |
+|---|---|
+| added an access pattern | the index is created |
+| changed one (different columns, `unique`, `covering`) | the index is rebuilt |
+| removed one | the index is dropped |
+
+So changing an index is a one-line edit to the model — no migration, no
+`create_index` call. This is safe because an index is rebuildable from the
+rows: dropping one cannot lose data.
+
+Two consequences worth internalising:
+
+- **Do not create a permanent index from a migration.** An `ix_`/`idx_`-named
+  index your models do not declare is indistinguishable from one whose
+  declaration you deleted, so the reconcile removes it on the next deploy.
+- **Tables and columns are NOT reconciled.** Dropping those *is* lossy, so they
+  stay behind explicit versioned migrations — see `boogy:boogy-migrations`.
 
 ## 🚩 RED FLAG — raw schema is a regression, not a choice
 

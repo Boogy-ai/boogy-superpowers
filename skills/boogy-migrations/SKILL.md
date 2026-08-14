@@ -5,7 +5,7 @@ description: Use when changing the schema of a deployed Boogy service — adding
 
 # Migrating a deployed Boogy schema
 
-`init_tables` only *creates missing* tables and indexes — it never
+`schema` only *creates missing* tables — it never
 alters a table already in production. Once deployed, schema changes go
 through versioned **migrations**.
 
@@ -32,29 +32,48 @@ backfill that rewrites a large table blows the envelope and rolls back
 
 ## Anatomy
 
-Declare migrations in `init_tables`, after the `create_table_from`
-calls for the tables they touch:
+A service declares its schema and its migrations in **separate phases**, and
+each migration lives in **its own module**. An inline array of closures grows
+without bound inside one function, and every schema change edits the same
+lines; one module per migration means each is readable alone and adding one
+touches a new file plus a single registry line.
 
 ```rust
+// src/lib.rs
+fn schema(s: &mut Schema) {
+    s.model::<Post>();      // declaration only — no migrations here
+}
+
+// fn migrate() is one line, calling the registry in src/migrations/mod.rs:
+//
+//     pub fn all() -> Vec<Migration> { migrations![m001_add_priority] }
+//
+//     fn migrate() {
+//         migrations(&crate::migrations::all()).expect("migrations failed");
+//     }
+```
+
+```rust
+// src/migrations/m001_add_priority.rs
+// Existing rows need the column the model now declares.
 use boogy_sdk::store::{col, ColType, Val};
 
-fn init_tables() {
-    migrations(&[
-        migration(1, "add_priority", |m| {
-            m.add_column("tasks",
-                &col("priority", ColType::Integer).not_null().default(Val::Integer(0)))?;
-            Ok(())
-        }),
-        migration(2, "index_priority", |m| {
-            m.create_index("tasks", &store::IndexDef {
-                name: "by_priority".into(), columns: vec!["priority".into()],
-                unique: false, covering: false,
-            })?;
-            Ok(())
-        }),
-    ]).expect("migrations failed");
+pub const VERSION: i64 = 1;
+pub const NAME: &str = "add_priority";
+
+pub fn up(m: &MigrationCtx) -> Result<(), String> {
+    m.add_column(Post::TABLE,
+        &col("priority", ColType::Integer).not_null().default(Val::Integer(0)))?;
+    Ok(())
 }
 ```
+
+**Do not create a permanent index from a migration.** Indexes are declared on
+the model and reconciled automatically: one the model no longer declares is
+dropped, and one whose definition changed is rebuilt. An `ix_`/`idx_`-named
+index a migration creates is indistinguishable from one whose declaration was
+deleted, so the reconcile removes it. To add an index, add the access pattern
+to the model — that is the whole change.
 
 `.not_null()` on an added column is enforced **in both directions**: an
 explicitly written null is rejected on any write, and *omitting* the column is
@@ -119,7 +138,7 @@ recreate, below, if the table is disposable). See
 
 ## When migrations run
 
-`init_tables` runs on **every request** (no-op fast-path = one
+`schema` runs on **every request** (no-op fast-path = one
 version-table read) and during deploy-time verification. Pending
 migrations apply lazily on the first request after deploy; a migration
 that panics fails verification and rolls the deploy back.
@@ -177,14 +196,14 @@ counter, and its catalog entry, irreversibly** — then recreate it fresh.
 Two rules make this work:
 
 **1. Drop *and* recreate inside the migration.** Don't lean on
-`init_tables`' `create_model` to rebuild it: `init_tables` runs the
+`schema`'s `s.model` to rebuild it: `schema` runs the
 `create_model`/`create_table_from` calls *before* `migrations()`, so by the
 time a drop migration runs the table was already (re)created this pass, and
 the drop is version-gated to run once. Recreate explicitly — the migration
 tx sees its own pending drop, so the recreate lands on a clean slate:
 
 ```rust
-// one entry in your `migrations(&[ … ])` list in init_tables:
+// one module in src/migrations/, listed in the registry:
 migration(3, "reset_events", |m| {
     m.drop_table("events")?;            // clear the incompatible table
     m.create_table(&Event::schema())?;  // rebuild fresh from the model (columns + indexes)
@@ -206,8 +225,8 @@ edited once shipped (Iron Law 1).
 |---------|---------|
 | "Just edit migration 3's bad default." | Version-skip means it never re-runs; existing data unchanged. Add a higher-version fix-forward migration. |
 | "One migration backfills the whole 2M-row table." | Blows the ~5s/10MB envelope → perpetual rollback. Two-step: DDL default + sentinel-filtered batch sweep. |
-| "Add the index by editing `init_tables` / `create_table_from`." | That only creates *missing* objects — it won't touch the deployed table. Add the index via a migration. |
-| "`drop_table` alone resets it — `init_tables` recreates it." | `migrations()` runs *after* `create_model`, so recreate *inside* the migration. Drop + recreate together. |
+| "Adding the index needs a migration." | No — indexes are **reconciled** from the model. Add the access pattern to the model and the index is created on the next deploy; remove it and the index is dropped. Creating one from a migration is the anti-pattern: the reconcile drops it. |
+| "`drop_table` alone resets it — `schema` recreates it." | `migrate()` runs *after* the declaration phase, so recreate *inside* the migration. Drop + recreate together. |
 | "Delete the service to wipe its data." | Removing a service leaves its store intact. Reset a table with an in-migration `drop_table`. |
 | "I'll add `#[counter]` to the model and migrate the column." | `add_column` refuses a counter column, and the derive has already stopped writing the field — so the migration fails on a model that no longer matches the table. Declare counters at table-creation time; convert via a new table. |
 | "I'll add the `not_null` column now and backfill the inserts later." | Omission is refused on a row-creating write, so every insert that doesn't yet name the column starts failing with a 409 the moment the migration lands. Add `.default(...)` in the same step. |

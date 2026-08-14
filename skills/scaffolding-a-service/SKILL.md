@@ -19,13 +19,13 @@ get wrong.
 | `build.rs` | Syncs WIT files from the pinned SDK into local `wit/` |
 | `boogy.toml` | Manifest: `[service]`, `[routing]`, `[capabilities]`, `[ingress]` |
 | `src/models.rs` | `#[derive(Model)]` structs — one per table; the derive emits the column consts (NO hand-written `cols` module) |
-| `src/lib.rs` | `mod bindings { wit_bindgen::generate!{...} }`, `wit_glue!`, `impl Api` (`init_tables` = `create_model::<M>()` per model; `build_router` = annotated routes) |
+| `src/lib.rs` | `mod bindings { wit_bindgen::generate!{...} }`, `wit_glue!`, `impl Api` (`schema` = `s.model::<M>()` per model; `build_router` = annotated routes) |
 
 ## Start from the model layer
 
 The first code you write is the data layer, and it is
 `#[derive(Model)]` — not a `cols` module, not `Table::new(...)`. Each
-table is a struct; register it in `init_tables` and read/write through
+table is a struct; declare it in `schema` and read/write through
 `db_*` + `Query`. The canonical shape:
 
 ```rust
@@ -45,8 +45,8 @@ pub struct Message {
 
 ```rust
 // src/lib.rs — inside impl Api
-fn init_tables() {
-    create_model::<Message>();           // schema + indexes from the struct
+fn schema(s: &mut Schema) {
+    s.model::<Message>();                // schema + indexes from the struct
 }
 fn build_router() -> Router {
     Router::new()
@@ -81,7 +81,7 @@ boogy_sdk::wit_glue!(bindings, MyApi);
 
 struct MyApi;                        // <-- you declare this
 impl boogy_sdk::Api for MyApi {      // <-- and this
-    fn init_tables() { create_model::<Message>(); }
+    fn schema(s: &mut Schema) { s.model::<Message>(); }
     fn build_router() -> Router { Router::new()/* …routes… */ }
 }
 ```
