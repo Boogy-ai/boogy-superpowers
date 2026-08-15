@@ -338,28 +338,31 @@ rule is about branch-then-write.
 
 ## Unindexed-scan guardrail
 
-A query with no usable index that scans past the row threshold **errors**
-(strict mode), with a hint naming the fix:
-*declare an access pattern so
-the index is derived.* `.allow_full_scan("reason")` is an audited
-**opt-out**, not a fix — the scan is still O(table). Use it only for
-genuinely intentional small/single-owner/admin scans (chat's
-`list_conversations` does this for a single-owner table).
+A query with no usable index that scans past the row threshold is **warned
+and metered, never refused** — the log carries a hint naming the fix
+(*declare an access pattern so the index is derived*), and
+`keys_examined` records what the read actually looked at, so the scan is
+priced rather than free. There is no per-query opt-out to reach for and
+no strict mode.
+
+What actually stops a runaway scan is the platform, in two places you do
+not configure: an unindexed read on a **declared column** fails the
+service-conventions gate at build time, and a read that outruns
+`[limits] cpu_deadline_ms` is cut off with a 504 — which also cancels the
+scan, not just the caller. Deliberately scanning a small table is fine;
+it costs what it costs.
 
 ### Inside a `tx`, an unindexed read costs correctness, not just ops
 
 The planner is the same one; what changes is the price of an unindexed
 read. The guardrail applies inside a `tx(|| …)` closure too, at **half
 the row threshold** — because the same scan costs more here — and its
-error names the table, the conflict range the read just took, and either
-the index that would serve the query or, when you already have one, what
-would have bounded it (and when the query constrains no column at all,
-that there is nothing to index). Being a store error, the refusal also
-**poisons the transaction** — you cannot catch it and carry on; commit is
-refused and the closure rolls back. `.allow_scan("reason")` downgrades it to a warning
-here as it does outside, but it buys **strictly less**: outside a `tx` it
-means "this scan is intentional", inside one it also means "and I accept
-losing to any concurrent write to this table", because the scan
+warning names the table, the conflict range the read just took, and
+either the index that would serve the query or, when you already have
+one, what would have bounded it (and when the query constrains no column
+at all, that there is nothing to index). It does not refuse the read and
+does not poison the transaction. The cost it is warning you about is
+real and is not about ops: the scan
 puts **every row of the table into the transaction's read set**, so any
 concurrent write to that table aborts your commit, even to a row your
 filter never matched. An index-served read conflicts only on the

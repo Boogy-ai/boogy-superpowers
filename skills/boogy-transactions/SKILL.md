@@ -416,13 +416,11 @@ with:
   an index already leads a column you constrained, what would have
   *bounded* the walk instead, or, when the query constrains no column at
   all, that there is nothing to index. So you meet this while writing the
-  handler rather than as intermittent 409s later. The refusal is a store
-  error, so it also **poisons the transaction**: you cannot catch it and
-  carry on — commit is refused and the closure rolls back. Index the
-  read, bound it, or hoist it out of the closure. `.allow_scan("reason")`
-  downgrades the refusal to a warning, but it does **not** narrow the read
-  set — use it only where you accept losing to any concurrent write to
-  that table.
+  handler rather than as intermittent 409s later. It is a WARNING, not a
+  refusal: the read is served and the transaction is not poisoned. Act on
+  it anyway — index the read, bound it, or hoist it out of the closure —
+  because the conflict range it describes is what turns into intermittent
+  409s under concurrency.
 
 So on a table anyone else writes, **narrowing the reads a transaction
 performs is a contention fix, not a speed optimization**. It is also
