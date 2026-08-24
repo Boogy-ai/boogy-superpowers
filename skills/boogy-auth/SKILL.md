@@ -76,7 +76,7 @@ different, mutually-unlinkable masks.
 | Ingress mode | App-scoped end-user (`pw_…`) admitted? |
 |---|---|
 | `public` | yes |
-| `authenticated` | yes (any non-anonymous identity) |
+| `authenticated` | yes (a signed-in agent or end user; a WORKLOAD is refused 403 — use `internal`/`mixed` for mesh callers) |
 | `allowlist` | **conditionally** — `pw_…` is opaque and cannot match directly, but the host resolves the user's real account for the admission check, so an app-signed-in user IS admitted if their real account id or handle is in `allowed_agents` (wasm still sees only the mask) |
 | `internal` | **no** — workload-only |
 | `mixed` | **no** — tries internal then allowlist; neither admits a pairwise |
@@ -197,7 +197,7 @@ workload" pattern also works but EXCLUDES direct human curl — prefer
 |---|---|
 | `auth::required() -> Guard` | 401 if anonymous. Put on collection routes (`list`, `create`). |
 | `auth::owns_resource(table, owner_col, id_param) -> Guard` | Item routes (`GET/DELETE /things/{id}`). Loads the row, **404 if missing OR not-yours**, stashes it in `req.ctx`. `.slot("name")` for multiple loads. **Numeric `_id` path param ONLY** — it parses the param as `u64`; a slug/`public_id` route 404s on every request (see below). |
-| `auth::find_owned::<M>(owner_col) -> Result<Vec<Row>, _>` | Principal-scoped list. Takes the model `M` as a type parameter, **not** a table string — that is what lets it read `M`'s declared access patterns. If `M` declares an order over `owner_col` (a `list_by`, or an index leading with it) the call keyset-paginates the principal's whole set in that order. If it does not, the call reads **one page and errors** rather than silently returning a partial or duplicated list. Either way it loads the entire set into memory, so it is still for **bounded per-principal sets** — for a set that grows without limit, expose a cursor. 401 when anonymous. |
+| `auth::find_owned::<M>(owner_col, &PageRequest) -> Result<RowPage, _>` | Principal-scoped list, **one bounded page** plus the cursor the next page resumes from. Takes the model `M` as a type parameter, **not** a table string — that is what lets it read `M`'s declared access patterns. If `M` declares an order over `owner_col` (a `list_by`, or an index leading with it) the page is a keyset seek in that order and `RowPage::next_cursor` continues it. If it does not, there is no order to resume from, so the call serves one page, issues no cursor, and **errors** if the set does not fit — the message names the `list_by` to add. There is no way to ask for the whole set: `PageRequest`'s limit is private and clamped. 401 when anonymous. |
 | `auth::load_owned(table, owner_col, id) -> Result<Option<Row>, _>` | Single load + ownership check for MCP/JSON-RPC (id in body, not path). `None` = missing OR not-yours. |
 | `auth::require_scope(scope) -> Guard` | Coarse capability gate: 401 if anonymous, **403 if logged in but lacks the scope**. |
 
@@ -340,31 +340,58 @@ if !can_delete_post(&principal, &post.owner_principal, &room.owner_principal) {
 - **The existence mask still applies.** A caller who fails the composite
   rule must not learn the row exists. Same status as "no such post".
 - Membership/role rules are the same shape: seek the junction row
-  (`where_eq(room_id).where_eq(member_principal)` on its unique index)
+  (`.filter(M::room_id.eq(..)).filter(M::member_principal.eq(..))` on its
+  unique index)
   and feed the resulting boolean into the predicate.
 - Keep predicates in a `perms` module with unit tests, including
   blank-viewer and blank-column cases. Handlers do lookups; predicates
   decide; neither does the other's job.
 
-## Index endpoints: owner-scoped keyset, not `find_owned`
+## Index endpoints: two paginated shapes, no unbounded one
 
-`find_owned` is fine for a set bounded by construction (one settings row,
-a handful of keys). On a table that grows it loads every row the
-principal has ever created into wasm memory on **every** request —
-unbounded memory and latency that climbs with tenure, and it reads as a
-platform regression rather than a service bug.
+Both shapes below return a page and a cursor. There is no third shape that
+returns "all of them" — a listing that materialized a principal's whole set
+exhausted a 32 MiB guest heap and trapped, so the platform stopped making it
+expressible rather than warning about it.
 
-For anything that grows, scope by the owner column and page by keyset:
+`find_owned` is the short path when the listing is exactly "my rows in the
+declared order":
 
 ```rust
-use boogy_sdk::store::SortDir;
+use boogy_sdk::pagination::{CursorPage, PageRequest};
 
+fn list_receipts(req: &mut Req<'_>) -> Result<Json<CursorPage<json::Value>>, ApiError> {
+    // `limit` is a hint — the platform clamps it. `cursor` is the opaque token
+    // from the previous response, round-tripped, never parsed.
+    let page = auth::find_owned::<Receipt>(
+        DEFAULT_OWNER_COL,
+        &PageRequest::new(20, req.query("cursor").map(str::to_string)),
+    )?;
+    // `map` carries the cursor with the items, so a handler cannot render the
+    // rows and drop the means to reach the rest.
+    Ok(Json(page.map(|row| row.to_json(&["subject", "created_at"]))))
+}
+```
+
+The client keeps going while `next_cursor` is present, and stops when it is
+absent. That is the whole rule — do not infer the end from a page's SIZE. The
+platform clamps `limit` to its own per-call ceiling, so a short page and a full
+page are both produced by the ceiling as well as by the data; the platform
+reports where the listing ends and the helper turns that into the cursor's
+presence.
+
+Reach for the `Query` DSL instead when the listing needs anything the helper
+does not express — extra predicates, a different order, a projection:
+
+```rust
 let principal = auth::current_principal().ok_or_else(ApiError::unauthenticated)?;
 let page = Query::on(Receipt::TABLE)
-    .where_eq(DEFAULT_OWNER_COL, principal.as_str())  // the whole privacy story
-    .keyset_by(Receipt::CREATED_AT, SortDir::Desc)
-    .limit(limit)          // clamp the client's requested limit
-    .cursor(cursor)        // pagination::decode() from the query string
+    // The owner column by its TYPED handle — `DEFAULT_OWNER_COL` is the naming
+    // convention (`"owner_principal"`), and this is the column it names.
+    .filter(Receipt::owner_principal.eq(principal.as_str()))  // the whole privacy story
+    .order(Receipt::created_at.desc())   // the ordering IS the cursor key
+    .limit(limit)                        // clamp the client's requested limit
+    .cursor(req.query("cursor").map(str::to_string))  // opaque token, no decode
     .fetch_page(|row| ReceiptOut::from_row(row))?;    // → CursorPage<T>
 ```
 
@@ -399,7 +426,8 @@ Invoke `api_keys_glue!(bindings)` next to `wit_glue!`, then:
 | "403 'not yours' tells users why." | It's an id-enumeration oracle. Return 404 for both; explain client-side. |
 | "I'll check ownership in the handler after loading the row." | Right for the **numeric-`_id`, single-owner** route: `owns_resource` does load + check + ctx-stash; read the stashed row. Wrong — and unavoidable — for an **opaque/slug key** (the guard parses `u64`) or a **composite/parent-keyed rule**. Hand-roll those: one helper per resource, 404 for both misses. |
 | "The parent's owner rule? I'll stack a second `owns_resource` on it." | It 404s the author who doesn't own the parent — it kills the very case you added it for. Load both facts, decide in one predicate. |
-| "`find_owned` is the list helper, so index endpoints use it." | It materializes the principal's whole set per request. Bounded sets only; growing tables use the owner-scoped keyset query. |
+| "`find_owned` returns my rows, so I'll collect every page into one list." | That rebuilds the shape the page type exists to prevent, one request later. Hand the cursor to your caller instead; an endpoint that loops internally and concatenates has changed nothing. |
+| "My set is small, so the page size doesn't matter." | It is small *today*. The listing that trapped was on a table nobody expected to grow, and the failure was not slowness — it was `handle_alloc_error`. The bound is a property of the endpoint, not a guess about one tenant. |
 | "I'll add a custom api_keys table." | `api_keys_glue!` ships a hashed, isolated, scope-aware table. Use it. |
 | "Read the owner id from the request body." | Stamp it from `current_principal()`. The body is attacker-controlled. |
 | "A public `[[ingress.routes]]` route still needs an in-wasm auth check." | Public means anyone reaches it — authenticate it another way (HMAC signature for webhooks). The override doesn't self-gate. |

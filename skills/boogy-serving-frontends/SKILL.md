@@ -51,6 +51,10 @@ wasm = "target/wasm32-wasip2/release/notes.wasm"   # FullStack: your API wasm
 path = "/notes"
 methods = ["GET", "POST"]
 
+[ingress]             # REQUIRED — who may call this service. Stated, never
+mode = "public"       # inferred: `public` = anyone on the internet, no
+                      # credential. `authenticated` = any signed-in principal.
+
 [capabilities]        # optional — declare only what the wasm uses
 store = true
 
@@ -76,13 +80,16 @@ version = "0.1.0"
 path = "/mysite"
 methods = ["GET"]
 
+[ingress]
+mode = "public"
+
 [frontend]
 root = "web"
 build = "ts"
 ```
 
-Only `[service]` (id/name/version), `[routing]`, and `[frontend]` are needed for a
-Frontend; a **FullStack** app adds a `wasm` and an `api_prefix`.
+Only `[service]` (id/name/version), `[routing]`, `[ingress]`, and `[frontend]` are
+needed for a Frontend; a **FullStack** app adds a `wasm` and an `api_prefix`.
 
 ## Write TypeScript or JavaScript — there is no build step
 

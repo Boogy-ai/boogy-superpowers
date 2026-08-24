@@ -72,6 +72,13 @@ the **user** under OBO. The normal per-user helpers (`find_owned`,
 `owns_resource`, see `boogy:boogy-auth`) just work, unchanged. The
 actor is *not* an authorization input.
 
+The same bounds apply under delegation as anywhere else: `find_owned`
+returns one page and a cursor, never a whole set. A delegated caller is
+usually another service in a fan-out, which makes the unbounded shape
+*more* dangerous, not less — a listing that materializes a user's entire
+history runs inside the calling request's budget and counts against the
+originating tenant's fair share. Page it, and pass the cursor back up.
+
 ## Failure modes (verified)
 
 | Situation | Result |

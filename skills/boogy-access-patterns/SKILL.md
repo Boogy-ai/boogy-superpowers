@@ -23,14 +23,48 @@ can't express — never the default for normal reads.
 
 **Every list read is bounded — there is no "fetch the whole table."** A
 list a client (or your own agent) walks through **keyset-paginates**
-(`.keyset_by(…).cursor(…).fetch_page(…)` → `CursorPage`); a one-shot
-internal read carries an explicit `.limit(n)`. **`.fetch_all()` with no
-`.limit()` is a bug** — it streams every matching row into memory and is
-exactly the "blindly load the whole table" mistake. Size the cap to row
-density: **~100** when rows are fat (large text / blobs / nested JSON),
-up to **~1000** when they're slim (a few scalar columns). Past that — or
-for anything a client scrolls — **keyset-paginate; don't just raise the
-cap.** A bigger `.limit()` still has a ceiling; a cursor doesn't.
+(`.order(…).cursor(…).fetch_page(…)` → `CursorPage`); a one-shot
+internal read carries an explicit `.limit(n)`.
+
+**`.fetch_all()` without a `.limit()` does not compile.** The builder
+tracks its row ceiling in its type, and the two row-materializing
+terminals (`fetch_all`, `fetch_all_with_total`) exist only once
+`.limit(n)` has stated one. You will get a compile error, not a listing
+the store quietly cuts short at its own page cap. (`fetch_one`, `count`,
+`fetch_page` and `fetch_one_group` bound themselves — no `.limit` needed.)
+
+**`.group_by(col)` also requires a `.limit(n)`, and it is a DIFFERENT
+bound.** `fetch_all` is bounded on ROW COUNT; `fetch_groups` is bounded on
+GROUP CARDINALITY, and those are not the same quantity — a grouped query
+over a million rows may return three groups. An UNGROUPED aggregate
+(`.sum(..).fetch_one_group()`) is exactly one group whatever the table
+holds, so it needs no ceiling at all. The moment you add `.group_by(col)`
+the result gains one item per DISTINCT VALUE of `col`, which is a property
+of the data and invisible in the query: `group_by(status)` may be three,
+`group_by(user_id)` one per tenant user. So state the ceiling, or — when
+the group count grows with the tenant — make it a listing:
+`.order(agg::…().desc()).limit(n).cursor(token).fetch_group_page(|g| …)`.
+
+Stating it bounds what YOUR component holds, not the fold that produces
+it: a computed `GROUP BY` visits every matching row to know what the
+groups are. That work is the platform's and it is metered; a declared
+`rollup(...)` is how you stop paying for it on every read.
+
+Size the cap to row density: **~100** when rows are fat (large text /
+blobs / nested JSON), up to **~1000** when they're slim (a few scalar
+columns). Past that — or for anything a client scrolls —
+**keyset-paginate; don't just raise the cap.** A bigger `.limit()` still
+has a ceiling; a cursor doesn't. And remember what `fetch_all` means once
+it is bounded: **the first `n` rows in this order, with nothing said
+about the rest.** That is right for a top-N, an `is_in` over `n` ids, or
+`.limit(1)` as an existence probe. It is wrong for anything whose size
+grows with the tenant — that needs `fetch_page`, which hands the caller
+the token to continue.
+
+**Never pass a client's `?limit=` straight through.** Clamp it
+(`requested.unwrap_or(20).clamp(1, MAX)`). An untrusted limit is the same
+unbounded read wearing a query parameter, and the type system cannot see
+it.
 
 ## Verb → query mapping
 
@@ -40,25 +74,34 @@ index that backs the query:
 | Model declaration | Backs this read |
 |-------------------|-----------------|
 | `#[lookup_by]` on a field | point lookup: `db_find_by::<M>(M::COL, val)` (the unique row where `col == v`) |
-| `#[model(list_by(filter = "peer", newest = "created_at"))]` | filtered newest-first list. **Default (client-facing) → keyset:** `Query::on(M::TABLE).where_eq(M::PEER, v).keyset_by(M::CREATED_AT, SortDir::Desc).cursor(c).limit(n).fetch_page(…)`. A small bounded "last N" internal read may use `.order_by_desc(M::CREATED_AT).limit(n).fetch_all()`. |
-| `#[model(ranked_by(highest = "score"))]` | global ranked feed. **Default → keyset:** `Query::on(M::TABLE).keyset_by(M::SCORE, SortDir::Desc).cursor(c).limit(n).fetch_page(…)`. Bounded top-N → `.order_by_desc(M::SCORE).limit(n).fetch_all()`. |
+| `#[model(list_by(filter = "peer", newest = "created_at"))]` | filtered newest-first list. **Default (client-facing) → paged:** `Query::on(M::TABLE).filter(M::peer.eq(v)).order(M::created_at.desc()).cursor(c).limit(n).fetch_page(…)`. A small bounded "last N" internal read may drop `.cursor(..)` and use `.limit(n).fetch_all()` — the `.limit(n)` is required either way. |
+| `#[model(ranked_by(highest = "score"))]` | global ranked feed. **Default → paged:** `Query::on(M::TABLE).order(M::score.desc()).cursor(c).limit(n).fetch_page(…)`. Bounded top-N → same ordering, `.limit(n).fetch_all()`. |
 | `#[model(tagged_by(tag, refs))]` | junction page: seek the tag, expose `refs` to hydrate parents |
 
-**Default any list a client pages through to keyset** (`.keyset_by(…).cursor(…)
-.fetch_page(…)` → `CursorPage`) — see the recipe below. `.fetch_all()` is for a
-small bounded internal read, never an unbounded client list. Offset is never the
-answer for deep pages.
+**Default any list a client pages through to a cursor** (`.order(…).cursor(…)
+.fetch_page(…)` → `CursorPage`) — see the recipe below. `.limit(n).fetch_all()`
+is for a small bounded internal read; an unbounded client list has no spelling.
+Offset is never the answer for deep pages.
 
-You write the column **consts the derive emitted** (`Message::PEER`,
-`Conversation::LAST_AT`) — never bare strings, never a hand-rolled index
-name.
+**The ordering IS the cursor key.** There is no separate "page by this column"
+verb: `.order(M::created_at.desc()).limit(n)` has already stated the sort key,
+its direction and the page size, which is everything a cursor needs. Whether the
+platform answers it with a keyset seek, an offset, or an epoch-pinned ranked
+projection is its decision, not a semantic you opt into.
+
+You write the handles **the derive emitted** — the typed column
+(`Message::created_at`, a `Col<T>`) to build filters and orderings, and the
+name const (`Message::PEER`, a `&'static str`) wherever a column is genuinely
+just a name (row accessors, `agg::sum(..)`). Never bare strings, never a
+hand-rolled index name.
 
 ## Point reads — `db_*`
 
 | Need | Call | Returns |
 |------|------|---------|
 | one row by primary key | `db_get::<M>(id)` | `Result<Option<M>>` |
-| all rows where `col == v` | `db_find_by::<M>(M::COL, val)` | `Result<Vec<M>>` — **bounded only on a unique column**, see below |
+| rows where `col == v`, at most ONE PAGE | `db_find_by::<M>(M::COL, val)` | `Result<Vec<M>>` — errors past a page, see below |
+| one page of rows where `col == v`, resumable | `db_find_by_page::<M>(M::COL, val, &page)` | `Result<ModelPage<M>>` — items + `next_cursor` |
 | insert (auto-PK) | `db_insert(&m)` | `Result<u64>` (the new `_id`) |
 | overwrite a row | `db_update(id, &m)` | `Result<()>` |
 | delete a row | `db_delete(id)` | `Result<()>` |
@@ -73,13 +116,29 @@ argument conventions.
 A `#[lookup_by]` lookup returns a `Vec` of length 0 or 1 — take
 `.into_iter().next()` for the single row.
 
-> **`db_find_by` is bounded ONLY on a unique / `#[lookup_by]` column.** It pages
-> internally until *every* matching row is in memory — no caller limit, no
-> cursor. On a unique column that is at most one row, which is the intended use.
-> On any other column it loads the whole matching set, the same failure mode as
-> an unbounded `.fetch_all()`. For a non-unique filter use the `Query` DSL:
-> `.fetch_one()` for a single row, `.limit(n)` for a capped read, `.fetch_page()`
-> for a client-paged list. This is the canonical upsert
+> **`db_find_by` reads at most ONE PAGE, whatever the column.** On a
+> `#[lookup_by]` column that is at most one row, which is the intended use. On
+> any other column, if more rows match than one page holds you get an error
+> naming the fix — never a prefix that looks like the whole set. It used to page
+> internally until every matching row was in memory, which is how a listing
+> exhausts a 32 MiB component heap.
+>
+> For a set that grows with the tenant, page it. `db_find_by_page::<M>(col, val,
+> &PageRequest::new(limit, token))` returns one page plus the `next_cursor` that
+> continues it; it needs the same declared order the model needs to page —
+> `list_by(filter = col, newest = "<a timestamp or sequence column>")`, or an
+> index over `[col, sort_col]` — and errors naming that declaration if it is
+> absent. The `Query` DSL is the other route: `.fetch_one()` for a single row,
+> `.limit(n).fetch_all()` for a capped read, `.fetch_page()` for a client-paged
+> list.
+>
+> And when what you actually want is a NUMBER — "has this voter already voted",
+> "what do these orders total" — do not read the rows at all. `.count()` and the
+> aggregate terminals answer from the store, so the cost does not grow with the
+> set. Reading rows to add them up is how an endpoint's cost comes to depend on
+> how popular it has been.
+
+This is the canonical upsert
 shape (from chat):
 
 ```rust
@@ -131,8 +190,8 @@ pub struct Message {
 // `limit`, no cursor. A client-paged inbox uses `fetch_page` (recipe below).
 pub fn last_messages(peer: &str, limit: usize) -> Result<Vec<Message>, ApiError> {
     let rows = Query::on(Message::TABLE)
-        .where_eq(Message::PEER, peer)
-        .order_by_desc(Message::CREATED_AT)
+        .filter(Message::peer.eq(peer))
+        .order(Message::created_at.desc())
         .limit(limit)
         .fetch_all()?;
     Ok(rows.iter().map(Message::from_row).collect())
@@ -146,35 +205,57 @@ read (a fixed top-N for an internal aggregate, not a client list):
 // ranked_by(highest = last_at) backs a global newest-activity-first walk.
 // Bounded top-500 internal read; a client feed keysets (recipe below).
 let rows = Query::on(Conversation::TABLE)
-    .order_by_desc(Conversation::LAST_AT)
+    .order(Conversation::last_at.desc())
     .limit(500)
     .fetch_all()?;
 let items: Vec<Conversation> = rows.iter().map(Conversation::from_row).collect();
 ```
 
-**Filter builders** (all `where_*`): `where_eq`, `where_neq`, `where_gt`,
-`where_gte`, `where_lt`, `where_lte`, `where_like`, `where_not_like`,
-`where_null`, `where_not_null`, `where_in(col, iter)`, and `.or(|q| …)`
-for an OR-of-AND group. Order: `order_by_asc`/`order_by_desc`/`order_by`.
+**Predicates are expressions on the typed column handle**, and `.filter(e)`
+takes them. Repeated `.filter(..)` calls AND together; compose with
+`.and(..)`/`.or(..)` for boolean structure.
+
+| on any `Col<T>` | `eq` `ne` `gt` `gte` `lt` `lte` `between` `is_in` `asc` `desc` |
+|---|---|
+| on `Col<String>` only | `like` `not_like` |
+| on a nullable column only | `is_null` `is_not_null` |
+
+The comparison is type-checked against the schema: `M::room_id.eq("nope")` does
+not compile when `room_id` is `Col<i64>`, and a non-nullable column has no
+`is_null()` — asking would be a question with a constant answer. **An empty
+`is_in` matches NOTHING**, as SQL says; reading it as "no filter" silently turns
+a scoped query into an unscoped one.
+
+**Ordering is one verb**, `.order(o)`, because `ORDER BY` is one clause. It
+takes a column ordering (`M::created_at.desc()`) or an aggregate ordering
+(`agg::sum(PostVote::DIRECTION).desc()`, ranking posts by a total their votes
+carry) — both are `ORDER BY`.
 
 **Terminals:**
-- `.fetch_all()` → `Result<Vec<Row>>` — all matches **up to `.limit()`**; an unbounded `.fetch_all()` (no `.limit()`) loads the whole table and is a bug — always cap it (~100–1000 by row density) or keyset instead
+- `.limit(n).fetch_all()` → `Result<Vec<Row>>` — the first `n` matches in this order, and nothing about the rest. **Requires the `.limit(n)`: without it the terminal does not exist and the call is a compile error.** Cap by row density (~100–1000), or keyset instead
 - `.fetch_one()` → `Result<Option<Row>>` — first match (`limit` forced to 1)
-- `.fetch_all_with_total()` → `Result<(Vec<Row>, u64)>` — rows + count
-- `.count()` → `Result<u64>` — count only (ignores `.or()`, sort, page)
-- `.fetch_page(|row| …)` → `CursorPage<T>` — keyset pagination (below)
+- `.limit(n).fetch_all_with_total()` → `Result<(Vec<Row>, u64)>` — the same bounded page plus the total IGNORING it, so `rows.len() < total` is how you detect a prefix. Also requires the `.limit(n)`
+- `.count()` → `Result<u64>` — count only; sort and page are ignored (they cannot change a count) and an OR predicate is **refused** rather than silently dropped
+- `.fetch_page(|row| …)` → `CursorPage<T>` — cursor pagination (below)
 
 ## The canonical paginated-list recipe
 
-Keyset, not offset. `fetch_page` appends the keyset resume filter,
-overfetches by 1, builds the `Cursor` from the last kept row, and returns
-`CursorPage<T>` — no manual cursor arithmetic.
+Cursor, not offset. `fetch_page` resumes from the position in the token, asks
+the store for exactly the page, and returns `CursorPage<T>` — no manual cursor
+arithmetic.
+
+`next_cursor` is present exactly while more rows follow, and that comes from the
+store, not from counting rows. **Never decide a listing has ended from the size
+of a page.** The platform clamps `limit` to its own per-call ceiling, so a page
+can come back shorter than you asked for while rows remain, and a page can come
+back full at the end. Both are answered for you: keep going while `next_cursor`
+is present, stop when it is absent.
 
 **Keyset endpoints take a single opaque `?cursor=`** (the encoded
 boundary returned as the previous page's `next_cursor`) — there is **no**
 `before`/`after`/`offset` param; do not design one.
 
-**`.keyset_by(col, dir)` must be covered by an index that ALSO covers your
+**`.order(col.dir())` must be covered by an index that ALSO covers your
 filter — and if it is not, nothing tells you.** This is the single most
 expensive mistake you can make on a list endpoint, because every symptom of
 it is silent:
@@ -196,29 +277,32 @@ rows accumulate.
 The rule: **one index must cover the filter and the sort together, filter
 first.** Declare it on the model — `list_by(filter = "<filter col>", newest
 = "<sort col>")`, or an explicit `covering_index(cols = ["<filter col>",
-"<sort col>"])` — and keyset by that same sort column and direction.
+"<sort col>"])` — and `.order(..)` by that same sort column and direction.
 
-**Never keyset by `_id`.** The auto-primary-key is not a column and can
-never join a composite, so `where_eq(...)` + `keyset_by("_id", ...)` cannot
+**Never page by `_id`.** The auto-primary-key is not a column and can
+never join a composite, so a filter plus `.order(_id …)` cannot
 be fixed by adding an index — it is O(rows matching the filter) forever. If
 you want insertion order, add a real `created_at: Timestamp` column, declare
-`list_by(filter = "<filter col>", oldest = "created_at")`, and keyset by
+`list_by(filter = "<filter col>", oldest = "created_at")`, and order by
 that. (Ordering by `_id` with **no** filter is fine — that is the natural
 key order.)
 
 ```rust
-use boogy_sdk::pagination::decode;
-use boogy_sdk::store::SortDir;
-
-// Decode the inbound ?cursor= (None on first page); page a ranked feed.
-let cursor = req.query("cursor").and_then(decode);
+// Page a ranked feed. `.cursor(..)` takes the opaque token the client
+// round-trips, straight from the query string — there is no `decode` at the
+// call site, and no second verb naming the keyset column: the ordering IS the
+// cursor key.
 let page = Query::on(Post::TABLE)
-    .keyset_by(Post::SCORE_TOTAL, SortDir::Desc)  // keyset column + direction
+    .order(Post::score_total.desc())
     .limit(20)
-    .cursor(cursor)
+    .cursor(req.query("cursor").map(str::to_string))
     .fetch_page(|row| PostView::from_row(row))?;   // map Row -> your DTO
 // page: CursorPage<PostView> — { items, next_cursor? }
 ```
+
+A token the platform cannot read is **kept, not discarded** — it answers `410`
+rather than silently restarting the listing while the caller believes it is
+continuing one.
 
 **Ascending keyset can MISS a concurrently-inserted row — permanently, for
 that walk.** `_id` is handed out before the inserting transaction commits, so
@@ -249,16 +333,18 @@ The DSL covers the common shapes. Drop *below* it only for what it can't
 express:
 
 - **OR-groups the `.or()` builder can't represent** — a keyset OR that
-  must merge with caller-supplied domain filters (`find_rows_grouped`).
+  must merge with caller-supplied domain filters. That form is emitted
+  PLUMBING (`__boogy_find_rows_grouped`), not authoring surface; the
+  Query DSL's `fetch_page` builds the ordinary keyset shape for you.
   An OR is seeked only when **every** arm carries an equality on a
   column that leads an index; the `< c OR (= c AND < cursor)` keyset
   shape has a bare range in its first arm, so it never qualifies. What
   keeps this read narrow is therefore the AND-prefix: give it a filter
   on a leading index column. See *Inside a `tx`* below.
 - **Junction hydration** — page the side table with `fetch_page`, then
-  batch-hydrate parents in one read with `where_in(REFS, ids)` /
+  batch-hydrate parents in one read with `.filter(M::refs.is_in(ids))` /
   `get_many`. The DSL has no JOIN primitive; this two-step is the pattern.
-  `where_in` seeks when its column **leads an index** — but `_id` leads
+  `is_in` seeks when its column **leads an index** — but `_id` leads
   none, so hydrating *by id* means `get_many` (point gets), in a `tx` or
   out.
 - **Streaming a whole table in a batch job** — `for_each_batch(...)`
@@ -270,7 +356,7 @@ express:
   at runtime, not a compile error). When you genuinely need this
   low-level cursor, pass the **canonical** `ix_<table>_<col1>_<col2>…`
   name and annotate the call `// index-name-ok: <reason>`. Prefer the
-  Query DSL — `where_eq(...).keyset_by(...).fetch_page(...)` — which lets
+  Query DSL — `.filter(..).order(..).fetch_page(..)` — which lets
   the planner pick the index **by the query's columns**, so there's no
   name to drift.
 
@@ -278,25 +364,40 @@ express:
 `keyset_resume_filter` live in `boogy_sdk::pagination` when you need them
 raw. Don't re-derive the overfetch logic — use the helper.
 
-## Counter columns — readable everywhere, sortable nowhere
+## Counter columns — never merged unless asked, sortable nowhere
 
-A `#[counter]` column (see `boogy:boogy-data-modeling`) is stored in its own
-cell, not inside the row. **Reads merge it back transparently** — a point
-read, a list page, an index walk, and `count` all see the live value, so
-nothing about the `db_*` / `Query` surface changes for reading one.
+A counter column (see `boogy:boogy-data-modeling`; declared
+`#[model(counter(name = "..."))]` on the struct, no backing field) is stored
+in its own cell, not inside the row. **Nothing merges it back for you.** A
+point read (`db_get`, `db_find_by`), a plain list page, an index walk, and
+`count` all return the row with the counter cell unmerged — a caller opts in
+explicitly, per call, or the value never arrives:
 
-What changes is what you may **declare**. A counter cannot back an index, so
-naming it in an access-pattern verb is a **compile error**:
+| To get the value | Ask for it with |
+|---|---|
+| A row listing (`Query`) | `.with_counter(name, key_cols)` — `key_cols` is `&[]` for a counter attached to a model's row |
+| A streaming batch (`for_each_batch`) | its `counters: &[&str]` parameter |
+| Ranking BY the counter's own cells | `.order(T::the_counter.desc())` — sorting by it already implies reading it, so this merges without a separate `.with_counter(..)` |
+
+Naming (or sorting by) one counter opts in every LIVE counter column the
+table declares — per-table granularity, not per-column. `db_get` /
+`db_find_by` / `get_many` have **no opt-in at all**: there is no wire path to
+ask them for a counter, so a counter column read through one of those is
+always `Val::Null` (`.as_int()` silently reports it as `0`) — go through
+`Query`/`for_each_batch` whenever the counter's value matters.
+
+What else changes is what you may **declare**. A counter cannot back an
+index, so naming it in an access-pattern verb is a **compile error**:
 
 ```rust ignore-snippet: shows code the derive is meant to REJECT — compiling it would assert the opposite of what it teaches
 // COMPILE ERROR — ranked_by is backed by an index, a counter can't back one.
-#[model(table = "posts", ranked_by(highest = "vote_score"))]
+#[model(table = "posts", ranked_by(highest = "vote_score"), counter(name = "vote_score"))]
 pub struct Post {
-    #[counter] pub vote_score: i64,
+    #[pk] pub id: Id<Post>,
 }
 ```
 
-So there is no `keyset_by(Post::VOTE_SCORE, …)` page and no "top N by score"
+So there is no `.order(Post::vote_score.desc())` page and no "top N by score"
 index read. Two sanctioned ways to get a ranked view anyway:
 
 | Approach | When |
@@ -319,8 +420,14 @@ that would otherwise re-read it. The staleness is silently accepted.
 // WRONG — a read-then-write decision on a counter, or anything derived
 // from one (a count, a filter, a sort over it).
 tx::<_, _, ApiError>(|| {
-    let post = db_get::<Post>(id)?.ok_or_else(ApiError::not_found)?;
-    if post.vote_score < -10 { db_delete::<Post>(id)?; }   // 🚩 stale
+    // `db_get` has no counter opt-in at all — reading `vote_score` goes
+    // through `Query`, the same as any other counter read.
+    let row = Query::on(Post::TABLE)
+        .filter(Post::slug.eq(post.slug.clone()))
+        .with_counter(FxPostVoteScore::NAME, &[])
+        .fetch_one()?
+        .ok_or_else(ApiError::not_found)?;
+    if row.int("vote_score") < -10 { db_delete::<Post>(row.id())?; }   // 🚩 stale
     Ok(())
 })
 ```
@@ -370,7 +477,7 @@ sub-range it seeked plus the rows it fetched. Consequences for reads a
 `tx` closure performs:
 
 - **Give it a filter on a column that LEADS an index.** Equality,
-  `where_in`, `where_null` and a range all seek — including on the first
+  `is_in`, `is_null` and a range all seek — including on the first
   column of the composite a `list_by` derives. One such AND-filter is
   enough; failing that, an `.or()` seeks when *every* arm carries an
   equality on a leading index column. A filter on a column that appears
@@ -404,11 +511,12 @@ API.
 - "I'll reach for `store::find` / `FindOptions`" → that's the escape hatch. Use `db_find_by` / `Query` and a declared access pattern.
 - "I'll hand-write the index name" → the derive names it (`ix_<table>_<cols>`); the `name` you declared is discarded. Reference data by **columns** via `db_find_by` / the Query DSL — never by a hardcoded index name. A literal name passed to `for_each_batch`/`open_cursor` drifts from the canonical one and the cursor returns NotFound at runtime.
 - "Offset pagination is fine" → not for deep pages. `fetch_page` (keyset).
-- "I'll `ranked_by` my `#[counter]` column" → compile error; a counter can't back an index. Bounded sub-range sorted in memory, or materialize into a plain column via a job.
+- "I'll `ranked_by` my counter column" → compile error; a counter can't back an index. Bounded sub-range sorted in memory, or materialize into a plain column via a job.
 - "I read the counter inside the tx, so the check is safe" → counter reads take no conflict range. The value may be stale, and because a concurrent increment doesn't conflict, the automatic retry never fires to re-read it. Use a `delete_where`/`update_where` predicate.
 - "The read inside my `tx` only touches a few rows" → only if a filter is on a column that LEADS an index, and only over the sub-range that seek covered — an equality matching most of the table is index-served and still conflicts with nearly every writer. If nothing seeked, the whole table is in the transaction's read set.
-- "I'll batch-hydrate by id inside the `tx` with `where_in`" → `_id` leads no index, so that scans. Use `get_many` (point gets by id), in a `tx` or out.
-- "I'll just `fetch_all()` the table" / "no limit needed, it's small for now" → unbounded read; today's small table is tomorrow's OOM and a slow query. Keyset-paginate a list anyone scrolls; cap a one-shot read with an explicit `.limit(100..=1000)` sized to row density.
+- "I'll batch-hydrate by id inside the `tx` with `is_in`" → `_id` leads no index, so that scans. Use `get_many` (point gets by id), in a `tx` or out.
+- "I'll just `fetch_all()` the table" / "no limit needed, it's small for now" → it will not compile: `fetch_all` has no unbounded form. Today's small table is tomorrow's OOM. Keyset-paginate a list anyone scrolls; cap a one-shot read with an explicit `.limit(100..=1000)` sized to row density.
+- "I'll take the limit from the query string" → clamp it. An untrusted `?limit=` satisfies the type system and reopens the unbounded read.
 
 ## Integration
 

@@ -33,7 +33,7 @@ header (check the response headers, not the body).
 | **503** | `tx_admission_exhausted` | "too many of YOUR transactions are open across the mesh at once" — a host-wide cap on concurrent open transactions, keyed per caller | reduce how many `tx()` calls this caller holds open concurrently, or shorten each one so it closes sooner | back off and retry per the `Retry-After` header — **not** a schema problem |
 | **503** | `store_op_ceiling_exceeded` | "this ONE request performed more store operations than the platform allows per request" | do fewer store operations per request — split into smaller requests, batch instead of looping, page results | do **NOT** retry identically — the same request re-trips the same ceiling. This is the one 503 cause that deliberately carries **no** `Retry-After` |
 | **503** | `store_op_rate_limited` | "this origin's overall store-operation RATE exceeded its budget" — a token bucket, not a per-request count | slow down the rate of store calls from this origin | back off and retry per the `Retry-After` header — the budget refills continuously |
-| **503** | `tx_contended` | "**these rows** are contended" — a transaction exhausted its automatic retry budget | **the data model**, not capacity: split the key, make the column a `#[counter]`, and **narrow every search the closure runs** — an in-tx read the planner can't serve takes the whole table as its read set. Give each one a filter on a column that **leads** an index; the same rule narrows an `update_where`/`delete_where` predicate. More host capacity does nothing here | back off and retry per the `Retry-After` header |
+| **503** | `tx_contended` | "**these rows** are contended" — a transaction exhausted its automatic retry budget | **the data model**, not capacity: split the key, declare it a counter column (`#[model(counter(name = "..."))]`), and **narrow every search the closure runs** — an in-tx read the planner can't serve takes the whole table as its read set. Give each one a filter on a column that **leads** an index; the same rule narrows an `update_where`/`delete_where` predicate. More host capacity does nothing here | back off and retry per the `Retry-After` header |
 | **504** | — (`type: /errors/request_budget_exceeded`) | "this request exceeded its wall-clock budget", including any cross-service calls it made | raise `[limits] cpu_deadline_ms` ONLY if the work is genuinely long and CPU-light; otherwise it's a 503 problem | no `Retry-After` — an identical retry is likely to exceed budget again; reduce the request's own scope before retrying |
 
 **Enforcement order:** rate limiter (429) → scheduler admission
@@ -89,7 +89,7 @@ which directly reduces 503s. Cut the per-request op budget:
   retries first, then a `tx_contended` 503. Narrowing the reads that
   closure runs is the fix for that 503, not more capacity. **Give each one
   a filter on a column
-  that LEADS an index** — equality, `where_in`, `where_null` and ranges
+  that LEADS an index** — equality, `is_in`, `is_null` and ranges
   all seek there — and the same rule narrows an
   `update_where`/`delete_where` predicate, which otherwise scans. No
   index rescues these: a
@@ -123,9 +123,10 @@ A commit conflict is **retried for you** inside `tx`, so contention shows up
 as latency first, not as an error. When the attempt budget is exhausted
 against a genuinely hot row — or against a table an unindexed in-tx search
 took as its read set — you get a **503** (`cause: tx_contended`) with a real
-`Retry-After` header. Back off, then fix the data model (split the key, make
-the column a `#[counter]`, or narrow the read — filter on a column that
-leads an index, and prefer a selective one), because more capacity divides
+`Retry-After` header. Back off, then fix the data model (split the key,
+declare it a counter column (`#[model(counter(name = "..."))]`), or narrow the
+read — filter on a column that leads an index, and prefer a selective one),
+because more capacity divides
 neither one row every request writes nor a read that conflicts with every
 writer. A
 **409** never means "busy": it means the write genuinely conflicts — a

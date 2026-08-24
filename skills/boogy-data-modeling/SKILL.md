@@ -134,7 +134,7 @@ Each field's Rust type maps to a column via the `Field` trait:
 
 `Decimal` is a fixed-point decimal, exact to **6 decimal places**. It
 sorts and range-filters correctly at any magnitude and either sign
-(`order_by`, `keyset_by`, `where_gt`/`where_lt` all rank it as a genuine
+(`.order(..)`, and `gt`/`lt` range filters, all rank it as a genuine
 number, never as text), and its arithmetic is exact — no binary
 floating-point rounding error:
 
@@ -220,7 +220,7 @@ with a 409 `ConstraintViolation` naming the column, deterministic and never
 retried. Two things follow that are easy to be surprised by: inside a `tx` the
 refusal **poisons the whole closure**, not just that one write, so the
 transaction cannot commit — the same as any other constraint violation; and a
-value aimed at a column you no longer use (dropped, or a `#[counter]` field in
+value aimed at a column you no longer use (dropped, or a counter column in
 an update) is checked too, so a bad float there now fails where it used to be
 discarded in silence. This only ever applies between whole numbers and floats;
 no other pair of types is converted.
@@ -244,7 +244,7 @@ zero (`""`, `0`, `false`) but has **no index entry** for it, so that row is
 visible to a point lookup and invisible to a seek over that column.
 
 Two things are exempt: a column carrying a **default** (below), and a
-`#[counter]` column (its value lives in its own cell, and an absent counter
+counter column (its value lives in its own cell, and an absent counter
 already reads as `0`). Use `Option<T>` when absence is genuinely meaningful,
 and a default when every row must carry a value.
 
@@ -286,9 +286,10 @@ Three things to know, in the order they bite:
    (`#[default = SOME_CONST]`), or a literal whose kind does not match the
    field's column type (`#[default = "0"]` on an `i64`) is a compile error, not
    a silently discarded declaration. `#[default]` is also refused on `#[pk]`
-   (the store assigns the key) and on `#[counter]` (a counter's value is read
-   from its own cell, so a default could never be observed — an absent counter
-   already reads as `0`).
+   (the store assigns the key). A counter column has no field to write
+   `#[default]` on at all — `#[model(counter(...))]` takes only `name = "..."`
+   — so the combination cannot even be written; its value is read from its own
+   cell regardless, and an absent counter already reads as `0`.
 
 Adding a default to a column of a **deployed** table is an `add_column`
 migration with the same column type and nullability; that also updates a default
@@ -303,21 +304,22 @@ assigns the real `_id` and `db_insert` returns it), `Timestamp::new(ms)`,
 ### Nullable vs. sentinel
 
 Making a column `Option<T>` decides whether a query on it is an index seek.
-The rule: **a column you will `where_eq`/seek on must not be nullable; a
+The rule: **a column you will `eq`/seek on must not be nullable; a
 column you only post-filter on may be.** NULL is matched by a *different
-operator* (`where_null`), never by equality — so a nullable column can't
+operator* (`is_null`), never by equality — so a nullable column can't
 supply the equality half of a `list_by(filter, order)` index, that bounded
 ordered walk is not chosen, and the query degrades to reading every
-matching row and sorting in memory. (`where_not_null` never seeks at all.)
+matching row and sorting in memory. (`is_not_null` never seeks at all.)
 
 - **Seek column → sentinel.** "List open polls, newest first" is
   `list_by(filter = "closed_at", newest = "created_at")`. Declare
   `closed_at: Timestamp` with a non-null `OPEN` sentinel (`0`), so
-  `where_eq(CLOSED_AT, 0)` is a bounded, ordered index walk.
+  `.filter(Poll::closed_at.eq(0))` is a bounded, ordered index walk.
 - **Post-filter column → nullable is honest.** `deleted_at:
   Option<Timestamp>` on a table listed by `list_by(filter = "room_id",
   newest = "created_at")`: the `room_id` equality drives the index and
-  `where_null(DELETED_AT)` is a residual filter applied during that walk.
+  `.filter(Post::deleted_at.is_null())` is a residual filter applied during
+  that walk.
   A live row has no timestamp, so `Option` is the truthful type.
 
 Pick per column, not per table — the same model routinely has both.
@@ -421,8 +423,8 @@ answer, not a tuning one. Declare an access pattern for every read a
 (an existence read, a `count`).
 
 **But a declaration is not always enough.** What the planner seeks on is
-a filter whose column **leads** an index — equality, `where_in`,
-`where_null` or a range. So the composite a
+a filter whose column **leads** an index — equality, `is_in`,
+`is_null` or a range. So the composite a
 `list_by(filter = "author", newest = "created_at")` derives serves any
 read filtering on `author`, whatever the sort; a read filtering only on
 `created_at` is not served by it, because `created_at` does not lead it.
@@ -453,7 +455,7 @@ still conflicts with nearly every writer. See
 | Entity | one `#[derive(Model)]` struct per noun; `#[pk] id: Id<Self>` |
 | Owned entity | add an `owner_principal: String` field; scope rows by the current principal (see the `auth` owner-scoped helpers) |
 | Junction / edge | a model for a relationship (`follows`, an affinity `Edge`); usually **no owner column**; composite `unique_index` on the pair |
-| Counter | `upsert_increment` for atomic keyed counts — never read-modify-write. Add `#[counter]` when the row is **hot** (conflict-free, but then the value can't be indexed). See below |
+| Counter | `upsert_increment` for atomic keyed counts — never read-modify-write. Declare a struct-level `#[model(counter(name = "..."))]` column when the row is **hot** (conflict-free, but then the value can't be indexed, and reading it is an explicit opt-in). See below |
 
 ## Counters — `upsert_increment`
 
@@ -533,16 +535,23 @@ Two ways out, and they answer different questions:
 
 ```rust
 use boogy_sdk::model::Id;
-use boogy_sdk::Model;
+use boogy_sdk::{Counter, Model};
 
 #[derive(Model)]
-#[model(table = "rollups")]
+#[model(table = "rollups", counter(name = "hits"))]  // the one counter this call bumps — no field
 pub struct Rollup {
     #[pk] pub id: Id<Rollup>,
     #[lookup_by] pub key: String,          // the upsert's conflict target
-    #[counter] pub hits: i64,              // the one counter this call bumps
     #[default = 0] pub total_bytes: i64,   // seeds the insert arm, and only it
 }
+
+/// Names the cell `#[model(counter(name = "hits"))]` above declared —
+/// `Rollup::HITS` (a `&'static str` const the derive still emits, struct- or
+/// field-declared alike) works directly with `upsert_increment` below; this
+/// marker type is what a READ goes through instead.
+#[derive(Counter)]
+#[counter(of = Rollup, name = "hits")]
+pub struct RollupHits;
 ```
 
 ```rust
@@ -557,7 +566,7 @@ upsert_increment(Rollup::TABLE, &key, Rollup::HITS, store::Value::Integer(1), Up
 
 A default is consulted only when a write omits the column, so it seeds the
 insert arm and never touches the update arm. It also keeps `always` empty,
-which is what a `#[counter]` column needs to stay conflict-free.
+which is what a counter column needs to stay conflict-free.
 
 Now the computed case — a value `#[default]` cannot express because it isn't
 known until the call:
@@ -565,7 +574,7 @@ known until the call:
 ```rust
 // `stamp` here plays a *creation* timestamp, computed at call time. It rides
 // `on_insert`, not `always`: written once, when the row is created, and never
-// rewritten by a later bump — so it costs this `#[counter]` nothing.
+// rewritten by a later bump — so it costs this counter column nothing.
 upsert_increment(
     Rollup::TABLE,
     &key,
@@ -602,7 +611,7 @@ writes a concurrency test. Fold the field into `always` instead — `on_insert`
 does not fit here, because `last_post_at` must keep advancing on every post,
 not just the row's first.
 
-## `#[counter]` — the conflict-free variant, for hot counters
+## Counter columns — the conflict-free variant, for hot counters
 
 `upsert_increment` on a **plain** column (everything above) is atomic and
 loses no updates, but it still **rewrites the row**, so it takes a
@@ -613,9 +622,13 @@ symptom is latency rather than an error; past the attempt budget the
 request gets a 503. Correct, but it does not scale, and the cost hides
 until load.
 
-`#[counter]` removes that. The column is stored in its **own cell**, not
-packed into the row, and an increment is an atomic add that registers **no
-read-conflict range**. Concurrent increments compose instead of conflicting.
+A **counter column** removes that: `#[model(counter(name = "<column>"))]`
+on the struct — **not a field**, there is no backing field at all — plus a
+companion `#[derive(Counter)] #[counter(of = <Self>, name = "<column>")]`
+marker type that gives the cell a name and a typed key to read or add it
+through. The column is stored in its **own cell**, not packed into the row,
+and an increment is an atomic add that registers **no read-conflict range**.
+Concurrent increments compose instead of conflicting.
 
 That covers the **counter write**, not the rest of the transaction. If the
 closure that bumps the counter also runs a filtered search the planner
@@ -630,25 +643,28 @@ reads in that closure too — filter on a column that leads an index (see
 
 ```rust
 use boogy_sdk::model::Id;
-use boogy_sdk::Model;
+use boogy_sdk::{Counter, Model};
 
 #[derive(Model)]
-#[model(table = "posts")]
+#[model(table = "posts", counter(name = "vote_score"))]
 pub struct Post {
     #[pk]
     pub id: Id<Post>,
     #[lookup_by]
     pub slug: String,
     pub title: String,
-    /// Read-only from Rust. Reads merge the real value in; writes go ONLY
-    /// through `upsert_increment`.
-    #[counter]
-    pub vote_score: i64,
 }
+
+/// The read/add handle for `vote_score` — see "Reading a counter" below.
+#[derive(Counter)]
+#[counter(of = Post, name = "vote_score")]
+pub struct PostVoteScore;
 ```
 
-You still increment with `upsert_increment` — `#[counter]` changes how the
-column is *stored*, not how you call it. **The conflict-freedom holds only
+You still increment with `upsert_increment` (`Post::VOTE_SCORE` is the
+`&'static str` const the derive still emits for a struct-level counter,
+just like it would for a field) — a counter column changes how the value is
+*stored*, not how you call it. **The conflict-freedom holds only
 with an EMPTY `always`:**
 
 ```rust
@@ -668,25 +684,48 @@ upsert_increment(Post::TABLE, &key, Post::VOTE_SCORE, store::Value::Integer(1),
 
 That is a genuine trade-off against the plain-column pattern above, which
 folds companion columns that must keep changing into `always` precisely to
-avoid a second write. Pick per column: **hot and standalone → `#[counter]`
-with an empty `always`; needed once, at creation → `#[counter]` with
-`on_insert`; updated together with companion fields on every call → plain
+avoid a second write. Pick per column: **hot and standalone → a counter
+column with an empty `always`; needed once, at creation → a counter column
+with `on_insert`; updated together with companion fields on every call → plain
 column + `always`.**
 
-### The field is read-only — that is the point
+### There is no field — writes cannot clobber it, and reads are an explicit opt-in
 
-A `#[counter]` field is excluded from `to_columns()`, so `db_insert` starts
-it at zero and **`db_update` does not mention the column at all**. This is
-what makes the struct-update idiom safe:
+A counter column has **no backing struct field at all**, so `Post` above
+carries no `vote_score` member to accidentally round-trip. `db_insert`
+starts the column at zero (there is nothing to write) and `db_update`
+**never mentions the column** — a struct-update write can't write back a
+value it never held:
 
 ```rust
-// SAFE on a #[counter] column — `vote_score` is not in the written column
-// set, so the value read earlier cannot be written back.
+// SAFE — `Post` has no `vote_score` field to read a stale value from or
+// write one back through.
 db_update(post.id.get(), &Post { title: new_title, ..post })?;
 ```
 
 On a **plain** counter column that same line is the silent lost-update bug
-the RED FLAG above describes. `#[counter]` is the structural fix for it.
+the RED FLAG above describes. A counter column is the structural fix for
+it — more structural than the old field form, which excluded the field from
+writes but still let a caller read it as an ordinary struct member.
+
+The trade is on the READ side: nothing merges a counter's value in for you
+any more. `Post::schema()`/`db_get`/`db_find_by`/plain `Query::fetch_*` all
+return the row with the counter cell unmerged — reading it is always an
+explicit ask, through one of:
+
+- **`Query::on(Post::TABLE)...with_counter(PostVoteScore::NAME, &[])`** — the
+  ordinary row-listing path. `key_cols` is empty for an `of = Model`
+  counter (it is keyed by the row's own id implicitly); a `key = (...)`
+  standalone counter passes the column names that supply its key.
+- **`for_each_batch(..., counters: &[PostVoteScore::NAME], f)`** — the
+  streaming-cursor twin, same opt-in.
+- **`.order(Post::vote_score.desc())`** — ranking BY a counter's cells is
+  the one path that merges it without a separate `.with_counter(..)`, since
+  sorting by it is already an explicit ask.
+
+Naming one counter opts in every LIVE counter column the table declares
+(per-table granularity, not per-column) — cheap on the common one-counter
+table, worth knowing on a table with several.
 
 ### A counter cannot back an index — enforced at compile time
 
@@ -695,42 +734,62 @@ atomic add never reads one. So the derive **refuses to build**:
 
 | You wrote | Result |
 |---|---|
-| `#[counter]` + `#[index]` / `#[lookup_by]` / `#[covering_index]` | compile error |
-| `#[counter]` column named in a struct-level `index(cols = [...])` | compile error |
-| `#[counter]` column named by `list_by` / `ranked_by` / `tagged_by` | compile error |
-| `#[counter]` on the `#[pk]` field | compile error |
+| `counter(name = "x")` sharing a name with a declared `#[index]` / `#[lookup_by]` / `#[covering_index]` / struct-level `index(cols = [...])` column | compile error |
+| A `counter(...)` column named by `list_by` / `ranked_by` / `tagged_by` | compile error |
+<!-- retired-spelling: the field form is retired — `#[model(counter(name =
+     ..))]` on the struct is the replacement, which this row already
+     names. -->
+| `#[counter]` written as a FIELD attribute at all | compile error naming the replacement — there is no field form any more |
 
 This is deliberately a compile error, not a runtime one: the alternative is
 an index that *looks* maintained and silently is not — wrong answers rather
 than a failure.
 
 **So you cannot sort, rank, or seek by a counter.** "Top posts by score"
-is not available as an indexed read. The two sanctioned escape hatches:
-scope the ranking to a **bounded sub-range and sort in memory**, or
-**materialize the value into a separate plain column** refreshed by a
-background job (see `boogy:boogy-background-jobs`) and index *that*.
+is not available as an indexed read (except by `.order(...)`, which reads
+the cells directly rather than through an index — see "Reading a counter"
+above). The two sanctioned escape hatches for anything an ordered PAGE
+needs to seek into rather than sort in memory: scope the ranking to a
+**bounded sub-range and sort in memory**, or **materialize the value into a
+separate plain column** refreshed by a background job (see
+`boogy:boogy-background-jobs`) and index *that*.
 
-## `#[counter(index = true)]` does not exist — and won't build
+<!-- retired-spelling: this section teaches the retired field form as a
+     NEGATIVE — the live declaration is `#[model(counter(name = ..))]`
+     plus a `#[derive(Counter)]` marker type. -->
+## There is no field form — `#[counter]` on a field is a compile error
 
-`#[counter]` takes **no arguments**, and neither do the other field markers
-(`#[pk]`, `#[index]`, `#[covering_index]`, `#[lookup_by]`).
-Passing one is a compile error naming the fix:
+A counter has no field of its own. Declaring one is always
+`#[model(counter(name = "<column>"))]` on the **struct**, read through a
+companion `#[derive(Counter)]` marker type — never a field-level
+<!-- retired-spelling: the paragraph below names the retired field form so a
+     reader recognises it in an older note; the live declaration is
+     `#[model(counter(name = "..."))]` plus a `#[derive(Counter)]` marker. -->
+`#[counter]` attribute. If you have seen `#[counter] pub x: i64` in an
+older note, it predates this: the derive now rejects it outright, naming
+the replacement.
+
+<!-- retired-spelling: the fence below is the RETIRED field form, shown so it
+     is recognised and never written; `#[model(counter(name = ..))]` on the
+     struct is the replacement, as the fence's own comment says. -->
+```rust ignore-snippet: shows code the derive is meant to REJECT — compiling it would assert the opposite of what it teaches
+#[counter]                   // compile error: no field form — declare
+pub vote_score: i64,         // #[model(counter(name = "vote_score"))] on the struct instead
+```
+
+`#[model(counter(...))]` itself takes **no arguments other than the
+required `name = "..."`** — in particular no `index` option:
 
 ```rust ignore-snippet: shows code the derive is meant to REJECT — compiling it would assert the opposite of what it teaches
-#[counter(index = true)]     // compile error: #[counter] takes no arguments
-pub vote_score: i64,
+#[model(table = "posts", counter(name = "vote_score", index = true))]     // compile error
 ```
 
 If you have seen `#[counter(index = true)]` in a design note, it is **not
 built** — and an indexed counter is refused at compile time anyway, for the
-reason above. Write bare `#[counter]` and use one of the two escape hatches.
+reason above. Write `counter(name = "...")` with nothing else, and use one
+of the two escape hatches above if you need to rank by the value.
 
-Note the related shape this catches: `#[index(cols = [...])]` on a *field*.
-The multi-column form is declared on the **struct**
-(`#[model(index(cols = [...]))]`) — better still, declare an access-pattern
-verb and let the derive derive it.
-
-## 🚩 RED FLAG — you cannot add a `#[counter]` to a deployed table
+## 🚩 RED FLAG — you cannot add a counter column to a deployed table
 
 A migration-added column is **never** a counter: `add_column` **refuses** a
 counter column outright (a `ConstraintViolation`). A counter's value lives in
@@ -739,11 +798,13 @@ row of that table owns one — flipping the flag on a populated table would make
 every pre-existing row read as `0`. Establishing the invariant needs a
 backfill, which `add_column` is not.
 
-**Consequence: decide `#[counter]` when you create the table.** The refusal is
+**Consequence: decide the counter when you create the table.** The refusal is
 loud, which is the good half — but it lands at migration time, on a model
-whose derive has *already* stopped writing the field (counter fields are
-excluded from `to_columns()`). So the model and the deployed table disagree
-until you resolve it; a counter is not something to retrofit.
+whose `#[model(counter(...))]` declaration was *already* live (a struct-level
+counter has no field to stop writing — `struct_counter_pushes` puts it in the
+SCHEMA, and `to_columns()` never walks it because it was never among the
+fields to begin with). So the model and the deployed table disagree until you
+resolve it; a counter is not something to retrofit.
 
 If you need to convert a live column, the supported route today is a **new
 table** with the counter declared up front, plus a migration that copies
@@ -790,17 +851,25 @@ promote fields to real columns later via a migration.
   rather than let that pass silently. Use `#[lookup_by]`.
 - "One `upsert_increment` can bump both counters" → one counter per call.
   Two calls, same key; the second column starts at `delta` if absent.
-- "This field is optional, so `Option<T>`" → not if you'll `where_eq` on
+- "This field is optional, so `Option<T>`" → not if you'll `eq`-filter on
   it. NULL isn't equality; the ordered index walk is never chosen. Sentinel.
 - "One `list_by` per model" → the verbs repeat, and identical ones dedupe.
   Declare one per read instead of hand-rolling `index(cols = [...])`.
-- "`#[counter]` so I can rank by it" → backwards. `#[counter]` makes a
-  column *unindexable* (compile error on any index or `ranked_by` naming
-  it). Materialize into a plain column via a job, or sort a bounded
+- "I'll make it a counter column so I can rank by it" → backwards. A counter
+  column is *unindexable* (compile error on any index or `ranked_by` naming
+  it) — `.order(...)` reads its cells directly instead. Materialize into a
+  plain column via a job if you need a true indexed seek, or sort a bounded
   sub-range in memory.
 - "`#[counter(index = true)]` gives me a sortable counter" → the feature
-  does not exist; field markers take no arguments and the derive rejects it.
-- "`#[counter]` plus an `always` column, still conflict-free" → a non-empty
+  does not exist; `#[model(counter(...))]` takes only `name = "..."` and
+  the derive rejects anything else.
+<!-- retired-spelling: the field form is retired; the bullet below names
+     `#[model(counter(name = ..))]` as the replacement, which is why it is
+     listed as a red flag at all. -->
+- "I'll write `#[counter]` on the field like I used to" → there is no field
+  form any more; it is a compile error naming the replacement,
+  `#[model(counter(name = "..."))]` on the struct.
+- "A counter column plus an `always` column, still conflict-free" → a non-empty
   `always` rewrites the row and conflicts like any other write. Empty
   `always`, or a value moved to `on_insert` if it's only needed at creation,
   or it isn't conflict-free.

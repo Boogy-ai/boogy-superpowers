@@ -207,7 +207,7 @@ increment or send).
 
 When you then act on those ids inside a `tx`, fetch them with `get_many`
 — point gets, which conflict only on the rows they return. Do **not**
-re-read them with `where_in`: `_id` leads no index, so an IN-list over
+re-read them with `is_in`: `_id` leads no index, so an IN-list over
 ids scans, taking the whole table as the transaction's read set and
 undoing the batching. See `boogy:boogy-transactions`.
 

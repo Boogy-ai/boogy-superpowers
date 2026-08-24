@@ -223,7 +223,9 @@ same human gets a **different** id at each service. The service can never recove
 the global id. It's a path-independent fingerprint of `(user, service)`: the same
 user always lands on the same pairwise whether they arrived directly or via a
 delegation chain. Because `current_principal()` returns an opaque string, handler
-code is unchanged — `find_owned`/`owns_resource` scope rows by the `pw_…` value.
+code is unchanged — `find_owned`/`owns_resource` scope rows by the `pw_…` value
+(`find_owned` returns one bounded page plus a cursor, as it does for any
+principal — see `boogy:boogy-auth`).
 
 **Cookies — three names, never confused:**
 
@@ -293,7 +295,7 @@ and cannot directly call a deployed app.
 | "There's no social login, only password/agentkey." | Wrong — social OAuth (Google/GitHub) is brokered at the platform bootstrap layer; end-users get it via the "Sign in with Boogy" SSO flow. |
 | "After OAuth I'll read the token in JS and attach a Bearer header." | You can't — both `__Host-boogy_session` and `__Host-boogy_app` are **httpOnly** by design. You don't need to: a same-origin request sends the cookie automatically. Don't try to extract it. |
 | "My global deploy token works fine for calling my deployed service." | A bare global Agent token is **rejected (403)** at a non-public app route — the control-plane/app-plane boundary. Use an SSO `__Host-boogy_app` cookie, an `sk_*` key on a public route, or add the service to the first-party allowlist. |
-| "The `pw_…` pairwise id needs special handling in my code." | It is an opaque string to your service — exactly like any other principal. `find_owned`/`owns_resource` work unchanged. Never parse or assume the `pw_` prefix. |
+| "The `pw_…` pairwise id needs special handling in my code." | It is an opaque string to your service — exactly like any other principal. `find_owned`/`owns_resource` work unchanged (and `find_owned` is paginated for a pairwise principal exactly as for any other). Never parse or assume the `pw_` prefix. |
 | "If a user reaches my service via a chain, they get a different owner than a direct visit." | No — the pairwise is a fingerprint of `(user, your-service)`. Direct visit and chain arrival produce the same `pw_…`. |
 | "I'll use a `/boogy/me` field (or a handle the client sends me) as a unique user id." | Only the token handle — `auth::current_handle()`, read server-side — is verified. `/boogy/me` fields and client-supplied handles are browser-readable/-editable and can be spoofed; treat neither as authoritative. |
 

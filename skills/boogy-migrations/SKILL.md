@@ -126,14 +126,14 @@ read null), and the old values are **not** recovered. That is usually what you
 want, and it is the only supported way to change a column's type. What you must
 not assume is that the old data comes back with the name.
 
-**A migration cannot add a `#[counter]` column.** `add_column` **refuses**
+**A migration cannot add a counter column.** `add_column` **refuses**
 one (a `ConstraintViolation`) — a counter's value lives in a per-row sidecar
 cell that only an insert seeds, so flipping the flag on a populated table
 would make every pre-existing row read as `0`. Establishing that invariant
 needs a backfill, which `add_column` is not. A counter must be declared when
 the table is **created**. To convert a live column: create a **new** table with
-`#[counter]` declared up front and migrate the values across (drop +
-recreate, below, if the table is disposable). See
+`#[model(counter(name = "..."))]` declared up front and migrate the values
+across (drop + recreate, below, if the table is disposable). See
 `boogy:boogy-data-modeling`.
 
 ## When migrations run
@@ -228,7 +228,7 @@ edited once shipped (Iron Law 1).
 | "Adding the index needs a migration." | No — indexes are **reconciled** from the model. Add the access pattern to the model and the index is created on the next deploy; remove it and the index is dropped. Creating one from a migration is the anti-pattern: the reconcile drops it. |
 | "`drop_table` alone resets it — `schema` recreates it." | `migrate()` runs *after* the declaration phase, so recreate *inside* the migration. Drop + recreate together. |
 | "Delete the service to wipe its data." | Removing a service leaves its store intact. Reset a table with an in-migration `drop_table`. |
-| "I'll add `#[counter]` to the model and migrate the column." | `add_column` refuses a counter column, and the derive has already stopped writing the field — so the migration fails on a model that no longer matches the table. Declare counters at table-creation time; convert via a new table. |
+| "I'll add `#[model(counter(name = ...))]` to the model and migrate the column." | `add_column` refuses a counter column outright — the migration fails on a model whose declaration no longer matches the deployed table. Declare counters at table-creation time; convert via a new table. |
 | "I'll add the `not_null` column now and backfill the inserts later." | Omission is refused on a row-creating write, so every insert that doesn't yet name the column starts failing with a 409 the moment the migration lands. Add `.default(...)` in the same step. |
 | "`col(...).unique()` makes the migrated column unique." | It enforces nothing and is deprecated — `add_column` creates no index, and it couldn't: every existing row would take the same value. Three steps: add the column, backfill distinct values, then `create_index` with `unique: true`. |
 

@@ -376,11 +376,12 @@ not need to see stays outside it.
   bump. On a **plain** column the increment still rewrites the row, so
   concurrent bumps take a conflict range; those conflicts are retried, but a
   genuinely hot row will burn the attempt budget and 503. Then declare the
-  column `#[counter]` and pass an **empty `always`** — the value lives in its
-  own cell and the add takes no conflict range at all. `on_insert` does not
-  buy that conflict-freedom on the read-modify-write arm of a plain (non-
-  `#[counter]`) target column: there, the counter itself still goes through
-  the ordinary row update regardless of `on_insert`. Cost: a `#[counter]`
+  column a counter (`#[model(counter(name = "..."))]` on the struct, no
+  field) and pass an **empty `always`** — the value lives in its own cell and
+  the add takes no conflict range at all. `on_insert` does not
+  buy that conflict-freedom on the read-modify-write arm of a plain
+  (non-counter) target column: there, the counter itself still goes through
+  the ordinary row update regardless of `on_insert`. Cost: a counter
   column cannot back an index. See
   `boogy:boogy-data-modeling`.
 - **`insert_many(table, &[&[Column]])`** — batch insert, in or out of a
@@ -424,12 +425,12 @@ with:
 
 So on a table anyone else writes, **narrowing the reads a transaction
 performs is a contention fix, not a speed optimization**. It is also
-why `#[counter]` alone may not quiet a hot path: the counter removes the
+why a counter column alone may not quiet a hot path: the counter removes the
 *write* conflict, and an unindexed search in the same closure puts a
 whole-table one straight back.
 
 **The rule: give the read a filter on a column that LEADS an index.**
-Equality, `where_in`, `where_null` and a range (`>` / `>=` / `<` / `<=`)
+Equality, `is_in`, `is_null` and a range (`gt` / `gte` / `lt` / `lte`)
 all seek — each becomes one bounded index sub-range, or a fan-out of
 them, and the fan-out is the read set. It is enough that **one** of the
 AND-filters does this; if none does, an `.or()` still seeks when *every*
@@ -467,7 +468,7 @@ is asking about.
   **any** concurrent write to that table: an insert, a delete, and an
   update too, since updating a row rewrites its key.
 
-**`_id` leads no index**, by construction — so `where_in` over a list of
+**`_id` leads no index**, by construction — so `is_in` over a list of
 ids scans, and there is no index to add. Hydrate by id with `get_many`:
 point gets, which conflict only on the rows they return.
 
@@ -522,7 +523,7 @@ congestion codes (429 = you are too fast; 503 = the host is contended; 504
 the *data model* — a single row every request writes, **or** a search
 inside the closure the planner could not serve from an index, which
 conflict-ranged the whole table (see *Reads inside the tx* above). Split
-the key, make the column a `#[counter]`, or narrow the read — filter on a
+the key, declare it a counter column (`#[model(counter(name = "..."))]`), or narrow the read — filter on a
 column that leads an index, and prefer a selective one.
 
 **409 now means "your write genuinely conflicts"** — something the caller
@@ -533,7 +534,7 @@ never the status and never the message text.
 | Outcome | `StoreError` variant | Status | Client does |
 |---------|----------------------|--------|-------------|
 | Commit conflict (serialization abort) | `Conflict` | — | **Nothing — `tx` already retried it.** It surfaces (as 409) only if the platform has auto-retry switched off |
-| Retry attempts exhausted — a contended row it writes, or a read whose conflict range was the whole table | `TooContended` | **503** | Retry with backoff — and fix the data model if it persists (split the key, `#[counter]`, or narrow the read — filter on a column that leads an index) |
+| Retry attempts exhausted — a contended row it writes, or a read whose conflict range was the whole table | `TooContended` | **503** | Retry with backoff — and fix the data model if it persists (split the key, a counter column, or narrow the read — filter on a column that leads an index) |
 | Platform saturated with concurrent transactions | `ResourceExhausted` | 503 | Retry shortly |
 | Unique-index duplicate, a **not-null column left null or absent** on a row-creating write, or "already exists" | `ConstraintViolation` | **409** | **Do not retry** — deterministic, it fails identically every time. Change the input |
 | A participant service in the transaction failed | `Poisoned` | **409** | **Deliberately not retried** — re-running would re-execute the participant that already failed, once per attempt, and across a call tree once per callee per attempt. Fix the participant |
@@ -646,7 +647,7 @@ Scan a handler for these. Each is a partial-write waiting to corrupt data:
 | Expensive computation (hashing, key stretching, big parse) **inside** the `tx` closure | Compute first; open the tx around the store work only. |
 | A **read-modify-write upsert** (find → update-or-insert) outside a tx | Move the find + write inside one `tx` — read-your-writes, no TOCTOU. |
 | A filtered `Query` / `.count()` **inside** a `tx` where no filter is on a column that **leads** an index | Declare the access pattern so it's index-served — otherwise the read takes the whole table as its read set and every concurrent writer conflicts with you. The same declaration narrows an `update_where`/`delete_where` in that closure; without one, a predicate write scans too. |
-| `.fetch_all_with_total()` inside a `tx` where nothing reads the total | Use `.fetch_all()` / `.fetch_page()` — the exact total forces a drain, and an unnarrowed one forces a scan. |
+| `.fetch_all_with_total()` inside a `tx` where nothing reads the total | Use `.limit(n).fetch_all()` / `.fetch_page()` — the exact total forces a drain, and an unnarrowed one forces a scan. (Both `fetch_all` forms require the `.limit(n)`; without one they do not compile.) |
 | A comment that says **"atomically" / "in one tx"** but there is **no `tx(\|\|)`** in the body | The exact bug class this skill exists for — add the `tx`. |
 | Two `store::update`s that must agree (debit + credit) sitting bare | One `tx`; check sufficiency **inside**. |
 | A multi-write mutation that fans out via `peer::fetch` with no tx at the entry | Open the `tx` at the entry handler — the call tree enrolls. |
@@ -659,8 +660,8 @@ Scan a handler for these. Each is a partial-write waiting to corrupt data:
 | "It's only one write, so no `tx` needed" | Not the test. If fallible work runs after the write, a partial state is invalid — wrap it in `tx`, **or move the write after all fallible work** so nothing can strand it. |
 | "I'll write the row, then validate / call out / derive the rest" | Backwards. Do the fallible work FIRST; the irreversible write goes LAST (or in a `tx`). A write before a step that can `?` is a partial-state bug. |
 | "Snapshot the balance before the tx" | Read it INSIDE — read-your-writes closes the TOCTOU window. |
-| "A counter is just read, add one, write back — the tx makes it safe" | The tx makes it *correct*, not *scalable*: every concurrent bump conflicts, and a whole-row `db_update` loses increments outright. The conflicts are retried, so you see latency and eventually a 503 rather than an error — which is exactly why this stays invisible until load. Use `upsert_increment`; add `#[counter]` if the row is hot. |
-| "I read the counter inside the tx, so branching on it is safe" | No — a `#[counter]` read takes **no conflict range**. The value may be stale and a concurrent increment will NOT trigger a retry; it is silently discarded. Express the decision as a `delete_where` / `update_where` predicate, which serializes the rows it matches. Give that predicate a filter on a column that **leads** an index or the sweep takes the whole table as its read set. |
+| "A counter is just read, add one, write back — the tx makes it safe" | The tx makes it *correct*, not *scalable*: every concurrent bump conflicts, and a whole-row `db_update` loses increments outright. The conflicts are retried, so you see latency and eventually a 503 rather than an error — which is exactly why this stays invisible until load. Use `upsert_increment`; declare it a counter column (`#[model(counter(name = "..."))]`) if the row is hot. |
+| "I read the counter inside the tx, so branching on it is safe" | No — a counter read takes **no conflict range**. The value may be stale and a concurrent increment will NOT trigger a retry; it is silently discarded. Express the decision as a `delete_where` / `update_where` predicate, which serializes the rows it matches. Give that predicate a filter on a column that **leads** an index or the sweep takes the whole table as its read set. |
 | "Wrap the whole handler in one tx — simpler to reason about" | It holds the ~5 s envelope open through your CPU and locks rows nothing is writing yet. Compute first, open late. |
 | "Nobody writes the rows my tx reads, so the read can't conflict" | Only if the read was index-served, and only over the sub-range it seeked. If it scanned, the whole table is in your read set and *any* concurrent write to it aborts you, matching row or not. |
 | "I added an index on that column, so the in-tx read is fine" | Only if the filtered column **leads** that index — its own, or the first column of a composite. A column appearing only *later* in a composite is a per-row filter, not a seek, so it narrows the result and not the conflict range. The same is true of an `update_where`/`delete_where` predicate. |
