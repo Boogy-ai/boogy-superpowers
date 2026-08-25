@@ -33,6 +33,29 @@ turn a build into an interrogation. `boogy:growing-boogy-meshes` is the full
 playbook (the ask/decide tiers, the interview loop, and how to grow a mesh
 service-by-service).
 
+## The workflow — a sequence, not a menu
+
+```
+design → plan → build → check → deploy → exercise
+```
+
+| stage | skill | the gate |
+|---|---|---|
+| design | `boogy:designing-boogy-services` | approval before any code |
+| plan | `boogy:planning-boogy-work` | the manifest is Task 1 |
+| build | `boogy:scaffolding-a-service` | — |
+| check | `boogy check` | offline, in the edit loop |
+| verify | `boogy:testing-boogy-services` | two witnesses before "done" |
+
+**Invoke the skill BEFORE answering, not after.** A question about how to model
+data is a data-modelling task; answering from memory and checking later is how
+confidently-wrong syntax gets shipped.
+
+**If the superpowers plugin is also installed**, use its generic process skills
+for the process and these for the Boogy-specific gates — capabilities, ingress,
+access patterns, the wasm build, deploy-and-exercise. They compose; they do not
+compete.
+
 ## Skill catalog
 
 *Catalog grows as skills ship; current entries below.*
@@ -49,6 +72,7 @@ service-by-service).
 | `deploying-boogy-services` | deploying, updating, or removing a deployed service — CLI commands, config, deploy errors |
 | `boogy-data-modeling` | declaring tables, designing schemas, or choosing how to represent data |
 | `boogy-access-patterns` | adding a list, lookup, ranking, filter, tag, or pagination query |
+| `planning-boogy-work` | turning an approved design into an ordered, testable plan — manifest first, capabilities named per task, no placeholders |
 | `boogy-transactions` | a write that must roll back if later work fails, writing multiple rows atomically, combining writes with cross-service calls, handling 409s, or placing side effects near writes |
 | `boogy-counters` | a value that only goes up or down (views, likes, stock, quota, "last active at"), a write contending on a hot row, choosing between a counter and a rollup, or a counter read refused inside a transaction |
 | `boogy-migrations` | changing the schema of a deployed service — adding columns or indexes, or backfilling data |

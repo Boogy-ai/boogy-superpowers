@@ -10,6 +10,24 @@ keyed — are cheap to get right at design time and expensive to retrofit.
 This skill runs a short questionnaire that produces a **design artifact:
 decisions, a manifest sketch, and a data sketch. Not handler code.**
 
+## Classify first, and say which
+
+The ceremony scales with the work; the approval gate never does.
+
+- **Spike** — "can Boogy do X?" The output is an ANSWER, not code you keep.
+  Say what you will try in two sentences, get a nod, find out. No design
+  artifact. Anything you build is labelled throwaway.
+- **Bounded** — a change to a service that already exists here: one more route,
+  one more column, one capability added. Compress the questionnaire to a
+  six-line summary, present it, and **stop** until you hear yes.
+- **Architectural** — a new service, a new capability, a change to ingress mode,
+  a mesh topology change, or anything that alters the data model's access
+  patterns. Full questionnaire, written design artifact, self-review, approval.
+
+Say the classification out loud before your first question, so the person can
+overrule it. **When in doubt take the heavier path**, and the ratchet is one-way:
+complexity discovered mid-task upgrades the classification. Nothing downgrades.
+
 ## HARD GATE
 
 **No scaffolding and no code until the questionnaire is answered.** Output
@@ -240,6 +258,41 @@ digraph ingress {
    transaction envelope, outbound caps) before committing to the design.
    (For viewing your own usage/logs as the owner, see
    `boogy:boogy-observability`.)
+
+## Write the artifact down (architectural only)
+
+A bounded design can live in the conversation. An architectural one is written
+to a file before implementation starts, and it must contain:
+
+- the **capability set** — every capability the service needs, and why
+- the **ingress mode** — stated, never implied
+- the **data model** with each query's **declared access pattern**
+- the **failure modes considered**, including what happens under contention
+
+A design nobody can re-read is a design nobody can review.
+
+## Self-review before you show it
+
+Read it once with fresh eyes. Four generic checks:
+
+1. **Placeholders** — any "TBD", vague requirement, or unfinished section.
+2. **Internal consistency** — do two sections contradict each other?
+3. **Scope** — is this one buildable thing, or several wearing one name?
+4. **Ambiguity** — could a requirement be read two ways? Pick one and say so.
+
+Then four that are specific to this platform, and mechanical enough that you can
+check them by reading:
+
+- **Every capability the design uses appears in the capability set.** They are
+  deny-by-default: an omission is a runtime refusal, not a warning.
+- **Every query names a declared access pattern**, or is explicitly a scan with
+  a stated reason. An unindexed equality read is a full table scan that passes
+  every small-fixture test you will write.
+- **The ingress mode is stated**, not implied by what the routes look like.
+- **No SDK symbol is named that you cannot point to.** If you cannot say where
+  a type or verb is documented, you are guessing — and confidently-asserted
+  syntax that does not exist is the single most common defect in this domain.
+  Check it or defer to the reference skill.
 
 ## Design output is decisions, not code
 

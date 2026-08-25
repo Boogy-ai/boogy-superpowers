@@ -34,6 +34,45 @@ Findings that are genuinely fine carry a documented escape marker naming
 the reason — the finding tells you which. A marker with no reason does not
 suppress anything.
 
+## RED/GREEN, shaped for a crate that cannot host a test
+
+Ordinary TDD says: write the failing test, watch it fail, make it pass. That
+works here in exactly one place, and instructing it anywhere else wastes an hour
+before you find out why.
+
+**The service crate has no `cargo test` target.** It is a `cdylib` with generated
+bindings; a test binary does not link the generated symbols. So RED/GREEN lives
+in two places:
+
+- **Pure logic → a sibling library crate.** Ranking, parsing, validation, money
+  math, bucketing. Write the failing test, run it, watch it FAIL, implement the
+  minimum, watch it pass. This is the only layer where the normal loop works, so
+  design for it deliberately: code you want to test belongs on this side of the
+  boundary.
+- **Glue → the deployed service.** Routing, auth, store calls. The RED step is a
+  request against the deployed URL that returns the wrong thing; the GREEN step
+  is the same request after the fix. There is no other way to test glue, and a
+  request you never ran RED is a request you have not really tested.
+
+Watching a test fail first is not ritual: a test that has never failed has not
+been shown to test anything.
+
+## Before you claim it works
+
+Two independent witnesses, and a green build is not one of them:
+
+```
+boogy check && cargo build --target wasm32-wasip2 --release
+boogy deploy      # then exercise the URL it PRINTS
+```
+
+A build proves it compiles. Only a request against the deployed URL proves it
+serves. **Read the URL from the deploy output** — never reconstruct it from the
+login host or from what the platform was called in conversation.
+
+If you cannot name the request you made and what came back, you have not verified
+it; you have compiled it.
+
 ## The test pyramid for Boogy
 
 **Layer 1 — pure logic → sibling plain-Rust crate.** Ranking, scoring,
