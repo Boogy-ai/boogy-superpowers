@@ -28,6 +28,33 @@ discipline* below.
 Read this skill before you reach for `tx`; the right shape is often not "wrap
 everything."
 
+
+## A callee that REQUIRES a transaction can now check
+
+A read-modify-write — read a value, decide from it, write it back — is
+serializable only inside a transaction. Outside one, every store call is its own
+auto-commit transaction, so two racing callers both pass the same check and both
+commit. For a callee like "reserve stock", that is an oversell.
+
+A callee cannot open a transaction defensively: **a callee that calls `tx` fails
+at commit.** So refuse instead:
+
+```rust ignore-snippet: a guard fragment — the handler, its DTO and its error type are not in scope in this block
+if !in_transaction() {
+    return Err(ApiError::conflict(
+        "reserve must be called inside a caller's transaction",
+    ));
+}
+```
+
+`in_transaction()` is emitted by `wit_glue!` — no import. It reads no data and
+takes no conflict range, and returns `false` when the store capability is not
+granted.
+
+**Use it only where the contract is real.** Most callees are fine either way;
+this is for a service whose correctness genuinely depends on the caller's
+transaction, where the alternative is a silent wrong answer under contention.
+
 ## ⚖️ THE DECISION RULE — wrap writes in `tx` when an error must undo them
 
 Wrap store writes in `tx::<_, _, ApiError>(|| { … })` **whenever an error

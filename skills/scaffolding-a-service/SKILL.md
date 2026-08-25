@@ -11,6 +11,77 @@ repo's `smoke/` template and the SDK repo's `docs/quickstart.md` — follow
 the quickstart for exact, current copy; this skill only adds what agents
 get wrong.
 
+
+## `build.rs` — copy this verbatim
+
+`wit_bindgen::generate!` needs a manifest-relative literal path, so the WIT
+definitions must be present locally. `build.rs` copies them out of the pinned
+`boogy-wit` crate on every build, which is what keeps `wit/` matching the SDK
+revision in your `Cargo.lock`.
+
+```rust ignore-snippet: a build script — it runs on the host at build time, not in the guest, so it cannot compile in the wasm snippet harness
+//! Sync the WIT files from the pinned `boogy-wit` crate into `./wit` so
+//! `wit_bindgen::generate!` always sees definitions matching the SDK revision
+//! in Cargo.lock. `wit/` is generated — gitignore it, never edit it by hand.
+
+use std::fs;
+use std::path::Path;
+
+fn main() {
+    let src = boogy_wit::wit_dir();
+    let dst = Path::new(env!("CARGO_MANIFEST_DIR")).join("wit");
+    fs::create_dir_all(&dst).expect("create wit/ dir");
+    for entry in fs::read_dir(&src).expect("read boogy-wit wit dir") {
+        let path = entry.expect("dir entry").path();
+        if path.extension().is_some_and(|e| e == "wit") {
+            let name = path.file_name().expect("wit file name");
+            fs::copy(&path, dst.join(name)).expect("copy wit file");
+        }
+    }
+    println!("cargo:rerun-if-changed={}", src.display());
+}
+```
+
+It needs `boogy-wit` as a **build-dependency**, which is why the `Cargo.toml`
+above carries `[build-dependencies] boogy-wit = { git = ... }`.
+
+## Route paths INCLUDE the mount
+
+The path you register in the router is the **full external path**, mount and
+all. The host forwards the request with the mount still attached — it does not
+strip it.
+
+If `boogy.toml` says:
+
+```toml
+[routing]
+path = "/api/board"
+```
+
+then the router registers `/api/board/rooms`, **not** `/rooms`:
+
+```rust ignore-snippet: a routing shape shown against a manifest value, so the router and the model it would need are not in scope here
+Router::new()
+    .summary("List rooms")
+    .get("/api/board/rooms", list_rooms)     // CORRECT — mount included
+    // .get("/rooms", list_rooms)            // WRONG — 404s every request
+```
+
+The same frame applies to `[[ingress.routes]] path` entries: they are matched
+against the same mount-inclusive path.
+
+**A literal segment beats a `{param}` at the same position**, whichever order
+you register them in. So `GET /shop/{slug}` and `GET /shop/admin` can coexist:
+`/shop/admin` reaches the literal route, `/shop/anything-else` reaches the
+param. You do not need to restructure URLs to avoid the overlap — but do keep a
+reserved-word list for the param, so a user cannot create a record whose key is
+`admin` and then find it unreachable.
+
+**Why this gets its own section:** it is the single mistake that breaks an
+entire service at once, and it is silent — the build succeeds, the deploy
+succeeds, and every request 404s. Two independent readers of an earlier version
+of these skills reached opposite conclusions about it.
+
 ## The five files
 
 | File | Role |
@@ -97,7 +168,26 @@ ApiError, …}` on top of them is a double-import (`E0252` / "unused import"
 `use serde::…`) · `Row`, `StoreError`, `Table` · `Ctx`, `Principal`,
 `Path`, `FromRequest`, `DEFAULT_OWNER_COL`, and the
 `store`/`peer`/`secrets`/`signing`/`background_jobs`/`websockets` binding
-modules. (Note: `boogy_sdk::Query` the *request extractor* lands as
+modules.
+
+The macro also emits **free functions** you call bare — no path, no import:
+
+- store: `db_insert`, `db_get`, `db_update`, `db_delete`, `db_find_by`,
+  `db_find_by_page`, `create_model`, `upsert_increment`, `tx`, `Query`,
+  `Schema`
+- identity: `current_principal`, `current_handle`, `current_scopes`,
+  `self_identity`, `caller_is_service_owner`, and the `auth::*` guards
+  (`auth::required`, `auth::owns_resource`, `auth::load_owned`,
+  `auth::find_owned`)
+- mesh: `peer_fetch`, `peer_fetch_raw`
+- misc: `now_millis` (needs `clock`), `random_bytes(n) -> Vec<u8>` and the
+  rest of the `random_*` family (needs `entropy`)
+
+**This list is illustrative, not exhaustive** — the macro emits well over a
+hundred names. Do not treat an absence here as "needs an import". The
+falsifiable test is the compiler: `E0252` or "unused import" means it was
+already in scope, so delete the `use`; "cannot find" means you need a CRATE in
+`Cargo.toml`, not a `use`. (Note: `boogy_sdk::Query` the *request extractor* lands as
 `QueryExtractor`, so it doesn't collide with the `Query` DSL builder you
 call as `Query::on(M::TABLE)` — both are already in scope; don't import
 either.)

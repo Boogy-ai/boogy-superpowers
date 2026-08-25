@@ -129,6 +129,12 @@ ungoverned scaffold.
    inspect everything (not just one caller's rows), intervene (revoke, cancel,
    block/unblock an abuser, force a retry or refresh), and read an audit log of
    those operator mutations. Mount them under an owner-gated `/admin/*` subtree.
+   **But a single-audience service is a valid answer.** If the whole premise is
+   "only your own data", an operator surface widens what any one principal can
+   see — a real privacy cost, not a completeness box to tick. "One audience,
+   deliberately" is a complete answer. If you do add one, scope it: require an
+   explicit subject (`?owner=`), never a cross-principal dump.
+
    **Decide the audience precisely now:** the gate admits ONLY the owner's
    **agent** identity — a *workload* (any attested service, even one the owner
    also operates) must be rejected. A "caller is the owner" check that admits

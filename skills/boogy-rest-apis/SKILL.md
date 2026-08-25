@@ -10,6 +10,26 @@ from this surface — never hand-roll status codes or error bodies.
 Handler bodies read and write through the typed model layer (`db_*` +
 `Query`, see `boogy:boogy-access-patterns`), **not** raw `store::*`.
 
+
+## Small shapes people get wrong
+
+Each of these caused a real guess in a skill evaluation. They are verified
+against the SDK.
+
+| Thing | The shape |
+|---|---|
+| `req.params.parse` | **generic**: `req.params.parse::<u64>("id")?`, `::<String>("slug")?`, any `FromStr` |
+| `ApiError::unauthenticated` | takes **no argument** — `ok_or_else(ApiError::unauthenticated)` |
+| `Timestamp` / `Id` / `Decimal` | `::new(v)` to build, `.get()` to read the inner value |
+| `fetch_page`'s closure | receives **`&Row`**: `.fetch_page(\|row\| Thing::from_row(row))` |
+| `CursorPage<T>` | public fields `items` and `next_cursor`, and it derives `JsonSchema` — so `Json<CursorPage<MyDto>>` is a valid, documented response |
+| `.summary()` / `.description()` inside `.group(..)` | available on the group builder too; each annotates the NEXT route registered in that group |
+| `random_bytes` | `random_bytes(n: usize) -> Vec<u8>` — needs `[capabilities] entropy` |
+
+If a shape you need is not here and not in a skill, that is a gap worth
+reporting — **not** a licence to guess. Confidently-asserted syntax that does
+not exist is the most common failure in this domain.
+
 ## Iron Law: every request body and every response is a typed DTO
 
 **Every HTTP request body and every response is a typed

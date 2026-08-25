@@ -10,6 +10,29 @@ healthy individual services** — so the questions are: should this be
 one service or several? how do they talk? how does identity flow? and:
 does the mesh already offer what I'm about to build?
 
+
+## Reading a peer response
+
+```rust ignore-snippet: a response-handling shape — the target, the request and the caller's error type have no surrounding definitions here
+let resp = peer_fetch_raw(&target, &PeerRequest::post("/reserve").body_json(&body)?)?;
+
+if !resp.is_success() {
+    // `status` is a plain public field, so a callee's status can be mapped
+    // onto YOUR domain error instead of collapsing to one generic failure.
+    return Err(match resp.status {
+        404 => ApiError::not_found(),
+        409 => ApiError::conflict("the callee refused: out of stock"),
+        _   => ApiError::bad_gateway("upstream service failed"),
+    });
+}
+let parsed: ReserveOut = resp.json()?;
+```
+
+`peer_fetch` (without `_raw`) already returns `Err` on a non-2xx, which is the
+right default. Reach for `peer_fetch_raw` exactly when you want to map the
+callee's status onto your own — without it, a callee's 404 and its 409 become
+the same 502 to your client, which is a real loss of information for the caller.
+
 ## When to split (and when not)
 
 | Split when | Don't split for |

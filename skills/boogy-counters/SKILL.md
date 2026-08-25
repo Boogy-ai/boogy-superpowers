@@ -38,17 +38,20 @@ pub struct ClickyLink {
 pub struct ClickyLinkClicks;
 ```
 
-Reads and writes go through the store verbs, naming the cell by the handle's
-`NAME`:
+Reads and writes go through the handle. `BOOGY_COUNTERS` is the store handle
+`wit_glue!` emits into your crate — you do not import or construct it:
 
-```rust ignore-snippet: the three verbs in one place, as a reference table rather than a handler — st is the generated store module a deployed service has in scope
-st::counter_add(ClickyLinkClicks::NAME, &[st::Value::Integer(id)], 1)?;      // accumulate
-st::counter_get(ClickyLinkClicks::NAME, &[st::Value::Integer(id)], true)?;   // display
-st::counter_get(ClickyLinkClicks::NAME, &[st::Value::Integer(id)], false)?;  // decide
+```rust ignore-snippet: the three verbs in one place as a reference table rather than a handler, so id and the model have no surrounding definitions
+ClickyLinkClicks::add(&BOOGY_COUNTERS, id, 1)?;             // accumulate
+ClickyLinkClicks::get(&BOOGY_COUNTERS, id)?;                // display  (snapshot)
+ClickyLinkClicks::get_for_update(&BOOGY_COUNTERS, id)?;     // decide   (takes the conflict range)
 ```
 
-**That trailing bool is the whole subject of this skill.** `true` is a snapshot
-read; `false` takes a read-conflict range.
+The key is whatever the declaration says: for `of = Model` it is that model's
+`Id<T>`; for `key = (a, b)` it is `[Val; 2]`, one value per declared column.
+
+**`get` versus `get_for_update` is the whole subject of this skill.** `get` is a
+snapshot read that takes no read-conflict range; `get_for_update` takes one.
 
 ## The one rule
 
@@ -57,9 +60,9 @@ read; `false` takes a read-conflict range.
 ```rust ignore-snippet: the defect this skill exists to prevent — the store refuses it at runtime, so compiling it would assert the opposite of what it teaches
 tx::<_, _, ApiError>(|| {
     let key = [st::Value::Integer(id)];
-    let taken = st::counter_get(ClickyLinkClicks::NAME, &key, true)?;  // no conflict range
-    if taken < LIMIT {                                                 // a decision from it
-        st::counter_add(ClickyLinkClicks::NAME, &key, 1)?;             // REFUSED
+    let taken = ClickyLinkClicks::get(&BOOGY_COUNTERS, id)?;   // no conflict range
+    if taken < LIMIT {                                          // a decision from it
+        ClickyLinkClicks::add(&BOOGY_COUNTERS, id, 1)?;         // REFUSED
     }
     Ok(())
 })
@@ -75,9 +78,9 @@ throughout and no error anywhere.
 ```rust ignore-snippet: the corrected shape of the fence above, shown as a pair with it — the two differ by one argument and must be read side by side
 tx::<_, _, ApiError>(|| {
     let key = [st::Value::Integer(id)];
-    let taken = st::counter_get(ClickyLinkClicks::NAME, &key, false)?;  // takes the range
+    let taken = ClickyLinkClicks::get_for_update(&BOOGY_COUNTERS, id)?;  // takes the range
     if taken < LIMIT {
-        st::counter_add(ClickyLinkClicks::NAME, &key, 1)?;
+        ClickyLinkClicks::add(&BOOGY_COUNTERS, id, 1)?;
     }
     Ok(())
 })
@@ -91,9 +94,9 @@ value, and you have chosen to depend on it.
 
 | call | conflicts? | use it when |
 |---|---|---|
-| `counter_add` / `max_observe` | never | accumulating. The common case. |
-| `counter_get(.., true)` | never | **displaying** the number. Never deciding with it. |
-| `counter_get(.., false)` | yes, by design | **deciding** with the number — a limit, a gate, a branch. |
+| `add` / `observe` | never | accumulating. The common case. |
+| `get` | never | **displaying** the number. Never deciding with it. |
+| `get_for_update` | yes, by design | **deciding** with the number — a limit, a gate, a branch. |
 
 A snapshot read outside a transaction is always fine: each call is its own
 transaction, so there is nothing for it to be inconsistent with. The rule is
@@ -115,8 +118,8 @@ Three layers, and the earliest is the cheapest to act on.
 tx::<_, _, ApiError>(|| {
     let key = [st::Value::Integer(id)];
     // counter-read-display-only: echoed into the response, never branched on
-    let shown = st::counter_get(ClickyLinkClicks::NAME, &key, true)?;
-    st::counter_add(ClickyLinkClicks::NAME, &key, 1)?;
+    let shown = ClickyLinkClicks::get(&BOOGY_COUNTERS, id)?;
+    ClickyLinkClicks::add(&BOOGY_COUNTERS, id, 1)?;
     Ok(shown)
 })
 ```
@@ -165,6 +168,26 @@ Choose by asking what the number is FOR:
 | a gate — stock, a quota, a limit | **rollup**, or `get_for_update` |
 | derived from rows you are storing anyway | **rollup** |
 | counting events you do not store | **counter** |
+
+## Declaring a max accumulator
+
+Same shape as a counter, with `max` instead of `counter`:
+
+```rust
+use boogy_sdk::model::Id;
+use boogy_sdk::{Model};
+
+#[derive(Model)]
+#[model(table = "fx_busy_rooms", max(name = "last_post_at"))]
+pub struct BusyRoom {
+    #[pk] pub id: Id<BusyRoom>,
+    pub slug: String,
+}
+```
+
+There is no backing field, exactly as for a counter — the cell lives outside the
+packed row. Observe into it with `observe(..)` and read it with `get(..)`, which
+returns `Option<i64>`.
 
 ## A max accumulator only moves forward
 
