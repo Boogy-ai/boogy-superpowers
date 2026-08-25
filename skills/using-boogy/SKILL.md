@@ -50,6 +50,7 @@ service-by-service).
 | `boogy-data-modeling` | declaring tables, designing schemas, or choosing how to represent data |
 | `boogy-access-patterns` | adding a list, lookup, ranking, filter, tag, or pagination query |
 | `boogy-transactions` | a write that must roll back if later work fails, writing multiple rows atomically, combining writes with cross-service calls, handling 409s, or placing side effects near writes |
+| `boogy-counters` | a value that only goes up or down (views, likes, stock, quota, "last active at"), a write contending on a hot row, choosing between a counter and a rollup, or a counter read refused inside a transaction |
 | `boogy-migrations` | changing the schema of a deployed service — adding columns or indexes, or backfilling data |
 | `boogy-auth` | adding authorization — per-user data, ownership checks, "only my X" endpoints, API keys, or scope gating |
 | `boogy-account-auth` | wiring login/signup for a service's users, or asking where principals and tokens come from |

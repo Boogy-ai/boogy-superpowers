@@ -26,6 +26,19 @@ Get a token by signing in — MCP-first: call the `login` tool then
 `boogy login` from the CLI (saves to `~/.config/boogy/credentials.toml`).
 Most commands need a valid token; `list`/`remove` need **admin scope**.
 
+## Before you deploy — `boogy check`
+
+```bash
+boogy check          # non-zero exit on any finding
+```
+
+Lints the service source for the convention defects that only show up once
+it is live: raw schema instead of `#[derive(Model)]`, untyped responses,
+multi-write handlers with no transaction, unannotated routes, and a counter
+read at snapshot then written in the same transaction (which the store
+refuses at runtime). Cheap, offline, and it needs no host or token — run it
+before every deploy. Full detail in `boogy:testing-boogy-services`.
+
 ## Command quick reference
 
 | Command | What it does |

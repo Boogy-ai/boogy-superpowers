@@ -10,6 +10,30 @@ The wiring, the store writes, and the authorization boundary only exist
 once the service is deployed and answering real requests. Test in three
 layers and claim done only after the third.
 
+## Layer 0 — `boogy check`, before any of it
+
+```bash
+boogy check                 # scans the current directory
+boogy check path/to/service
+```
+
+A conventions lint over the service source. It catches the defects that
+otherwise surface as a runtime refusal or a silent wrong answer on a live
+request: raw table schema instead of `#[derive(Model)]`, untyped response
+bodies, multi-write handlers with no transaction, routes with no summary
+(so they document as blanks), and **a counter read at snapshot then written
+in the same transaction** — which the store refuses outright
+(`boogy:boogy-counters`).
+
+It is a lint, not a compiler: run it alongside `cargo check`, in the loop,
+not once before shipping. Exit code is non-zero when it finds anything, so
+it drops straight into a pre-commit hook or CI. Agents building through the
+builder MCP server get the same checks from its `check_service` tool.
+
+Findings that are genuinely fine carry a documented escape marker naming
+the reason — the finding tells you which. A marker with no reason does not
+suppress anything.
+
 ## The test pyramid for Boogy
 
 **Layer 1 — pure logic → sibling plain-Rust crate.** Ranking, scoring,
