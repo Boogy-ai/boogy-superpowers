@@ -88,13 +88,124 @@ So changing an index is a one-line edit to the model — no migration, no
 `create_index` call. This is safe because an index is rebuildable from the
 rows: dropping one cannot lose data.
 
-Two consequences worth internalising:
+One consequence worth internalising:
 
 - **Do not create a permanent index from a migration.** An `ix_`/`idx_`-named
   index your models do not declare is indistinguishable from one whose
   declaration you deleted, so the reconcile removes it on the next deploy.
-- **Tables and columns are NOT reconciled.** Dropping those *is* lossy, so they
-  stay behind explicit versioned migrations — see `boogy:boogy-migrations`.
+
+### Columns follow the model too, with narrower rules than indexes
+
+Columns are reconciled against your struct on every deploy, the same way
+indexes are — but a column carries data an index does not, so a change that
+could lose it needs an explicit signal from you, where an index change never
+does.
+
+| You did | What happens |
+|---|---|
+| added a field | the column is added automatically |
+| renamed a field, marked `#[renamed_from = "old"]` | the column is renamed, data intact |
+| renamed a field, **not** marked | read as a drop plus an add — the new column starts EMPTY and the old one is orphaned. Refused only if the orphan would refuse writes; otherwise it deploys with a warning and the data is silently stranded |
+| removed a field, named in `dropped("col")` | the column is soft-dropped: bytes stay, stops being required/read |
+| removed a field, **not** named | refused, unless the stored column already tolerates absence (nullable, has a default, or is a counter) |
+| re-declared a field that is currently soft-dropped | the column revives with its old data |
+| changed a field's type or nullability, or promoted a plain column to a counter | refused — always |
+
+**Adding needs nothing.** Add the field and redeploy. A required
+(non-`Option`) field with no `#[default]` gets a platform-synthesised zero
+value, so rows that predate the column still read — and if the field gets a
+**newly declared** index on the same deploy, pre-existing rows are backfilled
+into it (under that synthesised value, not a real one), rather than being
+invisible to seeks. An index that **already existed** is not rebuilt, so it
+holds no entry for those rows at all. Either way a seek on the new column
+finds no pre-existing row by any value it was actually written with, until
+something rewrites it. The one case that still fails the deploy is a required field that
+is also a `#[belongs_to(Parent)]` foreign key: no synthesised value can point
+at a real row, so declare it `Option<T>` or give it a `#[default]` naming one
+that exists.
+
+**Renaming is never inferred, and forgetting the annotation is not caught for
+you.** A diff containing a drop and an add looks identical whether you renamed
+a field or replaced it with an unrelated one, and guessing wrong either
+destroys data or silently rebinds the column to the wrong field with no way to
+see which happened — so the platform never guesses. What it does with the two
+halves is the ordinary drop and add rules, which means an unmarked rename off
+a column that tolerates absence (nullable, defaulted, or a counter) **deploys
+successfully**: the new column is added empty, the old one is logged as an
+undeclared orphan, and the values stay in a column nothing reads. Only an
+orphan that would refuse writes stops the deploy. `#[renamed_from = "old"]` on
+the new field is the only way a rename is ever expressed:
+
+```rust
+use boogy_sdk::model::Id;
+use boogy_sdk::Model;
+
+/// `title` used to be called `name`. `#[renamed_from]` carries the stored
+/// column — and its data — across to the new field name; without it, this
+/// declaration would read as `name` dropped and `title` added, and the
+/// platform refuses that combination rather than guess which you meant.
+#[derive(Model)]
+#[model(table = "docs")]
+pub struct Doc {
+    #[pk]
+    pub id: Id<Doc>,
+    #[renamed_from = "name"]
+    pub title: String,
+}
+```
+
+**Removing needs `#[model(dropped("old_name"))]` on the struct** — the field
+itself is gone, so the annotation cannot live on it:
+
+```rust
+use boogy_sdk::model::Id;
+use boogy_sdk::Model;
+
+/// `subtitle` existed on an earlier version of this table and is gone from
+/// the struct. Naming it in `dropped(...)` soft-drops the stored column:
+/// the bytes stay (re-declaring `subtitle` later would revive them), it
+/// stops being required, and it stops being read.
+#[derive(Model)]
+#[model(table = "articles", dropped("subtitle"))]
+pub struct Article {
+    #[pk]
+    pub id: Id<Article>,
+    pub title: String,
+}
+```
+
+Deleting a field without naming it in `dropped(...)` still deploys as long as
+the stored column already tolerates a missing value (nullable, has a
+default, or is a counter) — logged as a warning, because a hand-written
+migration may legitimately own a column your model never declares. If the
+stored column has none of those escape valves, the deploy is refused rather
+than shipping a table that accepts no more writes.
+
+**A column a hand-written migration created is a common way to hit the
+nullability conflict.** `MigrationCtx::add_column` creates a column nullable
+unless you give it a default. If your model then declares that same field as a
+required (non-`Option`) type, the declared shape and the stored shape genuinely
+disagree, and the deploy is refused — the field IS declared, so the
+undeclared-orphan tolerance above does not apply, and no backfill closes it —
+nothing alters a stored column's nullability in place, so writing a value into
+every row leaves the column exactly as nullable as it was. Two remedies, both
+named in the error: declare the field `Option<T>` to match the column the
+migration actually created (the smaller change, and always available), or add a
+NEW field with the shape you want, deploy, copy the values across in a
+migration, and remove the old one with `dropped("old_name")`. Deployments in
+that state used to go live and work; they now stop at the deploy. See
+`boogy:boogy-migrations` for the migration side of it.
+
+**Type changes, nullability changes, and promoting a plain column to a
+counter are always refused**, in every case — the deployment does not go
+live. In the common case whatever was running before it is restored to
+active automatically; that is a best-effort step, not something to depend
+on — it can fail, and a service's very first deploy has nothing to restore
+to, so occasionally the refused deployment is simply left on record rather
+than replaced. Either way, the bad deployment never serves. Each of these
+changes needs every existing row rewritten, which needs a backfill this pass
+does not do. Bring a new table with the shape you want, plus a migration
+that copies the data across — see `boogy:boogy-migrations`.
 
 ## 🚩 RED FLAG — raw schema is a regression, not a choice
 
@@ -291,10 +402,11 @@ Three things to know, in the order they bite:
    — so the combination cannot even be written; its value is read from its own
    cell regardless, and an absent counter already reads as `0`.
 
-Adding a default to a column of a **deployed** table is an `add_column`
-migration with the same column type and nullability; that also updates a default
-already there, and re-running it is a no-op rather than an error. See the
-`boogy-migrations` skill.
+Adding or changing a `#[default = ...]` on a column of a **deployed** table
+needs no migration — it is part of the same column reconciliation covered
+above, so editing the attribute and redeploying is enough; the store applies
+the new default in place. This is narrower than a type or nullability change,
+which the reconcile still refuses: only the default itself may move.
 
 `Id<T>`, `Timestamp`, and `Decimal` come from `boogy_sdk::model`. Build
 values with `Id::new(0)` (the placeholder PK on insert — the store
@@ -798,13 +910,14 @@ row of that table owns one — flipping the flag on a populated table would make
 every pre-existing row read as `0`. Establishing the invariant needs a
 backfill, which `add_column` is not.
 
-**Consequence: decide the counter when you create the table.** The refusal is
-loud, which is the good half — but it lands at migration time, on a model
-whose `#[model(counter(...))]` declaration was *already* live (a struct-level
-counter has no field to stop writing — `struct_counter_pushes` puts it in the
-SCHEMA, and `to_columns()` never walks it because it was never among the
-fields to begin with). So the model and the deployed table disagree until you
-resolve it; a counter is not something to retrofit.
+**Consequence: decide the counter when you create the table.** Whichever way
+you reach for the conversion, the refusal is loud rather than silent: an
+in-migration `add_column` refuses at that call with a `ConstraintViolation`,
+and declaring `#[model(counter(...))]` on a model whose table already has a
+plain column under that name is caught by the same column reconciliation
+that catches a type or nullability change — the deploy is refused before the
+new version ever goes live, not accepted and then left disagreeing with the
+deployed table. Either way, a counter is not something to retrofit.
 
 If you need to convert a live column, the supported route today is a **new
 table** with the counter declared up front, plus a migration that copies

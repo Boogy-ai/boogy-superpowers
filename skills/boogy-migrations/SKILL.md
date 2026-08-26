@@ -126,6 +126,36 @@ read null), and the old values are **not** recovered. That is usually what you
 want, and it is the only supported way to change a column's type. What you must
 not assume is that the old data comes back with the name.
 
+**A migration-created column is nullable by default, and your model must
+agree with it.** `add_column` creates a nullable column unless you write
+`.not_null()`. Columns are reconciled against your `#[derive(Model)]` struct on
+every deploy, so if that struct later declares the same field as a required
+(non-`Option`) type, the declared shape and the stored shape disagree and **the
+deploy is refused**. This is a **breaking change**: a service already deployed
+in that state kept working, and now stops at its next deploy.
+
+**A backfill is not the way out.** Nothing alters a stored column's
+nullability in place — `add_column` on a live column whose nullability differs
+fails outright, and `MigrationCtx::add_column` no-ops on a live column — so
+writing a value into every row leaves the column exactly as nullable as it was
+and the next deploy hits the identical refusal. Two remedies, and they are the
+only two:
+
+- **declare the field `Option<T>`**, matching the column the migration actually
+  created — the smaller change, and always available; or
+- **replace the column**: add a NEW field with the shape you want, deploy, copy
+  the values across in a migration, then remove the old field by naming it in
+  `#[model(dropped("old_name"))]`. This is the same sequence a type change
+  needs, for the same reason — the stored column cannot be altered, only
+  superseded.
+
+The shape the store holds is the one that has to match, not the shape you
+meant: a column added with `.default(...)` but no `.not_null()` is still
+nullable, so it pairs with `Option<T>`. The way to avoid the question entirely
+is to not write the migration — declare the field on the model and let the
+deploy-time column reconcile add it, which synthesises the default for you.
+See `boogy:boogy-data-modeling`.
+
 **A migration cannot add a counter column.** `add_column` **refuses**
 one (a `ConstraintViolation`) — a counter's value lives in a per-row sidecar
 cell that only an insert seeds, so flipping the flag on a populated table
