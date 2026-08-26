@@ -126,6 +126,36 @@ read null), and the old values are **not** recovered. That is usually what you
 want, and it is the only supported way to change a column's type. What you must
 not assume is that the old data comes back with the name.
 
+Those retained bytes are not free and are not hidden: they keep counting against
+the service's storage quota, and `GET /v1/services/{id}/schema` lists every
+dropped column with when it was dropped and an estimate of what it still costs
+(see `boogy:boogy-observability`). Check it before assuming a removal reclaimed
+anything.
+
+**To actually reclaim them, purge the column — deliberately, and knowing it is
+the one call here with no undo.**
+
+```
+DELETE /v1/services/{service_id}/schema/tables/{table}/columns/{column}
+```
+
+This clears the column's value from every row and removes it from the schema.
+Nothing else in this page destroys data; this does. After it the column cannot
+be revived, and rolling back to a version that declared it gets an **empty**
+column rather than the old values. It is never triggered by a deploy — you have
+to ask for it — and it lands in your audit trail.
+
+It is **refused with 409 while any version you could still roll back to runs
+different code from the one deployed now.** Your columns are declared in your
+service's code, not in `boogy.toml`, so the platform cannot read a past version's
+column list without running it — and it will not guess. That refusal is the point:
+reclaiming space must never be the thing that makes a rollback fail. In practice
+it means a service with deploy history behind the drop keeps paying for the bytes,
+which is the trade soft-drop makes. Two other 409s: the column is still live (only
+a dropped column can be purged), and the table is too large to rewrite in one
+transaction — unlike every other action here, this one touches every row, because
+that is where the bytes are.
+
 **A migration-created column is nullable by default, and your model must
 agree with it.** `add_column` creates a nullable column unless you write
 `.not_null()`. Columns are reconciled against your `#[derive(Model)]` struct on

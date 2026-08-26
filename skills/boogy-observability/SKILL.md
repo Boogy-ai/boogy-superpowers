@@ -41,6 +41,15 @@ takes the token in its handshake; see below).
 | `GET /v1/quota` | Storage-quota status across your services. |
 | `GET /v1/services/{id}/quota` | Storage-quota status for one service (404 if not yours / not found). |
 | `GET /v1/services/{id}/logs?limit=N` | Snapshot of that service's recent guest logs, newest-first, up to 1000 lines. |
+| `GET /v1/services/{id}/schema` | That service's tables and columns, including columns you **removed from your model**. A removed column is soft-dropped — its bytes stay so the removal is reversible, and they keep counting against your storage quota. Each one reports `dropped_at` and an `estimated_bytes` figure. To reclaim them see `boogy:boogy-migrations` — the purge is destructive and refused while a rollback could still need the column. |
+
+`estimated_bytes` is an **estimate**, and the payload says so
+(`bytes_are_estimated`, `estimate_basis`): it divides the table's sampled size
+evenly across its columns. An exact per-column figure would mean reading every
+row, so the number is right for "which drop is costing me" and wrong for
+anything that needs to balance. If a dropped column is costing more than the
+ability to undo the removal is worth, stop declaring it dropped and let it go —
+until then it is storage you are paying for.
 
 ### Examples
 
