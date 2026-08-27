@@ -132,29 +132,57 @@ dropped column with when it was dropped and an estimate of what it still costs
 (see `boogy:boogy-observability`). Check it before assuming a removal reclaimed
 anything.
 
-**To actually reclaim them, purge the column — deliberately, and knowing it is
-the one call here with no undo.**
+**You do not have to do anything to get the space back.** A dropped column is
+only reclaimable while no version you could still roll back to declares it, and
+the platform bounds how long a version stays a rollback target — a version
+stays rollback-eligible only while it is BOTH within a number of deployments
+back AND within a number of days old, so whichever of the two runs out first
+releases it. Waiting is therefore always enough: once your service's history
+ages past the day bound, a background sweeper reclaims the column's bytes on
+its own, with no call from you and no further deploys. Remove the field and
+deploy; the quota comes down by itself later. The schema view names the reason
+while you wait: each dropped column reports a `reclamation.state`
+(`retained_for_rollback`, `sweeping`, or `done`), and while retained, a real
+date it clears on (`eligible_after`, with `retained_by: "age"` naming the bound
+that arrives by itself).
+
+**Waiting is the only thing that brings that date forward.** Deploying again
+does not help and cannot: each deployment you make becomes a rollback target of
+its own, one version back and freshly inside the window, so a new deploy
+replaces the version that is holding your bytes rather than clearing it. If you
+need the space before the window is up, ask for it directly (below) — or have
+your operator shorten the retention window.
+
+If you want the space back sooner than the window allows — before a large
+backlog, or in a test — you can still ask for it directly, deliberately, and
+knowing it is the one call here with no undo:
 
 ```
 DELETE /v1/services/{service_id}/schema/tables/{table}/columns/{column}
 ```
 
 This clears the column's value from every row and removes it from the schema.
-Nothing else in this page destroys data; this does. After it the column cannot
-be revived, and rolling back to a version that declared it gets an **empty**
-column rather than the old values. It is never triggered by a deploy — you have
-to ask for it — and it lands in your audit trail.
+Nothing else in this page destroys data; this does. After it — or once the
+background sweep has reclaimed it — the column cannot be revived, and rolling
+back to a version that declared it gets an **empty** column rather than the old
+values. Neither path is ever triggered by a deploy — you ask for the manual
+one, and the automatic one only ever runs after the retention window above —
+and both land in your audit trail.
 
-It is **refused with 409 while any version you could still roll back to runs
-different code from the one deployed now.** Your columns are declared in your
-service's code, not in `boogy.toml`, so the platform cannot read a past version's
-column list without running it — and it will not guess. That refusal is the point:
-reclaiming space must never be the thing that makes a rollback fail. In practice
-it means a service with deploy history behind the drop keeps paying for the bytes,
-which is the trade soft-drop makes. Two other 409s: the column is still live (only
-a dropped column can be purged), and the table is too large to rewrite in one
-transaction — unlike every other action here, this one touches every row, because
-that is where the bytes are.
+Both are **refused with 409 while any version you could still roll back to runs
+different code from the one deployed now** (the manual call comes back with
+the 409 immediately; the background sweep just leaves the column retained and
+tries again on its own schedule). Your columns are declared in your service's
+code, not in `boogy.toml`, so the platform cannot read a past version's column
+list without running it — and it will not guess. That refusal is the point:
+reclaiming space must never be the thing that makes a rollback fail. Two other
+409s on the manual call: the column is still live (only a dropped column can be
+purged), and the table is too large to rewrite in one transaction — unlike
+every other action here, this one touches every row, because that is where the
+bytes are. **A column mid-sweep — automatic or manual — cannot be revived**
+until the sweep finishes: reviving a column whose rows are only partly
+stripped would bring back a mix of old data and nothing, which is worse than
+either.
 
 **A migration-created column is nullable by default, and your model must
 agree with it.** `add_column` creates a nullable column unless you write

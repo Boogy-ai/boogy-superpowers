@@ -108,7 +108,7 @@ does.
 | renamed a field, **not** marked | read as a drop plus an add — the new column starts EMPTY and the old one is orphaned. Refused only if the orphan would refuse writes; otherwise it deploys with a warning and the data is silently stranded |
 | removed a field, named in `dropped("col")` | the column is soft-dropped: bytes stay, stops being required/read |
 | removed a field, **not** named | refused, unless the stored column already tolerates absence (nullable, has a default, or is a counter) |
-| re-declared a field that is currently soft-dropped | the column revives with its old data |
+| re-declared a field that is currently soft-dropped | the column revives with its old data — unless the platform is mid-sweep reclaiming it (see below), which refuses instead |
 | changed a field's type or nullability, or promoted a plain column to a counter | refused — always |
 
 **Adding needs nothing.** Add the field and redeploy. A required
@@ -164,7 +164,12 @@ use boogy_sdk::Model;
 /// `subtitle` existed on an earlier version of this table and is gone from
 /// the struct. Naming it in `dropped(...)` soft-drops the stored column:
 /// the bytes stay (re-declaring `subtitle` later would revive them), it
-/// stops being required, and it stops being read.
+/// stops being required, and it stops being read. Those bytes are not
+/// permanent: once every deployment that could still be rolled back to
+/// has aged out of the platform's retention window, the space comes back
+/// on its own — no separate call needed. `GET /v1/services/{id}/schema`
+/// shows the state while you wait (`boogy:boogy-observability`), and a
+/// column can't be revived while it's actively being reclaimed.
 #[derive(Model)]
 #[model(table = "articles", dropped("subtitle"))]
 pub struct Article {
