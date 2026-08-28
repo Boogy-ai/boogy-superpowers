@@ -182,3 +182,13 @@ secrets are consumed. → `boogy:boogy-webhooks` composes `hmac-verify`
 into the canonical inbound-webhook receiver. → `boogy:boogy-signing` is the
 counterpart for *producing* a signature with a host-held private key your
 code never touches.
+
+## Red Flags
+
+| Thought | Reality |
+|---|---|
+| "I'll put the API key in the manifest for now" | The manifest is not secret storage. Bind secrets through the platform's secret surface so the value is encrypted at rest and never travels with your code. |
+| "I'll read the key and pass it to the HTTP call" | Prefer the paths where the host injects the credential at the wire edge — the guest never holds plaintext, so a guest-side bug cannot leak what it never had. |
+| "I'll log the request so I can debug the signature" | Secret values never appear in audit rows by design; do not reintroduce them through your own logs. Log the key NAME and the outcome, never the material. |
+| "Rotating means redeploying" | Rotation is a bind against the running service. If your design requires a redeploy to rotate, it will not be rotated. |
+| "The secret is only in memory, that's fine" | It is fine *until* it is in an error message, a panic payload, or a trace. Treat every value you can format as a value you will eventually print. |

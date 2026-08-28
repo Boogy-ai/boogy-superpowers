@@ -116,9 +116,47 @@ fn enqueue(p: &impl Serialize, user_id: u64, run_at: u64)
 
 `jobs_enqueue` / `jobs_cancel` / `jobs_status` are emitted by `wit_glue!`.
 You cannot enqueue for another service — call it via `peer` and let it
-enqueue its own. `EnqueueError`: `QueueFull`, `InvalidHandler` (not
-declared), `InvalidSpec`, `BackendUnavailable` (also = capability not
-granted).
+enqueue its own.
+
+### Map `EnqueueError` — do NOT propagate it as one error
+
+**`QueueFull` is not a failure. It is backpressure, and it is the only
+variant your caller can act on.** The others mean your service is
+misconfigured.
+
+| variant | whose problem | surface it as |
+|---|---|---|
+| `QueueFull` | the **caller's** — this tenant is at its job depth cap | **429** with a retry hint |
+| `InvalidHandler` | **yours** — the manifest doesn't declare the handler | 500 |
+| `InvalidSpec` | **yours** — payload too large, bad max-attempts | 500 |
+| `BackendUnavailable` | **yours** — `background_jobs` capability not granted | 500 |
+
+```rust
+use boogy_sdk::jobs::{EnqueueError, JobSpec};
+
+fn stage_notification() -> Result<String, ApiError> {
+    let spec = JobSpec { handler: "notify".into(), ..Default::default() };
+    let job_id = jobs_enqueue(spec).map_err(|e| match e {
+        // Designed backpressure. A 500 here tells the client the service is
+        // broken while it behaves exactly as specified, and buries a capacity
+        // signal under a fault signal — the caller cannot retry a 500, and an
+        // operator watching 5xx sees a defect where there is a busy tenant.
+        EnqueueError::QueueFull(d) => ApiError::rate_limited(
+            format!("job queue at capacity ({} of {}); retry shortly", d.depth, d.cap),
+            1,
+        ),
+        other => ApiError::internal(format!("enqueue: {other}")),
+    })?;
+    Ok(job_id)
+}
+```
+
+**The `?` on a bare `jobs_enqueue(...)` is the bug.** It collapses all four
+variants into whatever your error type does by default, which is almost
+always a 500. Under sustained load a tenant hitting its depth cap then sees
+a stream of "internal error" for a condition the platform is deliberately
+signalling — and you lose the one metric that would tell you the queue,
+not the code, is the constraint.
 
 ## Inside a transaction
 
@@ -128,6 +166,24 @@ atomically with your writes — the durable way to make a side effect
 follow a commit. `cancel`/`status` are denied in-tx (the job isn't
 persisted yet; use the returned `job_id` after commit). See
 `boogy:boogy-transactions`.
+
+**It costs the request that pays for it — budget for it.** A staged enqueue
+performs a queue-depth check inside the transaction's window, and the
+platform relays the job to the queue in the same request once the commit
+succeeds. Measured on a small CRUD write: **p50 6 ms → 16 ms, p99 13 ms →
+31 ms** for one staged job — roughly +10 ms at the median, and it scales
+with the number of jobs one request stages.
+
+That is the price of the guarantee (the job exists if and only if the write
+committed) and it is usually worth paying. But it means:
+
+- **Don't stage a job on a hot read path.** Stage it on the write that
+  needs it.
+- **Don't stage several where one will do.** Enqueue one job that fans out,
+  rather than N jobs in one transaction.
+- **It lengthens the transaction window**, so a row already under write
+  contention gets more contended. If you are seeing conflict retries on a
+  hot row, staging a job on that path makes them worse.
 
 ## At-least-once — the Iron Law
 

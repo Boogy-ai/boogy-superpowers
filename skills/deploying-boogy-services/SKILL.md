@@ -190,3 +190,14 @@ app-plane credential:
   (real requests against the running service).
 - **Iron Law cross-ref:** a green build is not "done"; only a deployed,
   exercised service is.
+
+## Red Flags
+
+| Thought | Reality |
+|---|---|
+| "I re-ran provision, so it's running my new code" | Provisioning is **idempotent**: re-running against an existing service returns 409 and the host keeps serving the module it was FIRST provisioned with. The log reads like a successful no-op while every request executes old code. |
+| "I published a new version, so the service moved to it" | Publishing does not move a service onto a new module. Publish and provision are separate steps, and only the second changes what runs. |
+| "The deploy log said OK" | Check that it says *upgraded*, not *existing*. That one word is the difference between measuring your change and measuring the previous build — it has invalidated a real performance conclusion. |
+| "The container restarted, so it has my binary" | Recreating a container reuses the existing image. Without a rebuild you are running the old binary with new configuration — which looks like your change had no effect. |
+| "My schema change will apply on the next request" | A service's declared schema is resolved **once, at provision**. A type change, a nullability change, or promoting a plain column to an accumulator is a **conflict** that refuses the deployment outright. |
+| "I'll test against prod config later" | A default that differs between your stack and production is a measurement you cannot transfer. Pin the values the result depends on and state them. |

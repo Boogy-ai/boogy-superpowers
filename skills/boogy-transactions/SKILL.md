@@ -708,3 +708,17 @@ row: `upsert_increment`, not read-modify-write). Evolving schema:
 `boogy:boogy-migrations` (separate `MigrationCtx::tx` surface; ships this
 release). Handler-side job details: `boogy:boogy-background-jobs` (next
 release).
+
+## Red Flags
+
+These thoughts mean STOP — each one precedes a mistake this platform actually produces.
+
+| Thought | Reality |
+|---|---|
+| "I'll pass the transaction handle into the helper" | `tx(\|\| ...)` takes a **no-arg** closure. Store calls inside auto-join the ambient transaction. A handle parameter means you have invented a second mechanism. |
+| "The service I'm calling should open its own transaction too" | Callees must NOT call `tx`. One transaction spans the whole call tree; a nested `tx` in a callee is a bug, not defence in depth. |
+| "I'll call the payment API inside the transaction so it's atomic" | `outbound_http` is **denied** while a transaction is open. The body is re-runnable on retry, so it may hold no irreversible external effect. Enqueue a job inside the tx and make the call from the job. |
+| "I'll sign the receipt inside the transaction" | Every `signing` **write** is denied in-tx for the same reason — a signature can neither be rolled back nor deferred to commit. `list-keys` is the only exempt op. |
+| "A 409 means my code is wrong" | A commit conflict means the store was contended. It is retryable — but there is **no auto-retry** at the platform edge, so the client retries the whole request. A 409 that survives repeated retries is a real constraint violation. |
+| "One participant failed, I'll catch it and commit the rest" | Any participant failure **poisons** the transaction. Commit will refuse; rollback is the only outcome. Catching the error does not un-poison it. |
+| "Retrying inside the closure is cheaper than failing the request" | The closure is re-run by the retry loop. A retry inside a retry multiplies your own demand against the transaction-admission budget and turns contention into 503s. |

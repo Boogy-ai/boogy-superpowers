@@ -524,3 +524,14 @@ API.
 pattern verbs these queries consume). **REQUIRED BACKGROUND for any list
 endpoint.** → `boogy:boogy-rest-apis` (handlers that call `db_*`/`Query`).
 → `boogy:boogy-migrations` to add an access pattern to a deployed service.
+
+## Red Flags
+
+| Thought | Reality |
+|---|---|
+| "It's a small table, a scan is fine" | Tables grow. A full scan accumulates **every scanned row into host memory before filters apply** — the row cap is the only thing between one unindexed query and the host's RSS. Size the access pattern, not today's row count. |
+| "The scan guardrail will protect me" | The guardrail warns; it is not the bound. What actually stops a large scan is the per-request wall-clock budget, which returns 504 — a *duration* bound, and duration is contention-dependent. Do not design against it. |
+| "The query returned three rows, so it was cheap" | Rows returned is not work done. A filtered scan can examine tens of thousands of keys to return three; the keys-examined figure is the one that reflects cost. |
+| "I'll add the index later when it's slow" | An unindexed keyset query is a **build failure**, not a runtime warning. Later is not a state this platform offers. |
+| "I'll sort in the handler after fetching" | Fetching to sort is the scan you were avoiding. Declare the access pattern so the ordering is served from a covering composite. |
+| "I'll paginate with an offset" | Deep offsets re-walk everything skipped. Keyset pagination costs the same on page 500 as page 1; the page request's limit is clamped precisely so an unbounded listing has no representation. |

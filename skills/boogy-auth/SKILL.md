@@ -419,6 +419,76 @@ Invoke `api_keys_glue!(bindings)` next to `wit_glue!`, then:
 | Format | `sk_<env>_<…>_<crc>`. |
 | Requires `clock` + `entropy` | Key generation and expiry checks use the raw wall clock and secure random source, not the gated `runtime::now-millis`/`random-bytes` wrapper — grant both in `[capabilities]` or every issued key comes from the same deterministic (denied) stream and expiry math never advances. |
 
+## Assembling it: per-user data, end to end
+
+Every piece above is documented separately; this is the order they go in. The
+running example is the canonical shape — a service where each signed-in account
+has its own todo lists and can never see anyone else's.
+
+**1. Declare the owner column on the model, and an order over it.**
+`DEFAULT_OWNER_COL` for the name, and a `list_by` leading with it — without that
+order there is nothing for a cursor to resume from, and `find_owned` will serve
+one page, issue no cursor, and error if the set does not fit.
+
+**2. Stamp the owner from the token, never the body.** This is the whole
+security boundary. A caller who can put `owner_principal` in a request body owns
+every row they care to name.
+
+```rust
+use boogy_sdk::model::{Id, Model, Timestamp};
+
+#[derive(Model)]
+#[model(table = "todos", list_by(filter = "owner_principal", newest = "created_at"))]
+pub struct Todo {
+    #[pk] pub id: Id<Todo>,
+    /// The owning principal. `DEFAULT_OWNER_COL` is this name.
+    pub owner_principal: String,
+    pub title: String,
+    pub done: bool,
+    pub created_at: Timestamp,
+}
+
+#[derive(serde::Deserialize, garde::Validate)]
+struct CreateTodo {
+    #[garde(length(min = 1, max = 200))]
+    title: String,
+}
+
+fn create_todo(req: &mut Req<'_>) -> Result<Created<Id<Todo>>, ApiError> {
+    let owner = auth::current_principal().ok_or_else(ApiError::unauthenticated)?;
+    let input: CreateTodo = validate_body(req.body())?;
+    let todo = Todo {
+        id: Id::new(0),
+        // From the TOKEN. Never `input.owner`, which does not exist and must not.
+        owner_principal: owner,
+        title: input.title,
+        done: false,
+        created_at: Timestamp::new(now_millis() as i64),
+    };
+    db_insert(&todo)?;
+    Ok(Created(todo.id))
+}
+```
+
+**3. Gate collection routes with `auth::required()`** — "must be signed in to
+write" — and item routes with `auth::owns_resource(table, DEFAULT_OWNER_COL,
+"id")`, which loads the row, 404s on missing OR not-yours, and stashes it.
+
+**4. List with `auth::find_owned::<Todo>(DEFAULT_OWNER_COL, &page)`.** Not a
+`Query` filtered on the owner column by hand — the helper is what guarantees the
+scope cannot be forgotten, and its page is bounded by construction.
+
+**5. Read the stashed row in the handler.** The guard already loaded and
+ownership-checked it; re-fetching is both slower and a second place for the
+check to be wrong.
+
+**Two layers, and they are not the same thing.** The platform gives the *deploy
+owner* an isolated store — nothing here is about that. Inside that one store,
+many end-user principals share the same tables, and every route above is what
+keeps one account out of another's rows. Getting the platform layer right buys
+you nothing at the application layer; see `boogy:boogy-account-auth` for where
+those principals come from.
+
 ## Red flags
 
 | Thought | Reality |

@@ -270,3 +270,12 @@ covers principals, which is what you key per-subject signing labels on.
 transactions, the on-chain rules (one gate per send/sign path, total-outflow +
 fee bounds, denom-aware caps, per-chain signature self-verify, adversarial RPC
 values, nonce serialization) build on this skill.
+
+## Red Flags
+
+| Thought | Reality |
+|---|---|
+| "I'll sign inside the transaction so it's atomic with the write" | Every `signing` **write** is denied while a transaction is open. A signature can neither be rolled back nor deferred to commit, and the body consumes its return value. Sign after commit, or from a job staged inside the tx. |
+| "Signing failed — the job will retry and succeed" | Distinguish transient from permanent. A failure that can never succeed, reported as if it were transient, spends the job's finite retry budget on an operation with no path to success. |
+| "I'll pre-check that the key exists, then sign" | A pre-check cannot close its own race — the key can vanish between the check and the use. Let the operation's own constraint be what holds, and handle its refusal. |
+| "The key material should live with the service that uses it" | Keys are held by the platform and used by reference. If your design has the guest holding key material, it has moved the blast radius into the sandbox. |
