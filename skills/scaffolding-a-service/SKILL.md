@@ -77,6 +77,15 @@ param. You do not need to restructure URLs to avoid the overlap — but do keep 
 reserved-word list for the param, so a user cannot create a record whose key is
 `admin` and then find it unreachable.
 
+**One helper does not follow this rule for you.**
+`with_api_key_routes()` registers the **literal** `/_keys`, correct only when
+the manifest declares `path = "/"`. Anywhere else use
+`with_api_key_routes_at("<your mount>/_keys")`. It is worth knowing here rather
+than only in `boogy:boogy-auth`, because the failure lands on an author who has
+already applied the mount rule correctly everywhere else — so their own routes
+all work, and the one broken subtree is the last place they look. `boogy check`
+flags it as `unmounted-key-routes`.
+
 **Why this gets its own section:** it is the single mistake that breaks an
 entire service at once, and it is silent — the build succeeds, the deploy
 succeeds, and every request 404s. Two independent readers of an earlier version
@@ -376,6 +385,7 @@ cargo build --target wasm32-wasip2 --release
 | Editing `wit/` | It's regenerated every build; bump the pinned rev instead |
 | `service-with-jobs` without `handle_job` | Impl `job_handler::Guest` (stub is fine) or it won't compile |
 | Hand-writing a `cols` module / `Table::new(...)` / `create_table_from` | `#[derive(Model)]` + `create_model::<M>()` — the derive emits the column consts and schema |
+| `with_api_key_routes()` on a service mounted anywhere but `/` | `with_api_key_routes_at("<mount>/_keys")` — the bare form registers the literal `/_keys` and all four endpoints 404. `boogy check`: `unmounted-key-routes` |
 | Un-annotated routes / no `Router::info` | Set `Router::info(...)` and `.summary()`+`.description()` on every route (feeds `openapi.json`) |
 | Handler takes/returns `Json<json::Value>` or a `Deserialize`-only request struct | Typed `#[derive(…, schemars::JsonSchema)]` DTO in and out (`Json<T>`/`Created<T>`). The CI gate FAILS untyped I/O; untyped shapes have no schema in `openapi.json`. See `boogy:boogy-rest-apis`. |
 | Manifest has only `id` + `name` | Add a plain-words `description`, a few distinct `keywords`, and a precise `category` so the registry can index it |

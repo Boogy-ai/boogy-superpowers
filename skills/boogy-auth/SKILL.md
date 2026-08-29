@@ -405,10 +405,44 @@ Cursor/limit/ordering mechanics: `boogy:boogy-access-patterns`.
 
 Invoke `api_keys_glue!(bindings)` next to `wit_glue!`, then:
 1. `api_key_routes::install_table()` in `schema`.
-2. Mount management routes via the `ApiKeyRoutes` ext trait:
-   `Router::new().with_api_key_routes()` (`/_keys`) or
-   `.with_api_key_routes_at("/admin/keys")`.
+2. Mount management routes via the `ApiKeyRoutes` ext trait —
+   **`with_api_key_routes_at("<your mount>/_keys")`**, spelling the mount out.
 3. Gate your routes: `.group([api_key_routes::guard], |g| ...)`.
+
+### 🚩 The bare `with_api_key_routes()` ignores your mount
+
+`with_api_key_routes()` registers the **literal** `/_keys`. Every other route
+you write carries the mount (`/board/rooms`, not `/rooms` — see
+`boogy:scaffolding-a-service`), because the host forwards the request with the
+manifest's `[routing] path` still attached and never strips it. This one helper
+is the place that rule is broken *for* you.
+
+So on any service not declaring `path = "/"`, all four key endpoints answer
+nothing:
+
+```toml
+# boogy.toml
+[routing]
+path = "/board"
+```
+
+```rust ignore-snippet: a router shape shown against a manifest value, so the guard and handlers it would need are not in scope here
+Router::new()
+    .with_api_key_routes_at("/board/_keys")   // CORRECT — mount included
+    // .with_api_key_routes()                 // WRONG — registers /_keys, 404s
+    .group([api_key_routes::guard], |g| g.get("/board/rooms", list_rooms))
+```
+
+**Why this earns a callout of its own:** it is silent in every direction. The
+crate compiles, the deploy succeeds, and every other route on the service works
+— so the 404 reads as a platform fault rather than a path you registered in the
+wrong place. And because your own routes are all correct, this is the last file
+you will re-read. On an `authenticated` service the consequence is total: the
+only way to mint a credential is behind a URL that does not exist, so nobody —
+including you — can call the service at all.
+
+`boogy check` flags it (`unmounted-key-routes`); `// root-mounted: <reason>`
+suppresses it for a genuine `path = "/"` service.
 
 | Fact | Detail |
 |---|---|

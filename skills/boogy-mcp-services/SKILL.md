@@ -37,6 +37,33 @@ fn build_router() -> Router {
 `.handle(req.request)` does the handshake, `tools/list`, `tools/call`,
 resources, prompts, and all envelope/error mapping.
 
+### Gate it with the same guard as the REST routes
+
+An MCP mount usually exposes the **same data** the REST routes do, so it
+belongs behind the same guard. `.mcp(..)` is available inside a `.group(..)`
+block for exactly this:
+
+```rust ignore-snippet: a router shape — the guard and tool handlers it composes are defined by the service, not here
+Router::new()
+    .group([api_key_routes::guard], |g| g
+        .get("/tasks", list_tasks)
+        .mcp("/mcp", |req| {
+            McpServer::new("tasks", env!("CARGO_PKG_VERSION"))
+                .tool_typed(tool("create_task").description("Create a task."), create_task_tool)
+                .handle(req.request)
+        }))
+```
+
+**Do not "fix" a compile error here by moving `.mcp(..)` out of the group.**
+That is the shape the mistake takes: the line compiles again, the deploy
+succeeds, the REST routes stay guarded — and the MCP endpoint, serving the same
+data, is now open to any caller the ingress admits. Nothing reports the
+downgrade. If the mount must live outside a group for some other reason, each
+tool handler has to do its own `auth::current_principal()` check and mean it.
+
+MCP handlers see no `Req` or `Ctx`, so a guard is the only thing that can
+reject a caller *before* a tool body runs.
+
 `tool("name").description("…")` annotates a tool the same way REST routes
 and RPC methods now take `.summary()` / `.description()` (see
 `boogy:boogy-api-specs`) — annotate them all so clients and agents can
@@ -127,3 +154,4 @@ fully exercise through a live client. See `boogy:testing-boogy-services`.
 | "Return `Err` so the model sees the failure." | `Err` is a protocol error. For a model-visible failure return `Ok(ToolResult::error(...))` (`isError: true`). |
 | "I'll write the inputSchema/outputSchema by hand." | `tool_typed` derives both from the arg/result struct `JsonSchema` impls — they can't drift. |
 | "I mount MCP with `.post(\"/mcp\", mcp_dispatch)`." | Use `Router::mcp(\"/mcp\", handler)` — it also records the endpoint in the generated `openapi.json`. |
+| "`.mcp()` won't compile inside my `.group()`, so I'll move it out." | Moving it out **removes the guard** — silently, on an endpoint serving the same data as the routes you just gated. `.mcp()` and `.rpc()` exist on the group's `RouteSet` too; keep it inside. |

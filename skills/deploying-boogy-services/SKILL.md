@@ -106,6 +106,47 @@ that the page renders or the endpoint behaves. Before you claim it works:
 Report what you actually observed (the rendered content / the response), not "the
 deploy succeeded".
 
+### When the URL does not answer, read the response before touching your code
+
+A deploy prints a URL; it does not prove one is being served. `boogy deploy`
+now probes what it printed and warns when the platform did not answer — but
+when you are diagnosing by hand, **what answered matters more than the status
+code**, and the status code alone will send you the wrong way.
+
+Every platform response carries `x-boogy-deployment-id`. Use its presence, not
+the status, to decide whether the request reached your service at all:
+
+```bash
+curl -sS -D- -o /dev/null https://<handle>.boogy.app/<service>/health
+```
+
+| What you see | What it means | Where the fix is |
+|---|---|---|
+| Any status **with** `x-boogy-deployment-id` — including 401/403 | The request reached your service. An `authenticated` route refusing your control-plane token is a **success** for this question | Your service / your credential |
+| 404 (or anything) **without** that header | Something other than the platform answered — the edge has no route for this hostname | **Operator-side. Not your code.** |
+| `SSL: no alternative certificate subject name matches target hostname`, or a certificate issued to something other than your domain | No certificate for this host yet | **Operator-side. Not your code.** |
+| Connection refused / DNS failure | The host does not resolve or route | **Operator-side. Not your code.** |
+
+**Why this table exists.** A 404 from the edge's default backend is
+byte-identical to the 404 a mis-mounted router produces — and a mis-mounted
+router is the failure these skills warn about most loudly, so the evidence
+actively steers you into re-reading routing code that is already correct. Two
+independent checks settle it in seconds:
+
+```bash
+boogy list                                  # is the service provisioned and un-suspended?
+curl -H "Authorization: Bearer $BOOGY_TOKEN" \
+  https://api.boogy.ai/v1/services/<service-id>/logs
+```
+
+**Zero log lines, ever, is the decisive signal**: the guest has never executed,
+so nothing inside it — not the router, not a handler, not a capability — can be
+responsible. Stop debugging the service and report the URL as unreachable.
+
+A newly registered handle is the common case: tenant routing is subdomain-only,
+and a brand-new subdomain may not have an edge route or a certificate yet. That
+is a platform-side step, and no amount of redeploying will change it.
+
 ### A clean retry can mean the platform reverted you, not that it's live
 
 If a version fails to start (it traps or errors on its very first real request), Boogy
@@ -166,6 +207,7 @@ boogy provision <module-ref> <service-id>
 | **`cpu_deadline_ms` out of range** | Keep it in `1..=600000`. |
 | **Missing token** ("set --token or BOOGY_TOKEN") | Export `BOOGY_TOKEN` or pass `--token`. |
 | **wasm not found** | `service.wasm` resolves relative to the manifest; build first and point at the real output path. |
+| **`413 Payload Too Large`, as raw HTML with no Boogy in it** | Not the artifact cap — that is 8 MiB free / 32 MiB paid and the platform states it in its own error format. An HTML 413 comes from a proxy in front of the platform, so the number it enforces is not one the docs describe. Report it rather than shrinking your binary to fit a limit that does not exist. |
 
 ## Calling your own deployed service (control-plane/app-plane boundary)
 
@@ -197,6 +239,7 @@ app-plane credential:
 |---|---|
 | "I re-ran provision, so it's running my new code" | Provisioning is **idempotent**: re-running against an existing service returns 409 and the host keeps serving the module it was FIRST provisioned with. The log reads like a successful no-op while every request executes old code. |
 | "I published a new version, so the service moved to it" | Publishing does not move a service onto a new module. Publish and provision are separate steps, and only the second changes what runs. |
+| "The URL printed, so the URL works" | Printing is not checking. A brand-new tenant subdomain can have no edge route and no certificate while the control plane reports the service perfectly healthy. Read the response headers, not just the status. |
 | "The deploy log said OK" | Check that it says *upgraded*, not *existing*. That one word is the difference between measuring your change and measuring the previous build — it has invalidated a real performance conclusion. |
 | "The container restarted, so it has my binary" | Recreating a container reuses the existing image. Without a rebuild you are running the old binary with new configuration — which looks like your change had no effect. |
 | "My schema change will apply on the next request" | A service's declared schema is resolved **once, at provision**. A type change, a nullability change, or promoting a plain column to an accumulator is a **conflict** that refuses the deployment outright. |
