@@ -87,6 +87,9 @@ compiled component depends on it structurally.)
 | Outbound request body | 1 MiB | `[outbound] max_request_bytes` |
 | Outbound response body | 10 MiB | `[outbound] max_response_bytes` |
 | Outbound timeout | 30000 ms max / 10000 ms default | `[outbound] max_timeout_ms` / `default_timeout_ms` |
+| File per-object ceiling | 5 GiB platform max | `[[files.collections]] max_bytes` sets a lower one |
+| File collections per service | 32 | `[[files.collections]]` blocks |
+| Inline file read/write | a few MiB | `files_put_bytes` / `files_read_bytes`; above it, `TooLarge` |
 | Deployed wasm artifact | 8 MiB free / 32 MiB hard max | uncompressed `.wasm`; >8 MiB needs a paid plan, >32 MiB rejected for all |
 
 Inside an open transaction, `outbound_http` and `background_jobs` are
@@ -165,7 +168,8 @@ platform cap), or move the work into a background job and let the client poll.
 
 | Thought | Reality |
 |---------|---------|
-| "The blob column type exists, so it's fine for files." | Blob columns are for small binary values. Files blow the 32 MiB memory default and ~5s/10MB tx envelope — use presigned upload to object storage. |
+| "The blob column type exists, so it's fine for files." | Blob columns are for small binary values. A file blows the per-request memory cap and the transaction envelope. Declare a `[[files.collections]]` block and mint an upload ticket — the client sends the bytes to the platform and your service never carries them. See `boogy:boogy-file-storage`. |
+| "I'll accept the upload in a handler and write it somewhere." | A service instance is fresh per request under a memory cap, so it cannot hold a user-sized file. `files_create_upload` returns a ticket the client uploads to directly; no request that reads a file runs your code at all. |
 | "I'll just guess the outbound API shape / secret-header semantics." | Verify every `outbound_http` and `[secrets]` signature against the SDK source/docs; never ship an unverified call. |
 | "I'll add a WebSocket upgrade handler." | The handler stays request/response — you don't upgrade it. Real-time push is the `websockets` capability (declare channels + publish to them); see `boogy:boogy-websockets`. |
 | "It's just a demo, store the file in a column." | Same ceilings apply in a demo. Presigned upload + a metadata row is the fastest path that actually works. |

@@ -942,6 +942,24 @@ opaque user-facing ids use an `IdCodec` at the API edge or a TEXT
 item route on that id needs. Not `#[unique]`: the derive rejects it, and
 before it did it enforced nothing.
 
+**Bytes are not a column.** An image, a PDF, a video, an uploaded document
+or a generated export does not belong in a table — a service instance is
+fresh per request under a memory cap, so it cannot hold a user-sized file,
+and a large value fights the transaction envelope. Declare a file
+collection instead and store a **reference** on the row:
+
+```rust ignore-snippet: a model shape shown against a manifest collection, so the collection and its access class are not in scope here
+#[derive(Model)]
+struct Profile {
+    id: String,
+    avatar: Option<FileRef>,   // stores (collection, key) — never a URL
+}
+```
+
+`FileRef` exists because the reliable mistake is storing a generated URL,
+which expires. Store the reference; mint the URL when you render. See
+`boogy:boogy-file-storage`.
+
 **JSON-blob anti-pattern.** "One `data` table with a JSON text column"
 looks flexible, but the store has no JSON type and no JSON-path operator:
 the blob is opaque text, so every query over a field inside it is a

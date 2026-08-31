@@ -201,6 +201,19 @@ fn create_widget(req: &mut Req<'_>) -> Result<NoContent, ApiError> {
 
 Without `logging = true`, the macros are inert and nothing is captured.
 
+## Your file storage
+
+`GET /v1/services/{service_id}/files` reports per-collection file counts and
+bytes for one of your services, with **stored** and **reserved** kept apart.
+
+Reserved bytes are held by uploads that were started and never completed. They
+count against your quota and serve nothing — so a bill that looks too high is
+often reserved bytes, not files you can find. The platform expires them on its
+own; deleting a file releases its bytes immediately.
+
+Files bill the **storage**, **egress** and **requests** dimensions you already
+have. There is no separate files dimension, and a file read costs no compute.
+
 ## Red flags
 
 | Thought | Reality |

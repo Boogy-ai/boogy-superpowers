@@ -81,6 +81,7 @@ compete.
 | `boogy-obo-delegation` | one service must act on a user's behalf when calling another service — delegation config, principal-vs-actor authorization |
 | `boogy-mesh-architecture` | composing multiple services, deciding whether to split a service, or passing identity/data between services |
 | `boogy-registry-and-provisioning` | needing functionality that might already exist in the mesh, publishing a module, or deciding whether to run your own instance of one |
+| `boogy-file-storage` | a service stores or serves files — user uploads, avatars, images, documents, PDFs, video, generated exports — or asking where to put data too large for a table row |
 | `boogy-secrets` | a service needs an API key or credential for an external call, host-side HMAC signature verification, or asking how secrets work |
 | `boogy-signing` | a service must produce a cryptographic signature — signing keys, per-user or wallet keys, blockchain transactions, signed receipts or attestations — with a private key the host holds and your code never touches |
 | `boogy-blockchain-transactions` | a service constructs, signs, or broadcasts on-chain transactions — a custodial wallet, on-chain payments/payouts, a swap or bridge relayer, or any EVM/Cosmos/Solana/Bitcoin signer that moves funds (fund-safety: one gate per sign path, total-outflow + fee bounds, denom-aware caps, signature self-verify, adversarial RPC, nonce serialization) |

@@ -150,7 +150,10 @@ ungoverned scaffold.
    services), `outbound_http` (external HTTPS), `background_jobs`,
    `signing` (produce signatures with a key the host holds and your code
    never touches — see `boogy:boogy-signing`), `websockets` (push
-   real-time messages to clients — see `boogy:boogy-websockets`).
+   real-time messages to clients — see `boogy:boogy-websockets`),
+   `files` (store and serve uploads, images, documents, generated exports —
+   the bytes never pass through your service; see
+   `boogy:boogy-file-storage`).
    Each one you grant is attack surface — justify it. (Vector/semantic
    search is not yet available — see `boogy:boogy-capability-limits`.)
 

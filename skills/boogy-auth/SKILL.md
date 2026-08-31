@@ -523,6 +523,17 @@ keeps one account out of another's rows. Getting the platform layer right buys
 you nothing at the application layer; see `boogy:boogy-account-auth` for where
 those principals come from.
 
+## Per-user FILES
+
+Per-user *files* need no authorization code at all. Declare the collection
+`access = "principal"` and the platform compares the requester's principal to
+the file's owner **before your service is consulted** — a file read never runs
+your code, so an ownership check you wrote there would never execute.
+
+Listing is forced to the caller on such a collection: you cannot accidentally
+list across users, and an unauthenticated caller gets an empty page rather than
+everyone's files. See `boogy:boogy-file-storage`.
+
 ## Red flags
 
 | Thought | Reality |

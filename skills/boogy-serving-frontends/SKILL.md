@@ -495,6 +495,19 @@ The transpiled `.ts` → `.js` output is **minified by default** (compacted at d
 set `[frontend] minify = false` to ship readable JS while debugging. Minification is
 compaction only — your vendored `.js` is served verbatim.
 
+## Frontend assets vs user files
+
+Both are served by the platform, and they are not interchangeable:
+
+| | `[frontend]` | `[[files.collections]]` |
+|---|---|---|
+| What | your app's own build output | content your USERS upload or you generate |
+| When it changes | at deploy | at runtime |
+| Versioned with the deployment | yes — a rollback restores it | no — deletion is permanent |
+
+A user avatar is not a frontend asset: shipping it through the frontend
+bundle would mean redeploying to add one. See `boogy:boogy-file-storage`.
+
 ## Red flags
 
 | Reach / claim | Reality |

@@ -474,6 +474,21 @@ tx::<_, _, ApiError>(|| {
 See `boogy:boogy-transactions` for the full decision rule on when a
 handler needs `tx`.
 
+## Endpoints that accept a FILE
+
+A handler never receives file bytes. The endpoint returns an upload
+**ticket**; the client sends the bytes to the URL in it, and the platform
+serves them back without invoking your service.
+
+```rust ignore-snippet: an endpoint shape shown against a manifest collection, so the collection and its DTOs are not in scope here
+// POST /api/avatars -> { url, method, key }
+let t = files_create_upload("avatars", Upload::new().size_hint(body.size))?;
+```
+
+If you find yourself parsing a multipart body or buffering an upload in a
+handler, that design does not work here — a service instance is fresh per
+request under a memory cap. See `boogy:boogy-file-storage`.
+
 ## Red flags
 
 | Thought | Reality |

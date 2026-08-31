@@ -19,9 +19,9 @@ on error — decides the design, not a write count.
 
 **But do NOT reflexively wrap a handler in `tx`.** A `tx` guards **store writes
 only**. An *irreversible* side effect — an `outbound_http` call, a payment, an
-email, **producing a signature** — can **never** go inside a `tx`: the host
-**denies** it, because a sent HTTP request or a released signature cannot be
-rolled back when the tx aborts. Those use a different pattern (a **staged job
+email, **producing a signature**, **writing or deleting a file** — can **never**
+go inside a `tx`: the host **denies** it, because a sent HTTP request, a
+released signature or a stored object cannot be rolled back when the tx aborts. Those use a different pattern (a **staged job
 enqueued inside the tx**, the call **after** the tx commits, or — for signing —
 **before** the tx opens) — see *The side-effect decision* and *Sequencing
 discipline* below.
@@ -361,6 +361,10 @@ not need to see stays outside it.
    parent read left outside can be stale by the time you write.
 5. **External calls (`outbound_http`) AFTER** `tx?` returns `Ok` — or
    better, enqueue an in-tx job to make them both atomic and durable.
+6. **File writes** (`files_put_bytes`, `files_delete`) AFTER the tx too —
+   both return `DeniedInTransaction` inside one. Minting an upload ticket
+   (`files_create_upload`) IS allowed in a tx: it writes a row and hands back a
+   URL, and moves no bytes.
 
 ## The side-effect decision
 
