@@ -398,15 +398,40 @@ pub struct Post {
 ```
 
 So there is no `.order(Post::vote_score.desc())` page and no "top N by score"
-index read. Two sanctioned ways to get a ranked view anyway:
+index read **off a counter column**.
+
+### Rank by the AGGREGATE instead — this is usually the answer
+
+If the score is a total over child rows (votes, line items, reactions), do not
+denormalise it at all. Order by the aggregate directly:
+
+```rust ignore-snippet: a query fragment — the models, the relation and the handler's error type are not in scope in this block
+// A room's topics, best first. The query names the PARENT table, orders by a
+// total its CHILDREN carry, and gets parent rows back.
+let rows = Query::on(Topic::TABLE)
+    .filter(Topic::room_id.eq(room_id))
+    .order(agg::sum(TopicVote::DIRECTION).desc())
+    .limit(limit)
+    .fetch_all()?;
+```
+
+Nothing there says "join", "rollup" or "projection" — the relation is declared
+once on the model, and `.order(...)` is the same verb a column sort uses.
+`agg::sum(col)`, `agg::count_all()` and friends have `.asc()` / `.desc()`
+**inherently**, so an aggregate ordering needs no import that a column ordering
+does not.
+
+### The fallbacks, for when the score is not an aggregate
 
 | Approach | When |
 |---|---|
 | Scope to a **bounded sub-range** (a declared verb that *is* indexed — e.g. newest 500 in a room) and sort those in memory | the ranking is over a slice you can bound |
-| **Materialize** the counter into a separate plain column refreshed by a background job, and index *that* | you need a global ranked feed |
+| **Materialize** the counter into a separate plain column refreshed by a background job, and index *that* | the score is a bare counter with no child rows behind it |
 
 The second is a deliberate staleness-for-scalability trade: the ranked column
-lags the live counter by the job interval. Say so in the endpoint's docs.
+lags the live counter by the job interval. Say so in the endpoint's docs — and
+reach for it only after ruling out the aggregate ordering above, which has no
+staleness at all.
 
 ### 🚩 Never branch on a counter you read, then write
 
@@ -511,7 +536,7 @@ API.
 - "I'll reach for `store::find` / `FindOptions`" → that's the escape hatch. Use `db_find_by` / `Query` and a declared access pattern.
 - "I'll hand-write the index name" → the derive names it (`ix_<table>_<cols>`); the `name` you declared is discarded. Reference data by **columns** via `db_find_by` / the Query DSL — never by a hardcoded index name. A literal name passed to `for_each_batch`/`open_cursor` drifts from the canonical one and the cursor returns NotFound at runtime.
 - "Offset pagination is fine" → not for deep pages. `fetch_page` (keyset).
-- "I'll `ranked_by` my counter column" → compile error; a counter can't back an index. Bounded sub-range sorted in memory, or materialize into a plain column via a job.
+- "I'll `ranked_by` my counter column" → compile error; a counter can't back an index. If the score totals CHILD rows, order by the aggregate (order by `agg::sum(...)` over the child column) — no denormalisation and no staleness. Only if it is a bare counter: bounded sub-range sorted in memory, or materialize into a plain column via a job.
 - "I read the counter inside the tx, so the check is safe" → counter reads take no conflict range. The value may be stale, and because a concurrent increment doesn't conflict, the automatic retry never fires to re-read it. Use a `delete_where`/`update_where` predicate.
 - "The read inside my `tx` only touches a few rows" → only if a filter is on a column that LEADS an index, and only over the sub-range that seek covered — an equality matching most of the table is index-served and still conflicts with nearly every writer. If nothing seeked, the whole table is in the transaction's read set.
 - "I'll batch-hydrate by id inside the `tx` with `is_in`" → `_id` leads no index, so that scans. Use `get_many` (point gets by id), in a `tx` or out.

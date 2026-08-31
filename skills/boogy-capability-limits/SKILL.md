@@ -24,12 +24,15 @@ a keyset-paginated short-poll endpoint is still a fine, cheaper option.
 logs and more — to you as the owner; see `boogy:boogy-observability`.
 That's an owner-side surface, distinct from the service push channel.)
 
-**Large files / blobs.** There is no file-storage capability. The `blob`
-column type is for *small binary values*, not files — it does not change
-the per-request memory, body, or transaction ceilings. *What to do
-instead:* the presigned-URL pattern — keep only metadata rows in the
-store; bytes go client → external object storage directly; serve playback
-via a presigned-GET redirect.
+**Large files / blobs — SUPPORTED, via the `files` capability.** The `blob`
+column type is still for *small binary values*, not files: it does not
+change the per-request memory, body, or transaction ceilings, and a
+user-sized file will not fit through them. *What to do instead:* declare
+`[capabilities] files` and a `[[files.collections]]` block, then mint an
+upload ticket — the client sends the bytes to a platform route and the
+platform serves them back, with **your service never carrying them**. Do
+not hand-roll a presigned-URL flow against an external bucket; that is
+what this capability replaces. See `boogy:boogy-file-storage`.
 
 **Long-running synchronous work.** A request that exceeds its wall-clock
 budget is killed. *What to do instead:* enqueue a background job

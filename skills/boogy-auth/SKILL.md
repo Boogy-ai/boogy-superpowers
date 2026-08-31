@@ -81,6 +81,16 @@ different, mutually-unlinkable masks.
 | `internal` | **no** — workload-only |
 | `mixed` | **no** — tries internal then allowlist; neither admits a pairwise |
 
+**File routes are the one exception to this table.** A request that
+resolves to a declared `[[files.collections]]` block is judged by the
+**collection's** `access` class, not the service's ingress mode — so a
+`public` collection serves anonymously even on an `authenticated`
+service, which is what makes "authenticated APIs, public avatars"
+expressible. Only the mode is bypassed: rate limiting and every other
+ingress concern still apply, an *undeclared* collection gets no
+exemption, and a mesh-`internal` service keeps its boundary regardless.
+See `boogy:boogy-file-storage`.
+
 An owner's own `allowlist`-gated or `private` surface will reject the owner's
 SSO session — after SSO they arrive as a pairwise, which cannot match an
 `allowlist` entry. Use `BOOGY_FIRSTPARTY_WORKLOADS` (global identity) or an
