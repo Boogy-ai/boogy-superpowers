@@ -171,6 +171,31 @@ A mismatch means your new version never actually started. Retrying again will no
 find out why the first real request failed (a panicking migration, a missing granted
 capability, etc.), fix it, and redeploy.
 
+## What redeploying does to the previous version
+
+A redeploy supersedes the previous deployment; it does not discard it. The old
+version stays published and stays a **rollback target** for as long as the
+platform's rollback retention window holds it (both bounds at once: a version
+distance *and* an age).
+
+While it is retained, `DELETE /v1/modules/{name}/{version}` refuses with
+`409 module_version_in_use` and names its blockers with a `reason`:
+
+| `reason` | Meaning | Remedy |
+|---|---|---|
+| `active` | a service is serving this version right now | upgrade or delete that service |
+| `retained` | superseded, but still a rollback target | it is released automatically once it leaves the window; `?force=true` gives up rolling back to it |
+
+Once a version leaves the window it is reclaimed for you — the deployment
+history is pruned and the module version and its wasm are collected. **You do
+not have to clean up after a redeploy.** `GET /v1/modules` reports
+`reclaimable` per version, computed from the same predicate the delete uses, so
+you can see what a delete would accept without attempting it.
+
+`?force=true` is the "gone now" escape. It only ever drops `retained`
+blockers — an `active` deployment refuses it, because deleting a version a
+service is serving would strand a running service.
+
 ## Updating a deployed service
 
 `boogy deploy` is keyed by **`owner.user_id` + `service.id`** — not by

@@ -21,6 +21,29 @@ while the service is still deployed (e.g. an export endpoint or job using
 "We can always recover it later" is false — there is no recovery path
 once the route is gone.
 
+## Old versions clean themselves up
+
+Every redeploy leaves the previous module version published and serving as a
+rollback target. That is deliberate and bounded: once the version leaves the
+platform's rollback retention window, its deployment history is pruned, the
+module version is deleted and its wasm is reclaimed — automatically.
+
+Two consequences worth knowing:
+
+* **You do not need to delete old versions to reclaim space.** Deleting one
+  *while* it is still a rollback target is refused (`409`, with a `reason` of
+  `active` or `retained`), and deleting one after it has aged out is
+  unnecessary.
+* **Reclamation is irreversible and takes the archived manifest with it.** A
+  pruned deployment row carried the full manifest of that deploy, which is a
+  recovery path if a wasm blob ever goes missing. The ACTIVE deployment is
+  never pruned, so what is running is always recoverable.
+
+If you need a version gone before the window expires, `DELETE
+/v1/modules/{name}/{version}?force=true` gives up rollback to it. It cannot
+remove a version a service is actively serving.
+
+
 ## Retirement sequence
 
 1. **Find the callers first.** Identify every service that calls this
