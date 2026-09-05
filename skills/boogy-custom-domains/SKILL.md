@@ -24,6 +24,18 @@ service are scoped to that domain.
 A domain is globally unique on the platform: once a domain reaches
 `verified` status it cannot be re-registered until removed.
 
+**A custom domain serves at the origin root**, so the served index's injected
+`<base href>` is `/` rather than a service mount. For a framework-built frontend
+that removes the base-path question entirely: a build whose asset references are
+root-absolute (`/assets/…`, `fetch("/api/…")`) resolves correctly here, because
+the mount *is* the root.
+
+It is not the only way to deploy such a build — a relative base
+(Vite's `base: './'`) works at any mount on the tenant subdomain too, and an
+author may also mount a service at `/`. A custom domain is the production
+answer for a real app, not a workaround for a path problem. See
+`boogy:boogy-serving-frontends`.
+
 ## Register a custom domain
 
 ```bash
@@ -152,3 +164,5 @@ renewal for `verified` domains.
 - → `boogy:boogy-account-auth` — if using SSO ("Sign in with Boogy"),
   note that the custom domain is a distinct browser origin and you will
   need to configure it as an allowed redirect origin.
+- → `boogy:boogy-serving-frontends` — how a framework-built frontend's base
+  path interacts with the mount, on a custom domain and off it.
