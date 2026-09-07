@@ -94,12 +94,28 @@ A non-error deploy means the artifact published and routing was swapped — **no
 that the page renders or the endpoint behaves. Before you claim it works:
 
 1. **Frontend / full-stack:** run `boogy deploy boogy.toml --smoke` (loads the real
-   deployed URL in a headless browser and asserts it renders). **A skipped smoke is
-   NOT a pass.** If the output says `Smoke: skipped — no headless browser found`,
-   you have verified nothing — install or point at a browser
-   (`BOOGY_SMOKE_BROWSER=/path/to/chrome`, or any Chrome/Chromium on `PATH`) and
-   re-run, or load the printed URL in a real browser yourself and confirm the
-   content renders. Only then is it verified. (See `boogy:boogy-serving-frontends`.)
+   deployed URL in a headless browser and asserts it renders). Three ways it can
+   look like a pass without being one:
+   - **`Smoke: skipped — no headless browser found`** — you have verified nothing.
+     Install a browser or point at one with `BOOGY_SMOKE_BROWSER=/path/to/browser`,
+     then re-run.
+   - **A browser that launches but cannot talk CDP.** Being on `PATH` is not
+     enough — some builds start, serve their debug endpoint, and still never
+     complete the debugging handshake. The smoke has no way to tell that apart
+     from a slow page: it stalls until its own deadline and then reports a bare
+     timeout. **If a smoke times out with no console errors and no failed
+     requests, suspect the browser before the page** — re-run with
+     `BOOGY_SMOKE_BROWSER` pointed at a different one (a Chromium build is a good
+     control) and see whether the result changes.
+   - **The wrong selector.** `--smoke-selector` defaults to `#app,#root,#__next`
+     and passes if any one of them renders non-empty. A selector that matches
+     nothing **fails** — it does not silently fall back to `<body>` — so if your
+     app mounts elsewhere, pass your own.
+
+   Add `--smoke-path /some/nested/route` to check a deep or prerendered route;
+   the mount root is the one URL whose relative assets resolve no matter what, so
+   it proves the least. Or load the printed URL in a real browser yourself.
+   Only then is it verified. (See `boogy:boogy-serving-frontends`.)
 2. **Public API route:** `curl` the printed URL and check the status + body.
 3. `boogy list` confirms the deployment row, but a row is not a working page.
 

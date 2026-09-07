@@ -62,7 +62,7 @@ store = true
 root = "web"          # your source dir: index.html + .ts/.js/.css/assets
 api_prefix = "/api"   # FullStack: requests under <mount>/api go to the wasm. omit it for a Frontend site.
 index = "index.html"  # the SPA entry document (served for unmatched routes). default: index.html
-build = "ts"          # "ts" = the platform transpiles your TypeScript. "none" = you uploaded plain JS.
+build = "source"          # "ts" = the platform transpiles your TypeScript. "none" = you uploaded plain JS.
 private = false       # false (default) = assets are public. true = assets require the service ingress.
 allow_cdn = false     # false = bare imports must be vendored. true = a bare import may resolve to a pinned CDN.
 ```
@@ -85,7 +85,7 @@ mode = "public"
 
 [frontend]
 root = "web"
-build = "ts"
+build = "source"
 ```
 
 Only `[service]` (id/name/version), `[routing]`, `[ingress]`, and `[frontend]` are
@@ -94,10 +94,10 @@ needed for a Frontend; a **FullStack** app adds a `wasm` and an `api_prefix`.
 ## Write TypeScript or JavaScript — there is no build step
 
 Write your frontend in **TypeScript** (or plain JavaScript). You do **not** install
-Node, run `vite`/`esbuild`, or produce a bundle. With `build = "ts"`, the platform
+Node, run `vite`/`esbuild`, or produce a bundle. With `build = "source"`, the platform
 strips the types and emits browser-ready ES modules **at deploy time**; what gets
 served is the JavaScript. Your authoring loop is: write `.ts`/`.js`, deploy. (If you
-already have built JS and don't want the transpile, set `build = "none"`.)
+already have built JS and don't want the transpile, set `build = "dist"`.)
 
 **Imports use native ES modules + an import map.** A bare specifier like
 `@arrow-js/core` resolves either to a copy you include under `web/vendor/` (the
@@ -240,12 +240,25 @@ caution for other `.`-prefixed property bindings until the framework stabilizes.
 ### Asset paths at nested routes — the host injects `<base href>` for you
 
 Your service is served under a mount (`/<service>/…` on your tenant origin
-`<handle>.<base>`), not the host root. **The host injects
-`<base href="<mount>/">` as the first element inside `<head>` of the served
-`index` document** — so every relative `<script src>`, `<link href>`,
-`<img src>`, relative import, and relative `fetch` resolves against the mount
-**at any SPA-route depth**. On a custom domain the service serves at root and
-the injected base is `/` (see `boogy:boogy-custom-domains`).
+`<handle>.<base>`), not the host root. **The host injects a `<base href>` as the
+first element inside `<head>` of every HTML document it serves** — so every
+relative `<script src>`, `<link href>`, `<img src>`, relative import, and
+relative `fetch` resolves correctly **at any SPA-route depth**.
+
+The injected value is the mount joined with **that document's own directory in
+your bundle** — which is exactly where the deploy gate resolved the document's
+relative references from, so the two always agree:
+
+| Document served | Injected base |
+|---|---|
+| `index.html` (the usual SPA shell) | `<mount>/` |
+| `about.html` (flat prerendered form) | `<mount>/` |
+| `about/index.html` (nested prerendered form) | `<mount>/about/` |
+| a nested `[frontend].index`, e.g. `app/index.html` | `<mount>/app/` |
+
+For the common case — a shell at the bundle root — that is simply `<mount>/`. On
+a custom domain the service serves at root, so the mount is `/` (see
+`boogy:boogy-custom-domains`).
 
 That's what makes the SPA fallback safe: a hard refresh or shared deep link at
 `/<mount>/p/42` gets the `index` document back, and its `./app.js` still
@@ -334,7 +347,8 @@ not a footnote — ship it unless the user explicitly wants a private/internal t
   the page's title/description/OG tags + core copy in the served `index` HTML so
   the document is meaningful before JS runs; hydrate from there.
 - **Fast first paint** helps ranking and AI fetches: small critical assets,
-  no blocking work before content. (Assets revalidate via ETag — see caching.)
+  no blocking work before content. (Content-addressed assets cache immutably;
+  others revalidate via ETag — see caching.)
 
 ### Per-route metadata: prerender the routes
 
@@ -351,7 +365,7 @@ dot** is read as a file request and 404s without ever being probed as a route.
 So `blog/node.js-tips/index.html` is stored but not reachable at
 `/<mount>/blog/node.js-tips`. Keep dots out of prerendered route segments.
 
-Prerendered documents revalidate (`no-cache`) exactly like the shell, so a
+Prerendered documents revalidate (`no-cache` + `ETag`) exactly like the shell, so a
 redeploy reaches returning browsers immediately, and a `<base href>` is injected
 into each one. That base is the mount joined with the **document's own directory
 in the bundle** — `/about/index.html` served at `/<mount>/about` gets
@@ -376,10 +390,64 @@ For a **FullStack** app: a request under `api_prefix` (`/api/...`) runs your was
 against your asset files by exact path; a miss with no file extension serves a
 prerendered document for that path (`<path>/index.html`, then `<path>.html`) if
 the bundle holds one, otherwise `index` so your client-side router takes over
-(SPA fallback); a miss **with** an extension is a 404. Assets are served with
-`no-cache` and revalidated via their `ETag` — a conditional GET returns 304 when
-nothing changed — so a redeploy reaches returning browsers immediately.
-Documents (`index.html` and prerendered routes) are served `no-cache` too. The page and the API are
+(SPA fallback); a miss **with** an extension is a 404.
+
+Caching depends on whether the asset's URL encodes its content:
+
+| Served path | Cache policy | Why |
+|---|---|---|
+| content-addressed (`site.<hash>.css`) | `immutable`, one year | the URL cannot outlive its bytes, so a returning visitor fetches it **zero** times |
+| a stable authored path (`site.css`) | `no-cache` + `ETag` | a redeploy reuses the path, so it must revalidate; the conditional GET returns 304 when nothing changed |
+| documents — `index.html` and prerendered routes | `no-cache` + `ETag` | a document URL is a route, so it must always resolve to the current deployment |
+
+`build` answers one question: **who produced what is in `root`?**
+
+- **`build = "source"`** (the default) — `root` holds source, and the platform
+  builds it: strips TypeScript, bundles the relative module graph, generates the
+  import map, content-addresses the files it emits and rewrites the references
+  to them.
+- **`build = "dist"`** — `root` holds your build tool's output, served as-is.
+  Its filenames are never rewritten.
+
+The distinction that matters is provenance, not language: the platform may
+rewrite what IT produced and must not touch what arrived already built, because
+a pre-built file can reference others in ways nothing here can see —
+`import("./chunk.js")`, `new URL("./w.js", import.meta.url)`, CSS `url()`. Get
+this wrong and the failure is a renamed file whose reference still points at the
+old name: a 404 at runtime on a lazily-loaded route, not a deploy error.
+
+**So if you ship a framework build — a Vite/Astro/SvelteKit `dist/` — set
+`build = "dist"`.** The default assumes source.
+
+(`ts` and `none` are the historical spellings and still parse. They named a
+transpiler step rather than the question above, and `none` was always a misnomer
+since the platform does plenty with such a bundle.)
+
+Both modes reach the immutable row, by different routes, and neither is
+something you configure:
+
+- **`build = "source"`** — the platform content-addresses your `.css` and `.js`
+  (`site.<hash>.css`) and rewrites the references to match.
+- **`build = "dist"`** — your build tool's filenames are left exactly as they
+  are, because renaming them would mean rewriting references the platform
+  cannot see (`import()`, `new URL(…, import.meta.url)`, CSS `url()`), and a
+  missed one is a 404 at runtime. Instead the served document's `<base href>`
+  points into a per-deployment path, so every relative reference resolves under
+  a URL that encodes the deployment. Your asset URLs therefore change on each
+  deploy — that is what makes caching them for a year safe.
+
+You will see that second form in the served HTML as a `_a/<hash>/` segment after
+your mount. It is not something to write, link to, or configure: the platform
+injects it and strips it, both spellings of a URL work, and an API client
+addressing `<mount>/<api_prefix>/…` directly never needs to know it exists.
+
+A content-addressed URL keeps serving its bytes for a few deployments after the
+bundle that produced it stops being active, so a page loaded just before a
+redeploy can still fetch the subresources it was told to. That window is a small
+number of deployments, not forever — a client far enough behind gets a 404 and
+recovers on reload.
+
+The page and the API are
 **same-origin** (`<handle>.<base>/<service>/…`), so the page calls its API with relative
 URLs and there's no CORS.
 
@@ -405,7 +473,7 @@ under it (`<mount>/…`), and set `api_prefix` to the API sub-path.
 ### Framework-built frontends (Vite, Astro, SvelteKit, Nuxt) → build with a RELATIVE base
 
 A pre-built framework bundle is a perfectly good `[frontend].root`: point it at
-the build output (`dist/`, `out/`, `build/`) and set `build = "none"` so the
+the build output (`dist/`, `out/`, `build/`) and set `build = "dist"` so the
 platform serves the files verbatim instead of transpiling them. Combined with a
 Rust API under `api_prefix`, a FullStack deployment gives you the whole
 page-plus-API shape in one deploy — same origin, no CORS, the app cookie riding
@@ -416,8 +484,8 @@ what asset paths the build writes into your HTML.
 
 **Set it to relative.** In Vite that is `base: './'`; other build tools have the
 equivalent. The build then emits `./assets/index-abc123.js`, which resolves
-against the `<base href="<mount>/">` the host injects — correct at the mount
-root, correct at a deep SPA route, and correct on a custom domain.
+against the `<base href>` the host injects — correct at the mount root, at a
+deep SPA route, from a nested prerendered document, and on a custom domain.
 
 | The build emits | What happens |
 |---|---|
@@ -599,8 +667,8 @@ bundle would mean redeploying to add one. See `boogy:boogy-file-storage`.
 | Reach / claim | Reality |
 |---|---|
 | Serve the page from a wasm handler (`include_str!` + return HTML bytes) | Don't. Declare `[frontend]`; the host serves your assets decoupled from the wasm. |
-| "I'll run `vite`/`esbuild`/a Node build first" | Not for a hand-authored frontend — write `.ts`/`.js` and the platform transpiles + bundles at deploy. (Shipping a **pre-built framework bundle** is a separate, supported case: `build = "none"` and serve the output verbatim.) |
-| "TypeScript can't run in the browser, so I'll write plain JS" | Write TS — `build = "ts"` transpiles it server-side. (Plain JS works too.) |
+| "I'll run `vite`/`esbuild`/a Node build first" | Not for a hand-authored frontend — write `.ts`/`.js` and the platform transpiles + bundles at deploy. (Shipping a **pre-built framework bundle** is a separate, supported case: `build = "dist"` and serve the output verbatim.) |
+| "TypeScript can't run in the browser, so I'll write plain JS" | Write TS — `build = "source"` transpiles it server-side. (Plain JS works too.) |
 | Embed assets in the wasm binary | Assets live in object storage, served by the host — not in your wasm (no artifact-size hit). |
 | `import "@arrow-js/core"` will just work from anywhere | Bare imports resolve via the import map — vendor the file under `web/vendor/` or set `allow_cdn = true`. |
 | Use a root-absolute asset path (`src="/app.js"`) because "the base tag handles it" | `<base>` only affects **relative** URLs. A root-absolute path goes to the host root, off-mount → 404 — and the deploy gate resolves it to a bundle key that exists, so it **passes the gate and breaks in the browser**. Write `./app.js`. |
