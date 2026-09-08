@@ -96,6 +96,7 @@ compete.
 | `boogy-performance-and-scaling` | a service is throttled or slow under load — 429/503/504, Retry-After, or "make this endpoint faster" |
 | `boogy-observability` | viewing your own service usage, billing, raw events, a single request trace, audit tail, storage quota, or guest logs — via /v1 REST, MCP tools, or the live log stream — or adding guest logging to a service |
 | `boogy-websockets` | a service pushes real-time messages to end-user clients — declaring public/private/principal channels, publishing with the websockets capability, minting subscription grants, or wiring a browser/socket.io client |
+| `boogy-llm-gateway` | a service needs to call an LLM — completions, tool use, model routing with fallback, bringing your own provider key, or streaming generated tokens to end users |
 | `boogy-service-lifecycle` | retiring, deprecating, replacing, or removing a deployed service — especially when other services call it, or its data matters |
 
 No matching skill? Say so explicitly and work from the SDK reference
