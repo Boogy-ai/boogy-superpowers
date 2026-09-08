@@ -88,8 +88,11 @@ Two scopes are tried, in order:
 
 1. **Yours** — a secret bound under `(your-owner, "llm-gateway")`. Your spend,
    your rate limits, your provider account.
-2. **The platform's** — used only if you have no binding **and** the provider
-   is configured to allow it.
+2. **The platform's** — used only if you have no binding, **and** the provider
+   is configured to allow it, **and** the operator has configured a platform
+   account to hold that key. Treat it as absent unless your operator tells you
+   otherwise: it is off by default, so a service with no binding of its own
+   should expect an error rather than a quiet fallback.
 
 Your service never sees either key. It references a secret by name; the key is
 injected at the wire edge outside your wasm. See `boogy-secrets` for binding
@@ -169,9 +172,10 @@ Only a *successful* attempt is billed, so a retry never double-charges you.
 
 ## Streaming tokens to users
 
-`stream: true` is **not supported** and returns 400. Instead, ask the gateway
-to publish deltas to one of your service's websocket channels while the
-request runs:
+From a **service**, `stream: true` returns 400 — a service reaches the gateway
+over `peer`, where the response is buffered and an SSE body would arrive as one
+blob at the end. Ask the gateway to publish deltas to one of your service's
+websocket channels instead, so tokens reach the user as they are generated:
 
 ```json
 {
@@ -245,7 +249,11 @@ larger frames instead of vanishing.
 
 ## Limits
 
-- `stream: true` on the HTTP response: not supported (400).
+- `stream: true` from a service: returns 400. Use `stream_to` — a service
+  reaches the gateway over `peer`, where an SSE response cannot arrive
+  incrementally. (An SSE response IS available over the authenticated HTTP
+  edge, where each `data:` line is an OpenAI `chat.completion.chunk`; that is
+  for direct API callers, not for services.)
 - The gateway is `internal` ingress — reach it over `peer`, not from a browser.
 - Aliases, providers, costs, and retry policy are operator-configured; a
   service selects an alias but cannot change its routing.
