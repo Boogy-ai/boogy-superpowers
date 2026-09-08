@@ -95,6 +95,43 @@ Your service never sees either key. It references a secret by name; the key is
 injected at the wire edge outside your wasm. See `boogy-secrets` for binding
 one.
 
+### BYO needs a service named `llm-gateway`
+
+This trips people up, so it is worth stating plainly. The egress binding —
+which host the gateway may call on your behalf, and which secrets it may use —
+is read from **your deployed manifest for a service whose id is
+`llm-gateway`**. If you have not deployed one, a BYO call fails with
+`auth` / `"unknown secret"`, which does not mention the missing deployment.
+
+Deploy a service with that id, carrying just the binding:
+
+```toml
+[service]
+id = "llm-gateway"
+name = "My LLM gateway binding"
+version = "0.1.0"
+
+[outbound]
+allowed_hosts = ["api.openai.com"]
+
+[secrets]
+"provider:openai" = { usage = ["outbound-header"] }
+```
+
+Then bind the key under `(your-owner, "llm-gateway")` with the name
+`provider:<provider-id>`.
+
+### Your binding caps the per-attempt timeout
+
+A model alias configures `per_attempt_timeout_ms`, but that value is **clamped
+by `max_timeout_ms` in your `llm-gateway` binding's `[outbound]` section**,
+which defaults to **30 s**. A model asking for 60 s gets 30 s, silently as far
+as the request is concerned. Raise the binding's `max_timeout_ms` if you need
+long completions; the model-level number cannot lift the ceiling on its own.
+
+Operators can see this happening: `boogy_egress_timeout_clamped_total{workload}`
+increments whenever a requested timeout is cut.
+
 ## Errors
 
 Every failure is `{"error": {"type": "<kind>", "message": "..."}}`. The `type`
