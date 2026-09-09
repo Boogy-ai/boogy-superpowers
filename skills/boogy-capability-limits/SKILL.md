@@ -11,13 +11,28 @@ alternative up front beats deriving it from scratch — and beats faking it.
 
 ## Honest gap list
 
-**Real-time push — via the capability, not a handler upgrade.** Your HTTP
-handler is strict request → one response; you do **not** write a
-WebSocket-upgrade or SSE handler in your service code. But real-time
-server→client delivery **is** supported: declare channels in the manifest
-and publish to them with the `websockets` capability — the platform's
-streaming gateway fans messages out to subscribed clients (public,
-private-grant, or per-principal channels). See `boogy:boogy-websockets`.
+**Real-time push — via the capability, not a handler upgrade.** You do
+**not** write a WebSocket-upgrade or SSE handler in your service code, and
+your handler always returns exactly one response and returns it
+*immediately*. What that response may do is name a stream the platform
+then relays on your behalf — the host owns the connection, never your
+guest. Two shapes, and they are for different audiences:
+
+- **Many subscribers, ongoing** — declare channels in the manifest and
+  publish to them with the `websockets` capability; the platform's
+  streaming gateway fans messages out (public, private-grant, or
+  per-principal channels). See `boogy:boogy-websockets`.
+- **One caller, this request** — a *request-scoped* stream: your handler
+  starts the work (typically a background job), returns immediately, and
+  the platform streams frames to that caller as SSE. No channel to
+  declare, no grant to mint — the reader is the connection that made the
+  request.
+
+**The rule that catches people: validate in the handler, not in the job.**
+Once your handler returns a streaming response the request is accepted and
+the status code is spent, so a later failure can only be an error *frame*.
+Bad input, auth failures and unknown resources must be rejected while the
+handler is still running.
 For simple cases a notifications table keyed `(recipient, created_at)` +
 a keyset-paginated short-poll endpoint is still a fine, cheaper option.
 (Separately, the platform streams *your own* observability data — guest

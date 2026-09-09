@@ -90,6 +90,22 @@ Principal channels cap `replay` at **16**.
 
 ## 2. Publish (service handlers)
 
+> **Streaming one caller's response? A declared channel is the wrong tool.**
+> Channels are for many subscribers over time. To stream the answer to *this*
+> request, use a request-scoped stream instead: your handler starts the work and
+> returns immediately, and the platform relays frames to that caller as SSE —
+> no channel to declare, no grant to mint. See `boogy-capability-limits`.
+
+> **Streaming LLM tokens? Do not publish them yourself.**
+> Pass `stream_to` on your `/v1/complete` call and the gateway publishes each
+> delta to your channel as it arrives from the provider, coalesced into frames.
+>
+> The obvious alternative is not equivalent: calling the gateway normally and
+> publishing the answer afterwards **does not stream at all**, because the
+> response is buffered — your user waits the full generation and then sees the
+> whole reply appear at once. Nothing errors; it just is not streaming. Chunking
+> that buffered string yourself only fakes it. See `boogy-llm-gateway`.
+
 `wit_glue!` emits the functions unqualified:
 
 ```rust
