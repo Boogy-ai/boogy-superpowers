@@ -28,6 +28,14 @@ guest. Two shapes, and they are for different audiences:
   declare, no grant to mint — the reader is the connection that made the
   request.
 
+**Reconnects re-run your handler.** A browser's `EventSource` reconnects by
+itself when a connection drops, which re-issues the request — so your
+handler runs again and starts the work again. Have the client send a
+stable key and pass it as your job's `idempotency_key`, and the reconnect
+rejoins the same job instead of paying for it twice. (The reconnecting
+request still gets a fresh stream and will not replay what it missed;
+today it is cheap to reconnect, not useful.)
+
 **The rule that catches people: validate in the handler, not in the job.**
 Once your handler returns a streaming response the request is accepted and
 the status code is spent, so a later failure can only be an error *frame*.
