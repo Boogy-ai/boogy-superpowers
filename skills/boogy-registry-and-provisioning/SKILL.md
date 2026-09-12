@@ -46,8 +46,8 @@ fn search_mesh() -> Result<(), ApiError> {
 LLM clients get MCP tools at `POST /v1/registry/mcp`: `search_modules`,
 `describe_module`, `list_module_versions`.
 
-> `boogy list` is the **operator fallback** — it hits an admin-only
-> endpoint and needs admin scope. It is NOT how a developer or a service
+> `boogy list` shows only YOUR deployments (`boogy list --all`, every
+> owner's, needs admin scope). Neither is how a developer or a service
 > discovers the mesh. Use the registry.
 
 ## Provision vs consume
@@ -188,7 +188,7 @@ it runs with.
 
 | Thought | Reality |
 |---|---|
-| "Only admins can discover services." | False — the registry (`/v1/registry/*`) is authenticated, not admin-gated. `boogy list` is just the operator fallback. |
+| "Only admins can discover services." | False — the registry (`/v1/registry/*`) is authenticated, not admin-gated. `boogy list` shows your own deployments; `--all` is the operator view. |
 | "Provision a copy of everything by default." | Consume shared singletons for stateless utilities; provision only when isolation, data locality, or upgrade control demands it. |
 | "I'll just build the thumbnailer." | Search the registry first. Building is fine if nothing fits — but check. |
 | "I'm sure the manifest field is X." | Verify mode names/defaults; don't assert config you haven't confirmed. |

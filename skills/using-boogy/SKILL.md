@@ -119,19 +119,21 @@ Deploying requires a token. Two paths — the MCP path requires no install.
 
 A first-time sign-in picks a **handle**, and **your handle IS your subdomain** —
 a DNS label, lowercase `[a-z0-9-]`, **3–30 characters** (no `_`, `.`, or spaces). Your services
-are reached at `https://<handle>.<base>/<service>/<path>`. Messy input is coerced
+are reached at `https://<handle>.<base>/<mount>/<path>`, where `<mount>` is the
+service's manifest `[routing] path` (NOT its `id` — the two only coincide when
+you mount at `/<id>`). Messy input is coerced
 (`my_app` → `my-app`) and the final handle is returned; reserved/taken → pick
 another. (There is no path-based `/<owner>/<service>` form — routing is
 subdomain-only, so a non-label handle would be unroutable.)
 
 **`<base>` is the app plane — in production it is `boogy.app`, NOT `boogy.ai`.**
-Your live URL is `https://<handle>.boogy.app/<service>/`. `boogy.ai` is the
+Your live URL is `https://<handle>.boogy.app/<mount>/`. `boogy.ai` is the
 **control/marketing plane** (`api.boogy.ai` for login + the `/v1` API, the docs
 site, the landing page) and **never serves your deployed app**. These two planes
 do not alias each other. Do **not** infer your app's domain from what the user
 typed ("deploy to boogy.ai"), from this skill's generic `<base>` placeholder, or
 from the host you logged in against — the **`boogy deploy` output prints the
-authoritative live URL** (`URL: https://<handle>.boogy.app/<service>`). Read it
+authoritative live URL** (`URL: https://<handle>.boogy.app/<mount>`). Read it
 from there; treat anything you assembled by hand as a guess until the deploy
 confirms it. See `boogy:boogy-custom-domains` to serve on your own domain instead.
 

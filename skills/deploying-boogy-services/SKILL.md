@@ -48,8 +48,8 @@ before every deploy. Full detail in `boogy:testing-boogy-services`.
 | `boogy publish <manifest> [--provision]` | upload an immutable, versioned module artifact; `--provision` also runs your own service from it |
 | `boogy provision <module-ref> <service-id> [--overrides <toml>]` | run a service instance from a published module |
 | `boogy upgrade <service-id> --to <version>` | move a provisioned service to another module version |
-| `boogy list` | list deployed services (admin scope) |
-| `boogy remove <owner> <service-id>` | delete a deployment (admin scope) |
+| `boogy list [--all]` | list your deployed services; `--all` lists every owner's (admin scope) |
+| `boogy remove <service-id> [--owner <owner>]` | delete your deployment; `--owner` deletes another owner's (admin scope) |
 
 Module ref shape: `boogy://<owner>/modules/<id>@<version>`.
 
@@ -75,8 +75,11 @@ of the default URL, see `boogy:boogy-custom-domains`.
 
 ```
 Published: boogy://<handle>/modules/<id>@<version>
-  URL: https://<handle>.boogy.app/<service>
+  URL: https://<handle>.boogy.app/<mount>
 ```
+
+`<mount>` is the manifest's `[routing] path` — a module `hello-api` mounted at
+`/api` is served at `/api`, not `/hello-api`.
 
 That printed `URL:` is the source of truth. The app plane is **`boogy.app`**, not
 `boogy.ai` — `boogy.ai` is the control/marketing plane (`api.boogy.ai` for login +
@@ -133,7 +136,7 @@ Every platform response carries `x-boogy-deployment-id`. Use its presence, not
 the status, to decide whether the request reached your service at all:
 
 ```bash
-curl -sS -D- -o /dev/null https://<handle>.boogy.app/<service>/health
+curl -sS -D- -o /dev/null https://<handle>.boogy.app/<mount>/health
 ```
 
 | What you see | What it means | Where the fix is |
