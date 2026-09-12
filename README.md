@@ -9,7 +9,7 @@ Works with **Claude Code out of the box** (no plugin needed) and with any
 agent or tool that can read markdown. Together they help you vibe
 production-grade Boogy services: Rust compiled to `wasm32-wasip2`, isolated
 transactional per-service storage, capability security, cross-service mesh
-calls, and REST/JSON-RPC/MCP surfaces.
+calls, and REST/JSON-RPC/MCP/protobuf surfaces.
 
 ---
 
@@ -121,6 +121,7 @@ validation (`validate_manifest`, `check_service`) and sign-in (`login`).
 | Skill | Purpose |
 |---|---|
 | `skills/boogy-rest-apis/` | HTTP/REST and JSON-RPC endpoints — routing, guards, request parsing, response types, error wire format |
+| `skills/boogy-protobuf-rpc/` | Serve protobuf from a `.proto` — gRPC, Connect and gRPC-Web from one mount; choosing protobuf vs REST/JSON-RPC |
 | `skills/boogy-mcp-services/` | Expose MCP tools, resources, or prompts to LLM clients alongside an existing REST service |
 | `skills/boogy-websockets/` | Push real-time messages via named channels — public, private, or per-principal; minting subscription grants |
 | `skills/boogy-webhooks/` | Receive and verify inbound webhooks (HMAC-signed callbacks from Stripe, GitHub, Twilio, etc.) |

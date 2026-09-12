@@ -13,7 +13,7 @@ APIs.
 
 **Design-first hard gate.** For a new service or feature, answer the
 design questions — **deployment shape (frontend / full-stack / backend
-service)**, then backend kind + surface (REST / MCP / RPC),
+service)**, then backend kind + surface (REST / MCP / RPC / protobuf),
 capabilities, ingress mode, data sketch — BEFORE writing any code or
 scaffolding. Shape comes first: a frontend-only site runs no wasm, so it
 skips capabilities, ingress, and data entirely. The
@@ -88,7 +88,8 @@ compete.
 | `boogy-webhooks` | building a service that RECEIVES and verifies inbound webhooks from a third party (Stripe, GitHub, Twilio, any HMAC-signed callback) |
 | `boogy-serving-frontends` | a service must serve a web frontend — a reactive UI, SPA, dashboard, static HTML/JS/CSS, or a full-stack app serving both the page and its API (arrow-js, TypeScript-with-no-build, host-served assets) |
 | `boogy-custom-domains` | serving a service on a tenant's own domain instead of the platform subdomain — registration, DNS records, verification, root-serve semantics |
-| `boogy-rest-apis` | building HTTP/REST or JSON-RPC endpoints — routing, guards, request parsing/validation, response types, error wire format |
+| `boogy-rest-apis` | building HTTP/REST or JSON-RPC endpoints — routing, guards, request parsing/validation, response types, error wire format — protobuf is the next row, not this one |
+| `boogy-protobuf-rpc` | serving protobuf — gRPC, Connect, or gRPC-Web — from a `.proto` contract, or choosing between protobuf and REST/JSON-RPC for an endpoint |
 | `boogy-mcp-services` | exposing MCP tools/resources/prompts to LLM clients, or adding MCP alongside an existing REST service |
 | `boogy-api-specs` | questions about the auto-served spec docs (openapi.json / openrpc.json / MCP discovery), Router::info, two-tier visibility, undocumented routes, or the JsonSchema derive requirement |
 | `boogy-outbound-http` | a service must call an external HTTP API or bring its own database/backend — egress allowlist, request shape, caps, credentials |
@@ -119,21 +120,19 @@ Deploying requires a token. Two paths — the MCP path requires no install.
 
 A first-time sign-in picks a **handle**, and **your handle IS your subdomain** —
 a DNS label, lowercase `[a-z0-9-]`, **3–30 characters** (no `_`, `.`, or spaces). Your services
-are reached at `https://<handle>.<base>/<mount>/<path>`, where `<mount>` is the
-service's manifest `[routing] path` (NOT its `id` — the two only coincide when
-you mount at `/<id>`). Messy input is coerced
+are reached at `https://<handle>.<base>/<service>/<path>`. Messy input is coerced
 (`my_app` → `my-app`) and the final handle is returned; reserved/taken → pick
 another. (There is no path-based `/<owner>/<service>` form — routing is
 subdomain-only, so a non-label handle would be unroutable.)
 
 **`<base>` is the app plane — in production it is `boogy.app`, NOT `boogy.ai`.**
-Your live URL is `https://<handle>.boogy.app/<mount>/`. `boogy.ai` is the
+Your live URL is `https://<handle>.boogy.app/<service>/`. `boogy.ai` is the
 **control/marketing plane** (`api.boogy.ai` for login + the `/v1` API, the docs
 site, the landing page) and **never serves your deployed app**. These two planes
 do not alias each other. Do **not** infer your app's domain from what the user
 typed ("deploy to boogy.ai"), from this skill's generic `<base>` placeholder, or
 from the host you logged in against — the **`boogy deploy` output prints the
-authoritative live URL** (`URL: https://<handle>.boogy.app/<mount>`). Read it
+authoritative live URL** (`URL: https://<handle>.boogy.app/<service>`). Read it
 from there; treat anything you assembled by hand as a guess until the deploy
 confirms it. See `boogy:boogy-custom-domains` to serve on your own domain instead.
 

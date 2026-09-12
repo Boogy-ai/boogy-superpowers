@@ -16,6 +16,18 @@ works, and how to control or override the generated output.
 | `GET …/openapi.json` | OpenAPI 3.0.3 | Always |
 | `GET …/openrpc.json` | OpenRPC 1.3.2 | One or more `Router::rpc(…)` mounts exist |
 | `POST <rpc path>` with body `{"method":"rpc.discover"}` | OpenRPC 1.3.2 (in-protocol) | Same document, served by the JSON-RPC dispatcher itself |
+| `GET <grpc mount>/descriptor.bin` | Compiled protobuf descriptor set (binary) | A `Router::grpc` mount exists with `[grpc] reflection` on (the default) |
+| gRPC server reflection under the same mount | In-protocol | Same condition |
+
+**A protobuf mount has no per-method spec document**, and that is not an
+omission: method routing is by path, so one stub in `openapi.json` stands in
+for every method on the service, and **reflection is the method catalog** —
+the protobuf analogue of `openrpc.json`, not a missing feature. Point
+`grpcurl` at the mount, or fetch `descriptor.bin` and pass it as a protoset
+for a client that will not use reflection. Both are answered by the platform
+without invoking your wasm, and both inherit the service's `[ingress]`
+policy — on an `authenticated` service an anonymous fetch is a 401; on a
+`public` one your `.proto` shape is public. See `boogy:boogy-protobuf-rpc`.
 
 MCP endpoints have **no spec URL** — discovery is in-protocol per the
 MCP spec (`initialize`, `tools/list`, `resources/list`, `prompts/list`),

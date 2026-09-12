@@ -442,6 +442,25 @@ standard error codes. `RpcError`: `parse_error`, `invalid_request`,
 `RpcError::application(code, msg)`. (MCP tools use the same substrate —
 see `boogy:boogy-mcp-services`.)
 
+## A third surface: protobuf
+
+REST and JSON-RPC are not the only two. `Router::grpc` mounts a **protobuf**
+service from a `.proto` — one mount serving gRPC, Connect and gRPC-Web,
+chosen by the caller's content-type. A method handler is
+`Fn(&mut Req<'_>, P) -> Result<Response<R>, RpcStatus>` — deliberately shaped
+like a JSON-RPC method (same registration chain, same typed-in/typed-out
+body), so one business-logic function can back both, with two differences to
+carry across: it also gets a real `&mut Req<'_>`, so guards and `Ctx` work as
+in any other handler; and errors are `RpcStatus` (gRPC status codes) rather
+than `ApiError`.
+
+Reach for it when the *contract* is the point: an existing gRPC client,
+generated stubs in another language, reflection-driven tooling. **Not for
+speed** — measured against the same handler here, protobuf is slower than
+plain REST JSON, and the encoding is not the difference. Full treatment,
+including the streaming gap (refused at deploy, not at runtime):
+`boogy:boogy-protobuf-rpc`.
+
 ## `boogy check` counts write call-sites, not runtime paths
 
 `boogy check` (the multi-write-without-transaction gate) counts write

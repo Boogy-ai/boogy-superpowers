@@ -280,7 +280,11 @@ the rev — never edit `wit/`.
 
 ## The two worlds
 
-- `world: "service"` — REST / JSON-RPC / MCP. The default.
+- `world: "service"` — REST / JSON-RPC / MCP / protobuf. The default.
+  Protobuf needs no separate world (a protobuf call arrives through the same
+  handler export as everything else) — but it does need a `.proto`, a
+  `build.rs` and two extra Cargo entries; see `boogy:boogy-protobuf-rpc`
+  before scaffolding one.
 - `world: "service-with-jobs"` — adds the job export. **Compile footgun:**
   this world makes a `job_handler::Guest` impl with `handle_job(ctx,
   payload)` mandatory; without it the crate won't compile. A Terminal-error

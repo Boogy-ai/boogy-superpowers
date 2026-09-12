@@ -115,9 +115,15 @@ ungoverned scaffold.
    calls below in plain language.)
 
 3. **Backend surface(s)** — for a **FullStack** or **Service** shape, what
-   API does the wasm expose: REST · JSON-RPC · MCP · hybrid? One service can
-   serve **REST and MCP together** (same data, two surfaces); a split is a
-   decision, not a default. The frontend itself was decided in **1a** — a
+   API does the wasm expose: REST · JSON-RPC · MCP · protobuf (gRPC /
+   Connect / gRPC-Web) · hybrid? One service can serve **several together**
+   over the same data — REST and MCP is the common pair; a split is a
+   decision, not a default. Choose **protobuf** only when the typed contract
+   is the point (an existing gRPC consumer, generated stubs in another
+   language, reflection tooling) and not for throughput — measured here it
+   is *slower* than plain REST JSON, and only unary methods are served, with
+   a streaming method refused at deploy rather than at runtime
+   (`boogy:boogy-protobuf-rpc`). The frontend itself was decided in **1a** — a
    **FullStack** wasm sits under `[frontend].api_prefix`
    (`boogy:boogy-serving-frontends`); a **Frontend** shape has no backend
    surface, so skip this.
@@ -153,7 +159,9 @@ ungoverned scaffold.
    real-time messages to clients — see `boogy:boogy-websockets`),
    `files` (store and serve uploads, images, documents, generated exports —
    the bytes never pass through your service; see
-   `boogy:boogy-file-storage`).
+   `boogy:boogy-file-storage`). That is the whole set. Serving protobuf is
+   **not** in it — an inbound surface grants the wasm nothing, so it is a
+   manifest `[grpc]` block rather than a capability.
    Each one you grant is attack surface — justify it. (Vector/semantic
    search is not yet available — see `boogy:boogy-capability-limits`.)
 

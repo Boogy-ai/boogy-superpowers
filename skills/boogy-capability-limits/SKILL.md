@@ -62,6 +62,26 @@ budget is killed. *What to do instead:* enqueue a background job
 (`background_jobs` capability + a `[background_jobs.handlers.*]` handler)
 and return immediately; the client polls for status.
 
+**Streaming protobuf methods — refused at DEPLOY, not at runtime.** A
+service can serve protobuf (gRPC, Connect, gRPC-Web) from a `.proto`, but
+only **unary** methods. Client-streaming, server-streaming and
+bidirectional are all unsupported, and the refusal is not a runtime error a
+caller sees: the `stream` keyword anywhere in a declared service's methods
+makes the whole deployment a **provision-time 409**. The deployment is not
+activated at all, and where a previous version exists the platform restores
+it so your service keeps serving — the 409 body says whether that restore
+succeeded, which is worth reading rather than assuming. That placement is
+deliberate — the alternative is activating
+a deployment that mis-serves a streaming method as unary, failing per
+request, in production, at a moment nobody chose. *What to do instead:*
+make the method unary (most "streaming" first drafts are a paginated list —
+return a page and a cursor); or push instead of stream, with the
+`websockets` capability for many subscribers and a request-scoped stream
+(above) for one caller; or leave the streaming service out of the
+manifest's declared protobuf services entirely — an undeclared service is
+not refused, it is simply not served over protobuf. See
+`boogy:boogy-protobuf-rpc`.
+
 **Vector / semantic search.** Not yet available — there is no working
 embedding or similarity-search capability. *What to do instead:* keyword
 search via the store's filter/LIKE queries; if semantic search is a hard
@@ -198,6 +218,7 @@ platform cap), or move the work into a background job and let the client poll.
 | "I'll accept the upload in a handler and write it somewhere." | A service instance is fresh per request under a memory cap, so it cannot hold a user-sized file. `files_create_upload` returns a ticket the client uploads to directly; no request that reads a file runs your code at all. |
 | "I'll just guess the outbound API shape / secret-header semantics." | Verify every `outbound_http` and `[secrets]` signature against the SDK source/docs; never ship an unverified call. |
 | "I'll add a WebSocket upgrade handler." | The handler stays request/response — you don't upgrade it. Real-time push is the `websockets` capability (declare channels + publish to them); see `boogy:boogy-websockets`. |
+| "My `.proto` has a `stream` method — worst case it errors at runtime." | It errors at **deploy**: a streaming method makes the whole deployment a 409 at provision and it never becomes routable. Make the method unary, or leave that service out of the manifest's declared protobuf services. See `boogy:boogy-protobuf-rpc`. |
 | "It's just a demo, store the file in a column." | Same ceilings apply in a demo. Presigned upload + a metadata row is the fastest path that actually works. |
 | "I'll pull in whatever crates are convenient — size doesn't matter." | The compiled `.wasm` has an 8 MiB free-tier cap (32 MiB hard max, uncompressed) and binary size drives cold-start latency. Keep dependencies lean; move big embedded data out of the binary. |
 | "The client asked for 10 million rounds — that's their problem." | It's yours: exceeding the wall-clock budget **traps** the guest, and a trap on a deployment's first request can roll the deploy back. Clamp caller-supplied cost inputs and test the worst legal one. |
