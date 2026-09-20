@@ -65,6 +65,31 @@ require_principal_in_allowed_agents = false         # also gate the USER against
   only by the other gates (no `[ingress.delegation]` block, an empty cap,
   or an actor not on the allowlist), never by scopelessness itself.
 
+## Spending a user's balance needs their grant
+
+Delegation lets you *act* for a user. It does not let you *spend* for them. If
+the route you reach on their behalf is priced and charges the `principal`, the
+charge falls on that user — and a user who is not the one sending the request has
+to have agreed to it in advance, with a **spending grant** they created
+themselves. Without one the call is refused `402 spending_grant_required`, before
+any work happens.
+
+This is the customer- versus merchant-initiated split card networks use, and it
+applies to exactly the cases delegation exists for: a service acting on a user's
+behalf, a background job running as that user, an app calling a service other
+than its own. A user spending their own balance on their own request needs no
+grant.
+
+Two consequences when you design a delegated flow:
+
+- **You cannot create the grant for them.** Grants are made only by the account
+  holder acting directly, so the flow needs a step where the user grants it —
+  design that in rather than discovering the 402 in production.
+- **A grant carries its own per-charge ceiling**, so a route priced above what
+  your users typically grant is refused by the grant rather than by the balance.
+  That is a pricing problem wearing an authorization error; see
+  `boogy:boogy-route-pricing`.
+
 ## Iron Law: authorize on the principal, never the actor
 
 In the callee's handlers, scope rows by `current_principal()` — that's

@@ -37,6 +37,7 @@ takes the token in its handshake; see below).
 | `GET /v1/usage/summary?month=YYYY-MM` | Billing summary for the month across the 7 billing dimensions. |
 | `GET /v1/usage/events` | Raw usage events. Filters: `kind`, `outcome`, `since`, `until`. Keyset paginated via `cursor`; `limit` ≤ 500. |
 | `GET /v1/usage/requests/{request_id}` | The full trace of one request across every hop it touched — inbound, cross-service, MCP, and outbound. |
+| `GET /v1/services/{id}/pricing` | What that service is actually charging, as compiled at deploy: every priced route with its payer, price, rate and `max`, plus whether the owner account resolved (if it did not, priced routes refuse). |
 | `GET /v1/audit` | Your audit tail (owner-scoped). Filters: `action_prefix`, `since`. |
 | `GET /v1/quota` | Storage-quota status across your services. |
 | `GET /v1/services/{id}/quota` | Storage-quota status for one service (404 if not yours / not found). |
@@ -94,6 +95,24 @@ RID=$(curl -sD - -o /dev/null -H "Authorization: Bearer $TOKEN" \
 curl -H "Authorization: Bearer $TOKEN" \
   "https://<host>/v1/usage/requests/$RID"
 ```
+
+## Measuring a route before you price it
+
+If you are deciding what a route should charge, this surface is where the numbers
+come from — guessing them is the mistake `boogy:boogy-route-pricing` exists to
+prevent. Deploy the route **unpriced**, drive traffic that looks like real
+traffic, then read:
+
+| Question | Where |
+|---|---|
+| What does a typical call consume? | `GET /v1/usage/events` — per-request rows carrying fuel consumed and request/response bytes |
+| How wide is the spread? | `GET /v1/usage` — p50/p95/p99 latency per bucket. A route whose p99 is fifty times its p50 needs a very different `max` from one whose p99 is double |
+| What did one specific call do? | `GET /v1/usage/requests/{request_id}` — every hop it touched, which is how you find the call that cost far more than the rest |
+
+Once it IS priced, each settled charge appears as its own usage event carrying the
+amount, so the same two endpoints answer "what am I actually earning per call?"
+and "which calls hit the `max`?" — the second being the signal that your ceiling
+is truncating real charges rather than catching runaways.
 
 ## MCP tools
 

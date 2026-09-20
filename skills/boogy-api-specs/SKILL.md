@@ -236,6 +236,23 @@ and is always anonymous — no bearer token required.
 Use the **service spec** when you need to introspect a deployed service's
 own routes and schemas.
 
+## Prices in the served documents
+
+If your service charges, its price list is published for callers and you do not
+write it:
+
+- `GET <mount>/pricing.json` — the authoritative, protocol-neutral list: every
+  priced route with its payer, price, rate and `max`. Served by the platform, so
+  no handler of yours runs for it, and on a priced service that path is reserved.
+- The served `openapi.json` carries an `x-boogy-pricing` extension on each priced
+  operation. **The platform writes it and strips any copy your code emitted**, on
+  unpriced services too — so you cannot advertise a price you do not charge, and
+  cannot hide one you do.
+
+Treat both as caller-facing documentation you are accountable for: the prices a
+caller reads there are the prices they will be charged. See
+`boogy:boogy-route-pricing`.
+
 ## Red flags
 
 | Thought | Reality |

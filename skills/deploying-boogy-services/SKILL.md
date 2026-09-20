@@ -48,8 +48,8 @@ before every deploy. Full detail in `boogy:testing-boogy-services`.
 | `boogy publish <manifest> [--provision]` | upload an immutable, versioned module artifact; `--provision` also runs your own service from it |
 | `boogy provision <module-ref> <service-id> [--overrides <toml>]` | run a service instance from a published module |
 | `boogy upgrade <service-id> --to <version>` | move a provisioned service to another module version |
-| `boogy list` | list deployed services (admin scope) |
-| `boogy remove <owner> <service-id>` | delete a deployment (admin scope) |
+| `boogy list [--all]` | list your deployed services; `--all` lists every owner's (admin scope) |
+| `boogy remove <service-id> [--owner <owner>]` | delete your deployment; `--owner` deletes another owner's (admin scope) |
 
 Module ref shape: `boogy://<owner>/modules/<id>@<version>`.
 
@@ -84,8 +84,11 @@ of the default URL, see `boogy:boogy-custom-domains`.
 
 ```
 Published: boogy://<handle>/modules/<id>@<version>
-  URL: https://<handle>.boogy.app/<service>
+  URL: https://<handle>.boogy.app/<mount>
 ```
+
+`<mount>` is the manifest's `[routing] path` — a module `hello-api` mounted at
+`/api` is served at `/api`, not `/hello-api`.
 
 That printed `URL:` is the source of truth. The app plane is **`boogy.app`**, not
 `boogy.ai` — `boogy.ai` is the control/marketing plane (`api.boogy.ai` for login +
@@ -142,7 +145,7 @@ Every platform response carries `x-boogy-deployment-id`. Use its presence, not
 the status, to decide whether the request reached your service at all:
 
 ```bash
-curl -sS -D- -o /dev/null https://<handle>.boogy.app/<service>/health
+curl -sS -D- -o /dev/null https://<handle>.boogy.app/<mount>/health
 ```
 
 | What you see | What it means | Where the fix is |
@@ -235,6 +238,29 @@ new deployment row; it does not touch the service's stored data.
 Don't guess at module-registry republish behavior (e.g. re-publishing an
 identical `@version`) — that isn't part of the documented CLI contract.
 For the everyday path, the rule above holds.
+
+## Deploying a route that will charge
+
+**Deploy it unpriced first.** A `[pricing]` block is just manifest text, so
+adding it later is one redeploy — but a price and its `max` come from measuring
+what the route actually consumes, and you cannot measure a route you have not
+run. The order that works:
+
+1. Deploy with no `[pricing]` block and drive realistic traffic through it.
+2. Read what a call consumed and how wide the spread is
+   (`boogy:boogy-observability`, "Measuring a route before you price it").
+3. Add the block and redeploy. Pick the numbers from step 2, not from intuition —
+   `boogy:boogy-route-pricing` is the how.
+
+Two facts about the redeploy itself:
+
+- **A price is fixed per deployment.** Nothing running can change it, and the
+  price a caller was shown is the price that call pays, so a redeploy that
+  changes a price does not retroactively reprice anything in flight.
+- **A deployment whose owner handle has no account still activates** — but its
+  priced routes refuse with `503 ledger_unavailable` until the account resolves.
+  `GET /v1/services/{service_id}/pricing` reports this directly, so check it
+  after the first priced deploy rather than inferring it from a refusal.
 
 ## Partial-failure recovery
 

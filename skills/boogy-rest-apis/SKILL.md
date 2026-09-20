@@ -508,6 +508,21 @@ If you find yourself parsing a multipart body or buffering an upload in a
 handler, that design does not work here — a service instance is fresh per
 request under a memory cap. See `boogy:boogy-file-storage`.
 
+## Charging for a route
+
+Any route here can charge — per path and method for REST, per method name for
+JSON-RPC. Your handler does not change: you declare the price in the manifest and
+the platform takes it before the route runs. Two facts that affect handler design
+rather than configuration:
+
+- **A 4xx you return is charged; a 5xx is not.** Your handler ran and decided, so
+  a validation rejection costs the caller. If that is wrong for your route, make
+  the validation a separate unpriced route.
+- **The price is per route, so splitting or merging routes changes the bill.** A
+  single endpoint that does two things cannot charge differently for them.
+
+See `boogy:boogy-route-pricing` for picking prices, units and `max`.
+
 ## Red flags
 
 | Thought | Reality |

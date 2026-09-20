@@ -99,7 +99,11 @@ maximum** even on a paid plan — measured on the *uncompressed* `.wasm`,
 not gzipped. Typical Rust services compile to well under 1 MiB; large
 dependency trees, embedded assets, or image/crypto-heavy crates inflate
 that fast. An upload over 8 MiB without a paid plan is rejected (HTTP
-402); over 32 MiB is rejected for everyone (HTTP 413). *What to do
+402); over 32 MiB is rejected for everyone (HTTP 413). **`402` has a second,
+unrelated meaning** — a priced route whose payer cannot pay returns it too, with
+a JSON body naming which (`insufficient_funds`, `spend_limit`,
+`spending_grant_required`, `payer_unavailable`). Read the body before concluding
+a 402 is about size; see `boogy:boogy-route-pricing`. *What to do
 instead:* trim features and dependencies, move large embedded data out of
 the binary (fetch or presign it at runtime), or split the work across
 multiple services. A leaner `.wasm` also **cold-starts faster** — a

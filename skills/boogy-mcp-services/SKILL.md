@@ -143,6 +143,26 @@ connect a **real MCP client** and exercise `initialize` → `tools/list`
 → `tools/call`. The handshake, schema advertisement, and auth path only
 fully exercise through a live client. See `boogy:testing-boogy-services`.
 
+## Charging for tools
+
+An MCP tool can be priced, and pricing is **per tool** — `mcp_tool = "summarize"`
+prices that tool and nothing else, so a server can charge for the expensive tool
+and leave discovery and the cheap ones free. `initialize`, `ping` and
+`tools/list` run no tool and are always free; a client must be able to find out
+what you offer without paying.
+
+The part worth designing around: **an LLM client calls tools in a loop.** A price
+that reads as trivial per call — a tenth of a cent — becomes visible when an agent
+makes forty calls to answer one question, and the agent's operator sees the total,
+not your per-call figure. So price the *unit of value the user asked for* where
+you can: one tool call that does the whole job at a higher price is easier to
+adopt than six cheap ones that each look free. Where the loop is unavoidable, a
+`max` is what lets the caller bound it.
+
+The host reads which tool a request selects from the request body itself, so the
+tool you are paid for is always the tool that ran. See
+`boogy:boogy-route-pricing` for choosing the numbers.
+
 ## Red flags
 
 | Thought | Reality |

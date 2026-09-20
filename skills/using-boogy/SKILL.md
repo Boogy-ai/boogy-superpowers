@@ -75,6 +75,7 @@ compete.
 | `planning-boogy-work` | turning an approved design into an ordered, testable plan — manifest first, capabilities named per task, no placeholders |
 | `boogy-transactions` | a write that must roll back if later work fails, writing multiple rows atomically, combining writes with cross-service calls, handling 409s, or placing side effects near writes |
 | `boogy-counters` | a value that only goes up or down (views, likes, stock, quota, "last active at"), a write contending on a hot row, choosing between a counter and a rollup, or a counter read refused inside a transaction |
+| `boogy-route-pricing` | deciding what a route should charge — picking a flat price or a rate, choosing which unit to rate on, setting the `max` callers must hold, or diagnosing callers refused with 402 |
 | `boogy-migrations` | changing the schema of a deployed service — adding columns or indexes, or backfilling data |
 | `boogy-auth` | adding authorization — per-user data, ownership checks, "only my X" endpoints, API keys, or scope gating |
 | `boogy-account-auth` | wiring login/signup for a service's users, or asking where principals and tokens come from |
@@ -120,19 +121,21 @@ Deploying requires a token. Two paths — the MCP path requires no install.
 
 A first-time sign-in picks a **handle**, and **your handle IS your subdomain** —
 a DNS label, lowercase `[a-z0-9-]`, **3–30 characters** (no `_`, `.`, or spaces). Your services
-are reached at `https://<handle>.<base>/<service>/<path>`. Messy input is coerced
+are reached at `https://<handle>.<base>/<mount>/<path>`, where `<mount>` is the
+service's manifest `[routing] path` (NOT its `id` — the two only coincide when
+you mount at `/<id>`). Messy input is coerced
 (`my_app` → `my-app`) and the final handle is returned; reserved/taken → pick
 another. (There is no path-based `/<owner>/<service>` form — routing is
 subdomain-only, so a non-label handle would be unroutable.)
 
 **`<base>` is the app plane — in production it is `boogy.app`, NOT `boogy.ai`.**
-Your live URL is `https://<handle>.boogy.app/<service>/`. `boogy.ai` is the
+Your live URL is `https://<handle>.boogy.app/<mount>/`. `boogy.ai` is the
 **control/marketing plane** (`api.boogy.ai` for login + the `/v1` API, the docs
 site, the landing page) and **never serves your deployed app**. These two planes
 do not alias each other. Do **not** infer your app's domain from what the user
 typed ("deploy to boogy.ai"), from this skill's generic `<base>` placeholder, or
 from the host you logged in against — the **`boogy deploy` output prints the
-authoritative live URL** (`URL: https://<handle>.boogy.app/<service>`). Read it
+authoritative live URL** (`URL: https://<handle>.boogy.app/<mount>`). Read it
 from there; treat anything you assembled by hand as a guess until the deploy
 confirms it. See `boogy:boogy-custom-domains` to serve on your own domain instead.
 
@@ -168,4 +171,6 @@ developer / agent) signing in to the platform to deploy.
 | "This endpoint is too simple to need the catalog." | Simple endpoints still hit store/query/auth invariants. Scan first; if no skill fits, say what you're relying on. |
 | "I'll wire the happy path and worry about integrity later." | Treat each request as a **unit of work** — on ANY error the caller sees no partial state. Decide transactions and write-ordering as you write the handler, not after — **read `boogy:boogy-transactions` first**. |
 | "Integrity = wrap the whole handler in a `tx`." | No — a `tx` guards **store writes only**, and an `outbound_http` call (or other irreversible effect) inside one is **denied**. `boogy:boogy-transactions` already has the rule + the patterns to use instead (staged job in-tx, or after commit). Don't guess — read it. |
+| "I'll set the price now and tune it later." | You cannot tune what you never measured. A price and its `max` come from a deployed, **unpriced** route's own usage — `fuel`, bytes, and the spread between p50 and p99. Read `boogy:boogy-route-pricing` before writing a number. |
+| "I set `max` high to be safe." | `max` is the balance a caller must **hold** before you will serve them, not just a ceiling. Set high, it refuses callers who could have afforded the actual call, and caps nothing that was going to happen. |
 | "The user said 'boogy.ai', so my app is at `<handle>.boogy.ai`." | No. The app plane is **`boogy.app`**; `boogy.ai` is control/marketing only. Your live URL is whatever the **`boogy deploy` output prints** — read it from there, never reconstruct it from the user's words or the login host. |

@@ -250,6 +250,22 @@ digraph ingress {
    See `boogy:boogy-registry-and-provisioning` for the mechanics + the
    library framing.
 
+   **5c. Does anything charge?** — decide now, not after the handlers exist,
+   because it changes what you must be able to measure. Most services charge
+   nothing and this is one line: "free." If a route should charge, answer three
+   questions and nothing more at design time:
+   - **What is the caller buying** — a call (flat `price`), the work it consumes
+     (a `rate`), or both?
+   - **What unit tracks that work** — one the platform measures (`fuel`,
+     `wall_ms`, `request_bytes`, `response_bytes`) or one your handler reports?
+   - **Who pays** — the signed-in user (`payer = "principal"`) or the service
+     that called you (`payer = "caller_service"`)?
+
+   Do **not** pick the numbers yet. A price and its `max` come from measuring a
+   deployed, unpriced route; guessing them is the mistake
+   `boogy:boogy-route-pricing` exists to prevent. Note here only that the route
+   charges and on what basis, so the plan includes deploying it unpriced first.
+
 6. **Data sketch** — the tables, each as a future `#[derive(Model)]`
    struct: its fields, the owner column (per-row ownership for
    `authenticated` services), and the access patterns you'll declare on

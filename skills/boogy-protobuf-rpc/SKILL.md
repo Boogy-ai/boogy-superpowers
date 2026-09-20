@@ -321,6 +321,18 @@ mount claims the whole owner subtree, so exactly one service per owner can
 have it. Decide which of your services, if any, is the one that speaks
 native gRPC.
 
+## Charging for a method
+
+A protobuf method can be priced by its fully-qualified name
+(`grpc = "echo.v1.EchoService/Echo"`), so prices are per method rather than per
+service — a read-only method can stay free beside an expensive one. The same rule
+also prices a POST to that method's path, however the call arrives, so a caller
+cannot pick a cheaper wire protocol to avoid a price.
+
+Reflection and `descriptor.bin` are never charged: a caller must be able to
+discover your surface without paying for it. See `boogy:boogy-route-pricing` for
+choosing the numbers.
+
 ## Red flags
 
 | Thought | Reality |

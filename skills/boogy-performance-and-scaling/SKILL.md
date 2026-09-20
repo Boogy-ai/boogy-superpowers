@@ -37,6 +37,16 @@ header (check the response headers, not the body).
 | **503** | file transfer capacity | "the host is already carrying its budget of file bytes" — a bound on in-flight bytes for **file serving only**, which is a different resource from the instance pool and so a different queue. Your service's code never ran; no request that reads a file does | serve smaller files, or let large ones take the direct-to-storage path (they are not charged against this bound at all); raise host capacity (operator-controlled) | back off per the `Retry-After` header. **Not** a 429: 429 means "too fast", this means "too many bytes in flight right now" |
 | **504** | — (`type: /errors/request_budget_exceeded`) | "this request exceeded its wall-clock budget", including any cross-service calls it made | raise `[limits] cpu_deadline_ms` ONLY if the work is genuinely long and CPU-light; otherwise it's a 503 problem | no `Retry-After` — an identical retry is likely to exceed budget again; reduce the request's own scope before retrying |
 
+**Retrying a throttle costs nothing; retrying a completed call costs money.** If
+the route you are calling is priced, every code in this table is free to retry:
+each one is decided either before the handler ran or by the platform's own
+congestion, and the platform releases the payer's money rather than charging it —
+host contention is not the payer's fault. What you pay for is a call that
+**completed**, including one that returned a 4xx. So a retry loop around a
+*throttle* is safe, and a retry loop around a *rejection* is a bill. Bound the
+latter with `X-Boogy-Max-Charge-Usd` on the original request; see
+`boogy:boogy-route-pricing`.
+
 **Enforcement order:** rate limiter (429) → scheduler admission
 (`scheduler_shed` 503) → instantiate → store congestion inside the handler
 (`tx_admission_exhausted` / `store_op_ceiling_exceeded` /

@@ -25,6 +25,21 @@ released signature or a stored object cannot be rolled back when the tx aborts. 
 enqueued inside the tx**, the call **after** the tx commits, or — for signing —
 **before** the tx opens) — see *The side-effect decision* and *Sequencing
 discipline* below.
+**A charge for a priced route is one of those irreversible effects, and it is the
+one you do not control.** If your handler calls a priced route and then returns
+an error, the store writes roll back and **the charge stands** — you read the
+answer, so you paid for it. Rolling it back would make "open a transaction, call
+a priced route, read the reply, roll back" a way to get someone else's paid work
+for free. Every response tells you what it cost in `X-Boogy-Charged`, so this is
+visible rather than silent. Two consequences for a handler that spends money:
+
+- Do the fallible work **before** the priced call, for the same reason you do it
+  before an irreversible write. A priced call after a step that can `?` is a
+  bill you might not need.
+- If the callee's own route opted into `refund_if_request_fails`, a later
+  server-side failure of your request does void it — but that is the callee's
+  choice, declared in their manifest, not something you can ask for.
+
 Read this skill before you reach for `tx`; the right shape is often not "wrap
 everything."
 

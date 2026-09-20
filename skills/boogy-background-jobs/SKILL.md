@@ -198,6 +198,14 @@ once. For handler-level safety: use the stable `ctx.job_id` as the
 `Idempotency-Key` on outbound calls, and `INSERT … ON CONFLICT DO
 NOTHING` for store writes.
 
+**If the handler calls a priced route, at-least-once means at-least-once-paid.**
+A job's own handler is never priced — a job belongs to its own service — but the
+calls it makes ARE charged, to the service that owns the job. So a handler that
+runs twice pays twice, and nothing about the retry makes the second charge a
+duplicate to be reversed: both calls really happened and really did work. The
+same idempotency you need for writes is what keeps the bill right. Where the work
+is expensive, check whether it is already done **before** calling, not after.
+
 **The dedup window is bounded, and you should size your key to it.** A key
 keeps deduping while the job is pending or running AND for a retention
 period after it reaches a terminal state — long enough to absorb the case
