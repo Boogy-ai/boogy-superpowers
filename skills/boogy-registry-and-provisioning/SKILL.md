@@ -30,7 +30,7 @@ GET /v1/registry/search?q=thumbnail            # { "results": [...] }
 GET /v1/registry/modules/{owner}/{name}        # full detail (404 if not visible)
 ```
 
-Filters: `q`, `category`, `mode`, `owner`, `since` (RFC3339), `limit`.
+Filters: `q`, `category`, `mode`, `owner`, `since` (RFC3339), `limit`, `shape` (`frontend`/`fullstack`/`service`).
 A deployed service can query it cross-service:
 
 ```rust

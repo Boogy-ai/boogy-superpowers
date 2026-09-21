@@ -583,13 +583,24 @@ do nothing to get it:
 - `Referrer-Policy: strict-origin-when-cross-origin`
 - `X-Frame-Options: SAMEORIGIN` (clickjacking default)
 
+**One exception, and it changes which header you will see.** Where the platform is
+configured to let the Boogy console embed a running service (so your app can be shown
+inside a console pane), a `same_origin` response omits `X-Frame-Options` entirely and
+carries CSP `frame-ancestors 'self' <console origin>` instead — `X-Frame-Options` has
+no allow-list value modern browsers honour, and sending a permissive `frame-ancestors`
+beside `SAMEORIGIN` is exactly the combination browsers disagree about. `deny` is
+never overridden: it is a sentence you wrote, where `same_origin` is a default you
+inherited. Your own `csp` is sent as a SEPARATE header beside the grant, and two
+policies intersect — so `frame-ancestors 'none'` in your `csp` still blocks
+everything, and you can narrow the grant but never widen it.
+
 Two `[frontend]` knobs tune it:
 
 ```toml
 [frontend]
 root = "web"
 csp = "default-src 'self'"   # opt-in Content-Security-Policy, emitted verbatim. unset = no CSP header.
-frame_options = "same_origin" # same_origin (default → SAMEORIGIN) | deny (→ DENY) | none (omit the header, for apps meant to be embedded)
+frame_options = "same_origin" # same_origin (default → SAMEORIGIN, or a frame-ancestors grant where the console may embed you — see above) | deny (→ DENY, never overridden) | none (omit the header, for apps meant to be embedded)
 ```
 
 `csp` is a pass-through string — you own the policy; an empty `csp`, or one that
