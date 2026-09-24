@@ -18,6 +18,13 @@ code, calling the API, or improvising. Do NOT summarize, paraphrase, or
    MCP server); show the human the URL + one-time code; poll `login_status`
    until it returns a token. (No CLI needed just to authenticate. CLI path:
    `boogy login`.) Do this early — only the human can do the browser step.
+   **A first-time user picks a handle in that browser step, and you NEVER pick
+   it for them.** It is their account's username, not the name of the app you
+   are building — chosen once, hard to change, and the subdomain every service
+   they ever deploy sits under. Let them choose it in the flow; if you are ever
+   collecting one yourself, ask explicitly and wait for their answer. Full rule
+   (and what to tell them while they choose): `using-boogy`, "Choosing a
+   handle".
 3. **Work strictly from the installed skills — start by invoking `using-boogy`**
    (the router; it sends every Boogy task to the right skill). Never build from
    memory, from the platform API, or from a summary.

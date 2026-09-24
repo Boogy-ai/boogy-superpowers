@@ -323,6 +323,7 @@ app-plane credential:
 
 | Thought | Reality |
 |---|---|
+| "The owner is missing, I'll set it from the project name" | The owner is the person's **handle** — their account username — and it is set from your authenticated deploy, so omit it. If they have no account yet, that is a sign-up, not a manifest field: you never choose a handle for them (`boogy:using-boogy`, "Choosing a handle"). |
 | "I re-ran provision, so it's running my new code" | Provisioning is **idempotent**: re-running against an existing service returns 409 and the host keeps serving the module it was FIRST provisioned with. The log reads like a successful no-op while every request executes old code. |
 | "I published a new version, so the service moved to it" | Publishing does not move a service onto a new module. Publish and provision are separate steps, and only the second changes what runs. |
 | "The URL printed, so the URL works" | Printing is not checking. A brand-new tenant subdomain can have no edge route and no certificate while the control plane reports the service perfectly healthy. Read the response headers, not just the status. |

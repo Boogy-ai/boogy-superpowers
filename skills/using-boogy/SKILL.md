@@ -140,14 +140,37 @@ BYO-config: you provision your own instance and bind your own keys.
 
 Deploying requires a token. Two paths — the MCP path requires no install.
 
-A first-time sign-in picks a **handle**, and **your handle IS your subdomain** —
-a DNS label, lowercase `[a-z0-9-]`, **3–30 characters** (no `_`, `.`, or spaces). Your services
-are reached at `https://<handle>.<base>/<mount>/<path>`, where `<mount>` is the
-service's manifest `[routing] path` (NOT its `id` — the two only coincide when
-you mount at `/<id>`). Messy input is coerced
-(`my_app` → `my-app`) and the final handle is returned; reserved/taken → pick
-another. (There is no path-based `/<owner>/<service>` form — routing is
-subdomain-only, so a non-label handle would be unroutable.)
+A first-time sign-in picks a **handle**. Read the next section before you let
+that step go past you.
+
+### Choosing a handle — the person chooses it, never you
+
+**You NEVER select the handle.** It is the person's **username** — the name of
+their *account*, not the name of the app you happen to be building for them.
+They pick it once, it is hard to change afterwards, and it becomes their
+subdomain, so everything they ever deploy lives under it. Either send them
+through the sign-in flow, which presents the handle-choosing step, and let them
+choose there — or, if you are collecting it yourself, **ask them explicitly and
+wait for their answer**. Never infer one from the project, the repo, the
+directory name, or the task you were given.
+
+**Tell them what they are choosing while they choose it.** One handle carries as
+many services as they like, each at its own route — so if they sign up as
+`alice`, a notes API lands at `https://alice.boogy.app/notes/` and a photo
+gallery at `https://alice.boogy.app/gallery/`: one account, two apps, two paths.
+That is why a handle taken from today's project is the wrong shape. Sign someone
+up as `youtube-library` while building them a video library and you have
+permanently named their whole account after one of the things in it, and the
+next five apps they build sit under it too.
+
+**Your handle IS your subdomain** — a DNS label, lowercase `[a-z0-9-]`, **3–30
+characters** (no `_`, `.`, or spaces). Services are reached at
+`https://<handle>.<base>/<mount>/<path>`, where `<mount>` is the service's
+manifest `[routing] path` (NOT its `id` — the two only coincide when you mount
+at `/<id>`). Messy input is coerced (`my_app` → `my-app`) and the final handle is
+returned; reserved/taken → they pick another. (There is no path-based
+`/<owner>/<service>` form — routing is subdomain-only, so a non-label handle
+would be unroutable.)
 
 **`<base>` is the app plane — in production it is `boogy.app`, NOT `boogy.ai`.**
 Your live URL is `https://<handle>.boogy.app/<mount>/`. `boogy.ai` is the
@@ -166,7 +189,9 @@ call the `login` tool. It returns a `user_code`, a verification URL, and a
 sign in, and confirm the code **matches** (anti-phishing). Then poll
 `login_status` with the `device_code` every few seconds until it returns
 `{status: "complete", token: "v4.public.…"}`. Pass that token as
-`BOOGY_TOKEN` or `--token`.
+`BOOGY_TOKEN` or `--token`. A first-time user picks their handle inside that
+browser step — that is the path that already does the right thing, so prefer it
+and let them choose there rather than collecting a handle in chat.
 
 **CLI (alternative):** `boogy login` — same device flow, auto-opens the
 browser, saves the token to `~/.config/boogy/credentials.toml` so later CLI
@@ -194,4 +219,5 @@ developer / agent) signing in to the platform to deploy.
 | "Integrity = wrap the whole handler in a `tx`." | No — a `tx` guards **store writes only**, and an `outbound_http` call (or other irreversible effect) inside one is **denied**. `boogy:boogy-transactions` already has the rule + the patterns to use instead (staged job in-tx, or after commit). Don't guess — read it. |
 | "I'll set the price now and tune it later." | You cannot tune what you never measured. A price and its `max` come from a deployed, **unpriced** route's own usage — `fuel`, bytes, and the spread between p50 and p99. Read `boogy:boogy-route-pricing` before writing a number. |
 | "I set `max` high to be safe." | `max` is the balance a caller must **hold** before you will serve them, not just a ceiling. Set high, it refuses callers who could have afforded the actual call, and caps nothing that was going to happen. |
+| "I'll pick a sensible handle from the project name and move on." | The handle is the person's **username**, not their app's name — chosen once, hard to change, and the subdomain every service they ever deploy sits under. Naming their account after one project misnames all the rest. You never select it: send them through the sign-in flow's handle step, or ask and wait. See "Choosing a handle" above. |
 | "The user said 'boogy.ai', so my app is at `<handle>.boogy.ai`." | No. The app plane is **`boogy.app`**; `boogy.ai` is control/marketing only. Your live URL is whatever the **`boogy deploy` output prints** — read it from there, never reconstruct it from the user's words or the login host. |

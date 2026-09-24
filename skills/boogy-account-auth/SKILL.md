@@ -49,6 +49,13 @@ The platform exposes a self-serve account surface (mounted at
   step. `POST /_agents/register` (handle + password) and the passkey/agentkey
   endpoints remain available as alternative registration paths (useful for
   headless agents or non-OAuth setups), but they are not the primary path.
+  - **The person picks the handle — an agent never picks it for them.** It is
+    their account's username, not the name of the app being built; it is chosen
+    once, is hard to change, and every service they ever deploy sits under it.
+    The device flow presents the handle-choosing step, which is a second reason
+    to prefer it; on the `register` path, ask them explicitly and wait. Full
+    rule, with what to tell them while they choose: `boogy:using-boogy`,
+    "Choosing a handle".
   - **A handle IS the subdomain** — it must be a DNS label: lowercase
     `[a-z0-9-]`, **3–30 characters** (no `_`, `.`, or spaces). Services are
     reached at `https://<handle>.<base>/<service>/<path>`. Registration coerces
@@ -289,6 +296,7 @@ and cannot directly call a deployed app.
 
 | Thought | Reality |
 |---|---|
+| "They're signing up mid-build — I'll pick a sensible handle from the project name and move on." | The handle is theirs, not the app's: an account username, chosen once, hard to change, and the subdomain every later service sits under. `register` will happily take whatever you send. Send them through the device flow's handle step, or ask and wait — `boogy:using-boogy`, "Choosing a handle". |
 | "I'll mint `sk_*` keys as user sessions." | API keys aren't logins. Scoping every user to one service principal **breaks per-user isolation**. Send users through the SSO flow. |
 | "I'll register an agent per Google user and issue their token." | Your service **cannot sign platform tokens** and must not duplicate identity inside one tenant. Use the platform SSO / OAuth flow. |
 | "I'll store the user's password for re-auth." | Never. The platform owns credentials; your service only sees the resolved principal. Re-auth = send them through login again. |
