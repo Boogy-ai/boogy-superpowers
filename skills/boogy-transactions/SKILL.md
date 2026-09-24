@@ -437,7 +437,11 @@ not need to see stays outside it.
   `signing_remove_key` (each returns `SignError::CapabilityDenied("signing is
   not allowed inside a transaction…")` — match the variant, not the message;
   `signing_list_keys` is a read and is
-  allowed); `background_jobs` *cancel* and *status* (a staged job isn't
+  allowed); `connections_begin` and `connections_revoke` (each returns
+  `ConnectionError::CapabilityDenied` — an authorization and a revocation
+  are both irreversible external effects; `connections_status` is a read
+  and is allowed, see `boogy:boogy-oauth-connections`);
+  `background_jobs` *cancel* and *status* (a staged job isn't
   queryable until after commit — use the id `enqueue` returned).
   `background_jobs` *enqueue* is allowed (staged). A denial does **not**
   poison the transaction: handle the error and the tx can still commit.

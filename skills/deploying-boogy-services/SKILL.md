@@ -49,7 +49,7 @@ before every deploy. Full detail in `boogy:testing-boogy-services`.
 | `boogy provision <module-ref> <service-id> [--overrides <toml>]` | run a service instance from a published module |
 | `boogy upgrade <service-id> --to <version>` | move a provisioned service to another module version |
 | `boogy list [--all]` | list your deployed services; `--all` lists every owner's (admin scope) |
-| `boogy remove <service-id> [--owner <owner>]` | delete your deployment; `--owner` deletes another owner's (admin scope) |
+| `boogy remove <service-id> [--owner <owner>]` | start deleting your deployment; `--owner` deletes another owner's (admin scope). **Accepted, not finished** — see below |
 
 Module ref shape: `boogy://<owner>/modules/<id>@<version>`.
 
@@ -77,6 +77,16 @@ a streaming method — in which case it never becomes routable at all, and the
 
 To serve your service on your own domain (`app.theircompany.com`) instead
 of the default URL, see `boogy:boogy-custom-domains`.
+
+**`boogy remove` is accepted, not finished.** It prints "Service is being
+deleted" because that is what happened: the route is dropped immediately, and
+the platform then completes the teardown in the background (revoking any OAuth
+grants at their providers before anything is destroyed). Two things follow.
+Re-creating a service with the same id is refused (**409**) until it finishes,
+so do not script remove-then-redeploy against one id — upgrade in place
+instead. And the service can no longer serve its own export endpoint the
+moment the remove is accepted, so export first. See
+`boogy:boogy-service-lifecycle`.
 
 ## Your live URL — read it from the deploy output
 

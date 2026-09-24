@@ -20,6 +20,14 @@ skips capabilities, ingress, and data entirely. The
 `designing-boogy-services` skill runs this questionnaire once installed;
 until then, answer them yourself first.
 
+**Make it stick.** Early in the work, persist a short directive into the
+project's `CLAUDE.md` so a later session — or one whose context was compacted —
+still knows to invoke these skills without being told. `boogy:boogy-onramp`
+step 5 carries the exact text and the rules (announce it, don't ask; already
+there, change nothing). Name the skills in **every subagent dispatch** too: a
+subagent inherits no hook and no conversation, so unless you tell it, it builds
+from guesswork.
+
 ## Interaction model — you wire, the person decides the shape
 
 When there's a person in the loop (a "vibe coder" who wants to build, not to learn
@@ -50,6 +58,13 @@ design → plan → build → check → deploy → exercise
 **Invoke the skill BEFORE answering, not after.** A question about how to model
 data is a data-modelling task; answering from memory and checking later is how
 confidently-wrong syntax gets shipped.
+
+**A plan does not retire the skills.** Re-invoke the skill for the task in front
+of you, every time, during the build and not only while planning. A plan, a
+spec, an earlier task's notes and your own memory of a skill are all *summaries*
+of it — and never building from a summary is this package's standing rule.
+`boogy:planning-boogy-work` requires every task to name the skills to invoke
+before starting it; invoke them.
 
 **If the superpowers plugin is also installed**, use its generic process skills
 for the process and these for the Boogy-specific gates — capabilities, ingress,
@@ -86,6 +101,7 @@ compete.
 | `boogy-secrets` | a service needs an API key or credential for an external call, host-side HMAC signature verification, or asking how secrets work |
 | `boogy-signing` | a service must produce a cryptographic signature — signing keys, per-user or wallet keys, blockchain transactions, signed receipts or attestations — with a private key the host holds and your code never touches |
 | `boogy-blockchain-transactions` | a service constructs, signs, or broadcasts on-chain transactions — a custodial wallet, on-chain payments/payouts, a swap or bridge relayer, or any EVM/Cosmos/Solana/Bitcoin signer that moves funds (fund-safety: one gate per sign path, total-outflow + fee bounds, denom-aware caps, signature self-verify, adversarial RPC, nonce serialization) |
+| `boogy-oauth-connections` | a service must act on a USER's account at a third-party API (Google/YouTube, Slack, GitHub, Notion) — "connect your account", OAuth2 consent, per-user tokens the platform holds, refreshes and injects |
 | `boogy-webhooks` | building a service that RECEIVES and verifies inbound webhooks from a third party (Stripe, GitHub, Twilio, any HMAC-signed callback) |
 | `boogy-serving-frontends` | a service must serve a web frontend — a reactive UI, SPA, dashboard, static HTML/JS/CSS, or a full-stack app serving both the page and its API (arrow-js, TypeScript-with-no-build, host-served assets) |
 | `boogy-custom-domains` | serving a service on a tenant's own domain instead of the platform subdomain — registration, DNS records, verification, root-serve semantics |
@@ -103,6 +119,11 @@ compete.
 
 No matching skill? Say so explicitly and work from the SDK reference
 docs rather than guessing.
+
+A skill listed above that **fails to invoke** ("unknown skill") means the
+installed package is older or less complete than this catalog — not that the
+skill is imaginary. Say so to the user, get the package updated, and do NOT
+proceed from memory.
 
 ## Worked examples — the service catalog
 

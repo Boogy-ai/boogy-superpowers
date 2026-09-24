@@ -39,7 +39,7 @@ These are plan failures, not style preferences:
 - "Similar to Task 3" — repeat the code; the engineer may read tasks out of order
 - A type, function or route named in one task and defined in none
 
-## The five requirements that make this a BOOGY plan
+## The six requirements that make this a BOOGY plan
 
 A generic plan skill does not know how this platform fails. These are not
 style; each one is a defect class.
@@ -95,6 +95,24 @@ belongs in the edit loop rather than before shipping.
 
 Neither command proves the service works. See `boogy:testing-boogy-services`.
 
+### 6. Every task names the skills to invoke before starting it
+
+A task is executed by someone holding only the task text — often a fresh
+subagent, with no memory of this plan being written and no reason to believe a
+skill exists. A skill named in the task gets invoked; a skill named once in the
+plan's preamble does not.
+
+And the plan is a **summary** of those skills — the one thing they forbid
+building from. Prose loses the error names, the refusal codes and the red flags,
+so a task written from the plan alone re-derives a rule the skill states
+outright, and re-derives it wrong.
+
+Name them where you name capabilities:
+
+```
+**Skills:** boogy:boogy-auth, boogy:boogy-access-patterns
+```
+
 ## A task, written out
 
 ```markdown
@@ -105,6 +123,8 @@ Neither command proves the service works. See `boogy:testing-boogy-services`.
 - Modify: `src/models.rs` (the Room model)
 - Test: `crates/roomlogic/src/slug.rs` (sibling crate — slug validation)
 
+**Skills:** `boogy:boogy-rest-apis`, `boogy:boogy-data-modeling`,
+`boogy:boogy-access-patterns` — invoke before starting.
 **Capabilities:** `store`, `auth`  (granted in Task 1)
 **Access pattern:** `lookup_by = "slug"` — the uniqueness check is a point read,
 not a scan.
@@ -132,6 +152,7 @@ is a point lookup without reading the code.
 | "The query is fine, it's fast locally." | Locally you have twelve rows. State the access pattern or state that it is a scan. |
 | "I'll check conventions before I ship." | `boogy check` is seconds. Running it once at the end means finding ten things at once, in code you have stopped thinking about. |
 | "It builds, so the task is done." | A build proves it compiles. Only exercising the deployed URL proves it serves. |
+| "I read the skills while writing the plan." | Whoever executes Task 7 did not, and cannot tell from the task that a skill exists. A skill not named in the task is a skill not invoked — and the plan is the summary it told you not to build from. |
 
 ## See also
 
@@ -143,7 +164,8 @@ is a point lookup without reading the code.
 ---
 
 Adapted from the MIT-licensed `writing-plans` skill (Jesse Vincent, 2025).
-**What changed and why:** the five requirements above. A generic plan skill does
+**What changed and why:** the six requirements above. A generic plan skill does
 not know that the service crate cannot host a unit test, that capabilities are
-deny-by-default declarations, or that an undeclared read becomes a full table
-scan that every small-fixture test will pass.
+deny-by-default declarations, that an undeclared read becomes a full table scan
+every small-fixture test will pass, or that the plan will be executed by someone
+who never read the skills it was compiled from.

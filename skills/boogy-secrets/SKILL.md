@@ -56,6 +56,7 @@ fn charge(form_bytes: Vec<u8>) -> Result<(), outbound_http::FetchError> {
         timeout_ms: Some(5000),
         // (header name, declared secret name) — NOT the value
         secret_headers: vec![("Authorization".into(), "stripe_key".into())],
+        connection_auth: None,
     };
     let resp = outbound_http::fetch(&req)?;
     Ok(())
@@ -70,15 +71,20 @@ same-named header you set) and are stripped on cross-origin redirects.
 A secret's `usage` list says *what the host may do with it* — and is
 **enforced**: a reference is honored only if the name is declared AND
 permitted for that context. A name with no usage entry is rejected at
-manifest validation. Two usages exist today:
+manifest validation. Three usages exist today:
 
 | Usage | What the host does | The value is… |
 |---|---|---|
 | `outbound-header` | Injects the value as a header on an `outbound_http::fetch` call (above). | …never returned; injected at the wire edge. |
 | `hmac-verify` | Computes `HMAC(secret, message)` host-side and constant-time-compares it to a tag you supply — for verifying inbound signatures (webhooks). | …never returned; only a `bool` comes back. |
+| `oauth-client` | Uses the value as the OAuth2 client id / client secret of a declared `[connections.<name>]`, on the platform's own token and revoke calls. | …never returned, and never reachable from a guest request. |
 
-A name can carry both (`usage = ["outbound-header", "hmac-verify"]`) if
-it's used for both — but the common case is one each.
+A name can carry both `outbound-header` and `hmac-verify` if it's used
+for both — but the common case is one each. **`oauth-client` is
+exclusive of `outbound-header`**, and the manifest is refused if one
+name carries both: an OAuth *client secret* a guest could name in
+`secret_headers` is a client secret the guest can exfiltrate to any
+allowlisted host. See `boogy:boogy-oauth-connections`.
 
 ## hmac-verify: verify an inbound signature without holding the secret
 
@@ -181,7 +187,10 @@ planning). → `boogy:boogy-outbound-http` covers the full egress story
 secrets are consumed. → `boogy:boogy-webhooks` composes `hmac-verify`
 into the canonical inbound-webhook receiver. → `boogy:boogy-signing` is the
 counterpart for *producing* a signature with a host-held private key your
-code never touches.
+code never touches. → `boogy:boogy-oauth-connections` is the counterpart
+for a credential that is **per end user** and produced at runtime — a
+service acting on a user's account at a third-party API, with an OAuth2
+token the platform holds, refreshes and injects.
 
 ## Red Flags
 

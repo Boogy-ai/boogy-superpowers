@@ -21,6 +21,43 @@ while the service is still deployed (e.g. an export endpoint or job using
 "We can always recover it later" is false — there is no recovery path
 once the route is gone.
 
+**The export window closes at the DELETE call itself, not when the
+teardown finishes.** The route is dropped the instant the request is
+accepted, so the service can no longer serve its own export endpoint even
+though the deletion is still in progress underneath.
+
+## Removal is accepted, then completed
+
+`DELETE` answers **202** with `{"state": "deleting"}`. It does not mean
+"deleted" — it means the platform has accepted the removal and started
+it:
+
+- The route is gone immediately; callers see the service as absent from
+  that moment.
+- Nothing is destroyed yet. The deployment record, the stored data and
+  any OAuth connections survive the call, because tearing those down
+  needs the live deployment to still be there.
+- The platform finishes in the background: it revokes each OAuth grant at
+  its provider, deleting that grant's row only once the provider has
+  actually settled it, and performs the real delete when none remain. A
+  provider outage means a retry later, not a stranded grant.
+- **Re-creating a service with the same id is refused (409) until the
+  teardown finishes.** That is the one user-visible consequence worth
+  planning around: if you are replacing a service by removing and
+  re-adding it under the same id, don't — upgrade in place (see below).
+- **You can see it directly, not only by being refused:** the service
+  stays in `boogy list` / `GET /v1/services` with `"deleting": true` and
+  a `delete_requested_at`, until the teardown finishes and it disappears.
+
+You do not have to wait for anything or poll anything; the teardown has
+no failure mode that needs your attention. The one case that surfaces to
+you is a provider that refuses to revoke indefinitely: rather than leave
+the service undeletable, the platform deletes it anyway and writes
+`service.deleted_with_unrevoked_grants` to your audit tail, carrying how
+many grants were left live. When that row appears, the remedy is the
+provider's own account page — nothing on the platform can reach those
+grants any more. (See `boogy:boogy-oauth-connections`.)
+
 ## Old versions clean themselves up
 
 Every redeploy leaves the previous module version published and serving as a
@@ -93,6 +130,8 @@ an OpenAPI 3.1 document covering the full deploy lifecycle (`/_agents/*`,
 |---------|---------|
 | "Remove it now, tell the other teams afterward." | The moment the route is gone, callers get `target-not-found` — a live outage. Notify and migrate callers first. |
 | "Removal deletes the data, so we're clean." | False. Removal leaves the data intact but unreachable. Export before removing; there is no recovery API. |
+| "The DELETE returned, so the service is gone — I can re-add the id now." | It returned **202**: accepted, not finished. The route is gone but the teardown is still running, and re-creating the same id is refused (409) until it completes. |
+| "I'll unbind the OAuth client secret first, then delete the service." | Backwards. The platform needs that secret to authenticate each revoke call; removing it first means every revoke fails, the teardown waits out its give-up bound, and the grants are stranded at the provider. Delete the service, let it finish, then remove the secret. |
 | "No need to export — we can always recover it." | There is no read/recover/export path after removal. Export while the service is still deployed. |
 | "We're replacing it, so remove the old one and add the new." | If it's the same service, upgrade in place — re-add ≠ upgrade and strands the old data. |
 | "Set `allowed_origins = []` to lock it down." | Empty `allowed_origins` fails manifest validation. Narrow the list or ship a `410 Gone` stub instead. |

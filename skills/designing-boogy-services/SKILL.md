@@ -151,6 +151,32 @@ ungoverned scaffold.
    half-built, and retrofitting an operator surface onto a data model that
    didn't plan for cross-principal reads is the expensive path.
 
+   **Then name the credential the operator will actually hold.** The in-handler
+   owner check is your gate, but it is not the first thing the request meets.
+   On any route whose effective ingress mode is not `public`, the host refuses
+   a bare **platform** credential — the deploy/console token the owner already
+   has in their terminal — with **403 `app_plane_requires_app_credential`**,
+   at the edge, before your handler runs. App-plane routes need an app-plane
+   credential, so the design must say which one:
+
+   - **The owner signed in to *this service*** ("Sign in with Boogy") clears
+     the boundary, and the owner check still recognises them: your wasm sees a
+     `pw_…` pairwise mask, but the host resolves the real account behind it
+     rather than parsing the mask — the owner is not masked out of their own
+     admin surface.
+   - **The owner's own backend** — a workload, or an OBO hop carrying a user —
+     is not an agent-token caller at all and never meets that boundary.
+   - **An `sk_*` key your service issues** is app-plane too, but it reaches the
+     host anonymously (your own `api_keys` guard resolves it), so it only gets
+     through on a route whose mode is `public` — and there the key IS the gate;
+     `caller_is_service_owner()` will be false.
+
+   Write the chosen one into the design artifact beside the route list. "The
+   owner can just curl it with their token" is the wrong answer, and it fails
+   at the edge in a way your handler never sees, so no error message of yours
+   can explain it. The testing side of the same rule is in
+   `boogy:testing-boogy-services`.
+
 4. **Capabilities** — deny-by-default; list only what you use:
    `store`, `auth`, `clock`, `entropy`, `logging`, `peer` (call other
    services), `outbound_http` (external HTTPS), `background_jobs`,
@@ -348,6 +374,7 @@ fabrication happens.
 | "The public API is the service; admin can come later." | A service you can't inspect or intervene in across principals is half-built. Design the owner-gated `/admin/*` surface (list-all, revoke/cancel/block, force-retry, audit) alongside the public one — retrofitting cross-principal reads later is the expensive path. |
 | "I'll gate the main sensitive path; the lighter path is fine." | Every path that performs the irreversible action (sign, value-moving outbound, broadcast) shares ONE gate. A skipped path is a bypass — design the choke point now (step 4). |
 | "`caller is owner` is the admin gate." | That can admit any owner-*workload*, not just the owner's agent. Admin is agent-only; assert the invariant with a test and distrust "mirrors X" comments. |
+| "The owner can curl `/admin` with the token they deploy with." | A non-public route refuses a bare platform/deploy credential at the edge — **403 `app_plane_requires_app_credential`** — before any handler runs. Name the app-plane credential in the design: an app session for this service, the owner's own backend, or a `public` route gated by an `sk_*` key (step 3). |
 | "The RPC/node told me the fee / that it's a contract." | External inputs are adversarial. Never let a node value drive an allow/deny or an unbounded spend — clamp + fail closed; allowlists come from trusted config, not node signals. |
 
 ## Integration

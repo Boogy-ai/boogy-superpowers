@@ -23,4 +23,13 @@ out="$(printf '{"user_prompt":"another boogy thing","session_id":"s2"}' | sh "$H
 out="$(printf '{"user_prompt":"boogy please","session_id":"s3"}' | sh "$HOOK")"
 printf '%s' "$out" | grep -q "INVOKE them" || { echo "FAIL: new session did not inject"; fail=1; }
 
+# 5. The injected text carries the two instructions that outlive the hook:
+#    persist a directive, and carry it into subagents. The hook fires once per
+#    session and only on a prompt naming Boogy, so these two are the only parts
+#    of the contract that survive a compaction or a fresh session without it.
+printf '%s' "$out" | grep -q "CLAUDE.md" \
+  || { echo "FAIL: injected text does not tell the agent to persist a directive"; fail=1; }
+printf '%s' "$out" | grep -q "subagent dispatch" \
+  || { echo "FAIL: injected text does not carry the instruction into subagents"; fail=1; }
+
 [ "$fail" -eq 0 ] && echo "boogy-onramp-assert: OK" || { echo "boogy-onramp-assert: FAILED"; exit 1; }

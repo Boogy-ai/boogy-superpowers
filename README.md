@@ -89,6 +89,59 @@ host-truth validation in one step.
 > hardcoded to `https://api.boogy.ai/mcp`. If you run your own host, edit the
 > `mcpServers.boogy.url` value in that file to point at your instance.
 
+### (c) Make it stick — a `CLAUDE.md` directive
+
+Installing the skills does not make an agent *remember* to use them: the onramp
+gate fires only on a prompt that names Boogy, and only once per session, so
+"build me something that syncs my YouTube likes" gets nothing, and neither does
+a session whose context has been compacted. A directive in `CLAUDE.md` has
+neither limit — it is in context always. An agent following `boogy-onramp`
+writes it for you and says that it did, and until it exists the session-start
+hook asks for it once per session; to set it up by hand, paste this into your
+project's `CLAUDE.md` (or your global `~/.claude/CLAUDE.md` if you build on
+Boogy across projects), **keeping the comment line** — that marker is what the
+session-start hook looks for before it goes quiet:
+
+```markdown
+<!-- boogy-superpowers-directive -->
+## Boogy
+
+All Boogy work goes through the `boogy-superpowers` skills — **invoke** them
+with the Skill tool; never summarize, paraphrase, or work from memory of them.
+Entry point: `using-boogy`, which routes to the rest.
+
+Repeat this instruction in **every subagent dispatch**. A subagent inherits
+no hook and no conversation; unless you tell it, it builds from guesswork.
+
+Skills not installed? Install the plugin from its GitHub repo —
+`claude plugin marketplace add Boogy-ai/boogy-superpowers`, then
+`claude plugin install boogy-superpowers`, then ask the human to run
+`/reload-plugins` — or vendor them with
+`npx degit Boogy-ai/boogy-superpowers/skills .claude/skills`. Flat, one
+level: a wrapper directory makes every skill silently undiscoverable.
+```
+
+### The two hooks the plugin installs
+
+Both are **assert-only** — they read and print, and never run a command that
+changes anything. Neither writes `CLAUDE.md`: that is the agent's job, and the
+agent tells you it did it.
+
+| Hook | Fires | Says something when |
+|---|---|---|
+| `hooks/boogy-onramp-bootstrap.sh` (`SessionStart`) | every session | the directive above is **absent** from every `CLAUDE.md` on the path (the project's, an ancestor's, `.claude/CLAUDE.md`, your global one). It prints one line and nothing else. Once the directive exists it is **silent forever**, in every project |
+| `hooks/boogy-onramp-assert.sh` (`UserPromptSubmit`) | first prompt of a session naming Boogy | always, once per session — it injects the full setup contract (sign in, invoke don't paraphrase, persist, carry into subagents) |
+
+The first exists because the second cannot cover the case it was written for:
+"build me something that syncs my YouTube likes" never says "boogy", so nothing
+fires, and the directive that *would* have covered that prompt only ever gets
+written by an agent that already invoked a Boogy skill. The session-start hook
+breaks that circle, and the marker in the directive block is how it knows to
+stop.
+
+Run their tests with `sh hooks/boogy-onramp-bootstrap.test.sh` and
+`sh hooks/boogy-onramp-assert.test.sh`.
+
 ---
 
 ## Start here

@@ -59,6 +59,7 @@ fn charge(payload_bytes: Vec<u8>) {
         body: Some(payload_bytes),
         timeout_ms: Some(5000),          // None → manifest default_timeout_ms
         secret_headers: vec![("authorization".into(), "stripe_key".into())],
+        connection_auth: None,           // or Some(ConnectionRef { .. }) for OAuth
     };
     match outbound_http::fetch(&req) {
         Ok(resp) => { /* resp.status: u16, resp.headers, resp.body */ }
@@ -73,11 +74,18 @@ fn charge(payload_bytes: Vec<u8>) {
 sees it. See `boogy:boogy-secrets`. Reserved headers (`authorization`,
 `cookie`, `x-boogy-*`, `host`) supplied in plain `headers` are stripped.
 
+**To call an API as one of your users**, set `connection_auth` instead: it
+names a `[connections.<name>]` block and a subject, and the host injects a
+fresh OAuth access token — refreshing it when due, and only to that
+connection's declared `inject_hosts`. See
+`boogy:boogy-oauth-connections`.
+
 **A 4xx/5xx is `Ok(resp)`, not `Err`.** `Err(FetchError)` is
 transport-level only: `host-not-allowed`, `blocked-address`,
 `plaintext-denied`, `timeout`, `dns`, `connection-refused`,
 `response-too-large`, `request-too-large`, `rate-limited`,
-`unknown-secret`, `capability-denied`, `invalid-url`, `internal`. Check
+`unknown-secret`, `connection-unavailable`, `connection-host-not-allowed`,
+`capability-denied`, `invalid-url`, `internal`. Check
 `resp.status` for application-level HTTP results.
 
 Redirects are followed with per-hop re-validation; cross-origin hops
@@ -91,8 +99,9 @@ for one origin can't leak to another.
   (`CapabilityDenied`). Don't fan out unboundedly.
 - **Denied inside a transaction.** An outbound call can't roll back and
   would exceed the store transaction envelope, so the host denies it
-  in-tx. To make an external effect atomic with a write, enqueue a
-  *staged* background job inside the tx (commit-gated) — see
+  in-tx. `connections_begin` and `connections_revoke` are denied in-tx for
+  the same reason. To make an external effect atomic with a write, enqueue
+  a *staged* background job inside the tx (commit-gated) — see
   `boogy:boogy-transactions`.
 
 ## Bring your own backend
