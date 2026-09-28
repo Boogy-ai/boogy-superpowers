@@ -50,6 +50,11 @@ Default to one service. Split at a real seam, not by reflex.
   others call; `mode = "internal"`.
 - **Pipeline** — A → B → C, each stage a hop in the same request tree.
 - **Hub** — one entry service fans out to several internal services.
+- **Peer-to-peer** — one module, **many owners**: every user provisions
+  their own instance and the instances call each other as equals. The
+  first three are all one owner composing their own services, and the
+  allowlists below assume you can name the callers. This one cannot, so
+  it has its own rules: `boogy:boogy-peer-to-peer-apps`.
 
 ## Internal mode + allowed_origins
 
@@ -65,12 +70,22 @@ allowed_origins = ["boogy://acme/services/orders"]
 get through. Matcher syntax (verified):
 
 - `boogy://<owner>/services/<name>` — exact workload.
-- `boogy://<owner>/*` — any service owned by `<owner>`.
-- `*`, `boogy://*`, `boogy://*/*` — any workload (all three spellings
-  mean the same wildcard).
+- `boogy://<owner>/*`, `boogy://<owner>/services/*` — any service owned
+  by `<owner>`.
+- `*`, `boogy://*`, `boogy://*/*`, `boogy://*/services/*` — any workload
+  (all four spellings mean the same wildcard).
 
 `allowed_origins` is **required non-empty** for `internal`; an empty
 list silently denies everything (the validator catches it at deploy).
+
+**The owner segment takes no wildcard except in those four whole-mesh
+spellings.** There is no matcher for "the service named `orders`,
+whoever owns it": `boogy://*/services/orders` parses as an *exact*
+workload owned by the literal string `*`, which no workload has, so it
+is accepted at deploy and then matches nothing — a silent deny-all. If
+your topology needs a grant that spans owners you cannot enumerate, the
+whole-mesh wildcard is the only matcher that expresses it, and the gate
+then has to live in the handler: `boogy:boogy-peer-to-peer-apps`.
 
 ## Identity between services
 
@@ -239,11 +254,14 @@ the rule is "check first", not "never".
 | "We need payments — integrate Stripe inline." | Check the mesh first; prefer a shared internal capability; external is fine only when nothing fits. |
 | "I'll read my own owner from an env var / a config row." | Use `self_identity()` — host-pinned and unspoofable. Env/config can drift or be wrong; the host value is authoritative. |
 | "On a peer hop, `self_identity()` tells me who called me." | No — it's the CALLEE's own identity. The caller is in `current_identity()` (principal/actor). |
+| "The caller's service id in the principal is enough to authorize it (`service_id == "orders"`)." | Service ids are chosen by whoever provisions, so a name check admits every owner who picked that name. Authorize on the full workload URI — and on a DELEGATED hop the principal is the user's pairwise, not the caller at all: the calling workload is in `actor`. |
 
 ## Integration
 
 → `boogy:boogy-obo-delegation` (authoritative cross-service identity),
 `boogy:boogy-transactions` (cross-service writes),
 `boogy:boogy-registry-and-provisioning` (mesh discovery, provision-vs-consume),
+`boogy:boogy-peer-to-peer-apps` (one module, many owners — instances that
+call each other as equals),
 `boogy:boogy-webhooks` (a service that also receives third-party callbacks).
 ← `boogy:designing-boogy-services` (the split/compose decision at design time).

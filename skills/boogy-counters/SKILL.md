@@ -86,9 +86,12 @@ tx::<_, _, ApiError>(|| {
 })
 ```
 
-The loser now gets a **409** it can retry, instead of a wrong answer it cannot
-detect. That contention is not a regression — it is the cost of depending on the
-value, and you have chosen to depend on it.
+The loser now takes a **commit conflict** — which `tx` retries for you, so it
+re-reads the winner's committed value and decides again — instead of a wrong
+answer it cannot detect. Only a row contended past the attempt budget reaches
+the caller, and it does so as a **503** (`TooContended`), never a 409. That
+contention is not a regression — it is the cost of depending on the value, and
+you have chosen to depend on it.
 
 ## Three verbs, and which to reach for
 

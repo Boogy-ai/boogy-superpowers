@@ -144,6 +144,36 @@ If you see a cert error immediately after verification:
 You do NOT need to manage certificates; the platform handles issuance and
 renewal for `verified` domains.
 
+## "Sign in with Boogy" does not work on a custom domain
+
+**A verified custom domain has no `/boogy/*` surface at all.** That whole path
+segment — `/boogy/callback`, `/boogy/me`, `/boogy/logout`, `/boogy/config` — is
+answered by the platform on a tenant subdomain and **refused** on a custom
+domain, with the same 404 body an unmatched route gets. So the end-user sign-in
+flow cannot complete there: there is nothing to exchange the authorization code
+at, and no app-session cookie is ever set on your domain.
+
+This is not a configuration you are missing. There is no allowed-redirect-origin
+setting, and adding one would not help: the exchange binds a minted code to the
+origin it was minted for by comparing that origin's own **DNS label**, and a
+custom domain has no label to compare — deciding what one should stand for is an
+origin-binding decision the platform has deliberately not taken yet.
+
+What this means in practice:
+
+| You want | Today |
+|---|---|
+| End-user sign-in on `app.theircompany.com` | **Not available.** Serve the signed-in part of the app on `<handle>.<base>` |
+| An API on a custom domain called by a signed-in browser | Not via the app-session cookie — the cookie is host-only to the subdomain that set it and never travels to your domain |
+| A public site, or one whose own routes need no end-user identity | Works normally |
+| Programmatic callers (`sk_*` keys, workload/OBO credentials) | Work normally — the boundary is the browser sign-in flow, not authentication as such |
+
+If you already serve a signed-in app on the platform subdomain, adding a custom
+domain does not move the session onto it. Track this as a platform gap rather
+than something to work around in your app: minting your own session on the
+custom domain means re-implementing identity inside one tenant, which is the
+anti-pattern `boogy:boogy-account-auth` names.
+
 ## Security model
 
 - **Ownership via TXT:** only a party with DNS control over the domain
@@ -161,8 +191,7 @@ renewal for `verified` domains.
   domains attach to an existing `service_id`.
 - → `boogy:boogy-auth` — the bound service's ingress mode applies
   normally on the custom domain, including per-route overrides.
-- → `boogy:boogy-account-auth` — if using SSO ("Sign in with Boogy"),
-  note that the custom domain is a distinct browser origin and you will
-  need to configure it as an allowed redirect origin.
+- → `boogy:boogy-account-auth` — but read *"Sign in with Boogy" does not work
+  on a custom domain* below first. There is no setting that enables it.
 - → `boogy:boogy-serving-frontends` — how a framework-built frontend's base
   path interacts with the mount, on a custom domain and off it.

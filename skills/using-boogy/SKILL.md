@@ -96,6 +96,7 @@ compete.
 | `boogy-account-auth` | wiring login/signup for a service's users, or asking where principals and tokens come from |
 | `boogy-obo-delegation` | one service must act on a user's behalf when calling another service — delegation config, principal-vs-actor authorization |
 | `boogy-mesh-architecture` | composing multiple services, deciding whether to split a service, or passing identity/data between services |
+| `boogy-peer-to-peer-apps` | one module, **many owners** — every user provisions their own instance and the instances call each other as equals; cross-owner grants you cannot enumerate, and the in-handler gate that has to compensate |
 | `boogy-registry-and-provisioning` | needing functionality that might already exist in the mesh, publishing a module, or deciding whether to run your own instance of one |
 | `boogy-file-storage` | a service stores or serves files — user uploads, avatars, images, documents, PDFs, video, generated exports — or asking where to put data too large for a table row |
 | `boogy-secrets` | a service needs an API key or credential for an external call, host-side HMAC signature verification, or asking how secrets work |

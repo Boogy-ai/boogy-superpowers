@@ -65,6 +65,30 @@ require_principal_in_allowed_agents = false         # also gate the USER against
   only by the other gates (no `[ingress.delegation]` block, an empty cap,
   or an actor not on the allowlist), never by scopelessness itself.
 
+## The opt-in is per SERVICE, not per route
+
+The delegation gate is evaluated **once, against the service-wide
+`[ingress.delegation]` block**, before any per-route
+`[[ingress.routes]]` resolution happens. A per-route override carries its
+own mode and its own allowlists; it does **not** carry a delegation
+policy and cannot narrow one. There is no per-route `allow_actor`.
+
+So an entry in `allow_actor` opens **every route on the service** —
+including the ones you gated with `auth::required()`. That guard asks one
+question, "is anybody signed in?", and a delegated hop *is* signed in: as
+the user. Wiring it per-route is the mistake to avoid; the narrowing has
+to happen **in the handler**.
+
+Two things make that tractable:
+
+- `caller_is_service_owner()` is **false for any call carrying an
+  `actor`**, so it is the gate that a delegated hop cannot pass however
+  it arrives — while still being true for the owner signed in via SSO.
+  See `boogy:boogy-auth`.
+- `max_delegated_scopes` is a real bound, but it caps *which scopes* are
+  forwarded, not *which routes* are reachable. A cap wide enough for your
+  own surface is wide enough for every actor on the list.
+
 ## Spending a user's balance needs their grant
 
 Delegation lets you *act* for a user. It does not let you *spend* for them. If
@@ -127,11 +151,15 @@ originating tenant's fair share. Page it, and pass the cursor back up.
 |---|---|
 | "Check `identity.actor` is our service and allow everything." | Breaks isolation — the actor is identical for every user. Authorize on the **principal**. |
 | "Pass the user's token through in a header." | Identity-bearing headers are **stripped** on every hop. The platform propagates identity for you. |
-| "Set `allow_actor = ["*"]` to be safe." | Inverted — that's maximally **unsafe** (any workload may impersonate users). Name exact workloads. |
+| "Set `allow_actor = ["*"]` to be safe." | Inverted — that's maximally **unsafe** (any workload may impersonate users), and it is service-wide. Name exact workloads. If the grant genuinely must span owners you cannot name — every user runs their own copy and the copies call each other — the wildcard is the only matcher that expresses it, and then the in-handler gate is mandatory: `boogy:boogy-peer-to-peer-apps`. |
+| "`boogy://*/services/notes` grants every owner's notes instance." | It does not. The owner segment takes no wildcard in that form: it parses as an exact workload owned by the literal `*`, matches **nothing**, and is not rejected at deploy. The accepted wildcards are `*`, `boogy://*`, `boogy://*/*`, `boogy://*/services/*`. |
+| "The callee can tell which service called it from `current_principal()`." | Under delegation that is the **user's pairwise** for the callee. The calling workload is in `actor`. A peer route that authorizes the caller must read `actor`. |
 | "Leave `max_delegated_scopes` off — it's optional." | No longer accepted: a block with `allow_actor` and no cap is **rejected at deploy**. The cap is the only ceiling on forwarded scopes — always set it. |
 
 ## Integration
 
 ← `boogy:boogy-auth` (in-handler ownership), `boogy:boogy-account-auth`
 (where the user principal comes from). → `boogy:boogy-mesh-architecture`
-for the broader cross-service picture.
+for the broader cross-service picture, and
+`boogy:boogy-peer-to-peer-apps` when the actors are other owners' copies
+of your own module.

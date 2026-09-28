@@ -103,7 +103,15 @@ already have built JS and don't want the transpile, set `build = "dist"`.)
 `@arrow-js/core` resolves either to a copy you include under `web/vendor/` (the
 default — fully self-hosted), or, with `allow_cdn = true`, to a CDN URL. The
 platform generates the `<script type="importmap">` and injects it into your
-`index.html`. Relative `./foo.ts` imports are rewritten to `./foo.js` for you.
+`index.html`. Relative `./foo.ts` imports are rewritten to `./foo.js` for you —
+and you can write the modern, extensionless form too: `import './foo'`
+resolves the same sibling. An extensionless relative import is probed in a
+fixed, documented order — `.ts`, `.tsx`, `.jsx`, `.js` as a direct file, then
+the same four as a directory's `index.*` — so when a same-named `.ts` and `.js`
+both exist, the `.ts` wins (it's far more likely to be your real source than a
+stale build artifact), and a directory's `index.*` is only tried once no direct
+file matches. An import that matches nothing still fails the deploy, naming the
+specifier and the file that imported it.
 
 > **Pin your CDN imports.** With `allow_cdn = true`, always write
 > `<pkg>@<version>` (e.g. `react@18.2.0`) rather than a bare `react`. A bare
@@ -208,15 +216,16 @@ reactive runtime you `import` directly, no compiler required. A minimal `web/ind
 platform transpiles it.) Include arrow-js at `web/vendor/@arrow-js/core.js`, or set
 `allow_cdn = true`.
 
-### Vendor a KNOWN-GOOD build — not every CDN artifact works
+### Vendor a KNOWN-GOOD build — verify the artifact, don't pattern-match a URL shape
 
-arrow-js is pre-1.0 and not all published artifacts are usable standalone. Vendor a
-self-contained ES-module build and **pin the version**. Known-good for
-`@arrow-js/core@1.0.0-alpha.9`:
+Not every published CDN artifact is usable standalone, and the failure mode is
+the worst kind: it loads, exports the right names, throws nothing, and then
+**silently renders nothing**. Vendor a self-contained ES-module build and
+**pin the version**. Known-good for `@arrow-js/core@1.0.0-alpha.9`:
 
 - ✅ `https://cdn.jsdelivr.net/npm/@arrow-js/core@1.0.0-alpha.9/+esm` (self-contained, no external imports — recommended to vendor)
 - ✅ `https://unpkg.com/@arrow-js/core@1.0.0-alpha.9?module`
-- ✅ the esm.sh **default** entry (`https://esm.sh/@arrow-js/core@1.0.0-alpha.9`)
+- ✅ the esm.sh **default** entry for this package (`https://esm.sh/@arrow-js/core@1.0.0-alpha.9`)
 - ❌ **`https://esm.sh/@arrow-js/core@1.0.0-alpha.9/es2022/core.bundle.mjs`** — loads,
   exports the right names, throws nothing, and then **silently renders nothing**.
   This is the easy-to-reach path and the worst to debug. Avoid it.
@@ -224,10 +233,50 @@ self-contained ES-module build and **pin the version**. Known-good for
   re-export *shim*, not the module — so "download it with curl" mis-vendors. Use a
   `/+esm` or `?module` build that is the actual code.
 
-After vendoring, **load the page in a real browser** and confirm `#app` actually
-renders — a blank page with no console error is the signature of a bad arrow-js
-build (and of mount/caching bugs); curl and `boogy check` won't catch it.
-`boogy deploy --smoke` (above) automates exactly this check.
+**Don't read that list as "avoid the `/es2022/*.bundle.mjs` shape, and any
+plain default entry is fine."** Verified separately, for a different package:
+plain `https://esm.sh/preact@10.24.3`, with **no query parameter or extra path
+segment at all**, also serves a stub that renders nothing. Both of these are
+specific, dated observations about specific URLs — not a general claim that
+esm.sh, or CDNs at large, ship broken builds. What they rule out is inferring
+"this entry point works" from what its URL looks like: a shape you haven't
+personally hit failing is not evidence it can't.
+
+**A vendored file's own imports can be off-origin without looking bare.** A
+jsdelivr `+esm` build of `preact/jsx-runtime` imports via a
+**jsdelivr-root-absolute path**, e.g. `from"/npm/preact@10.24.3/+esm"` inside
+the file you vendored. That specifier isn't bare — it doesn't lack a leading
+`.`/`/` — so a check that only looks for bare imports won't flag it. And
+because it *starts* with `/`, a check that treats a leading slash as
+"relative, therefore already safe" reads it exactly backwards: at page load
+that path resolves against the **tenant's own origin**, not jsdelivr's, and
+404s. Read every vendored file's own imports, not just the entry URL you
+fetched it from.
+
+**"Does this artifact contain bare imports" is the wrong test.** A legitimate
+vendored file can, and often should, contain a bare import. Say your app's
+entry module does `import { render } from "preact"` (a bare specifier, so the
+platform records an import-map entry for it, `"preact" → "./vendor/preact.js"`),
+and you also vendor `web/vendor/preact/jsx-runtime.js`, whose first line is
+`import{options as r,Fragment as e}from"preact";`. That bare import is
+**correct**, not a mis-vendor: the browser resolves it through the exact same
+import-map entry your own entry module's import produced. The test that
+actually matters is not "relative vs. bare" in isolation — it's: **is every
+specifier this artifact imports either relative, or itself covered by the
+generated import map?**
+
+That coverage is latent, not structural, and worth stating plainly: it holds
+only because your entry graph happens to import the same specifier the
+vendored file needs. The import map is built from what the entry graph
+actually imports, not from scanning every vendored file for specifiers it
+would like resolved. So a vendored dependency can go from resolvable to
+unresolvable with no change to the vendored file itself — purely because
+unrelated application code stopped importing that same bare specifier.
+
+After vendoring, **load the page in a real browser** and confirm the app
+actually renders — a blank page with no console error is the signature of a
+bad vendored build (and of mount/caching bugs); curl and `boogy check` won't
+catch it. `boogy deploy --smoke` (above) automates exactly this check.
 
 ### Boolean attributes: prefer `checked="${…}"` over `.checked="${…}"`
 
@@ -557,8 +606,10 @@ the bare `fetch("./api/…")` shown above is usually all you write:
 - Don't confuse it with `__Host-boogy_session`, the platform-login cookie set on
   the **auth** origin (`auth.<base>`). It is host-only too, so it never travels to
   a tenant origin and cannot authenticate a call to your service. `__Host-boogy_app`
-  is audience-bound (`aud = boogy://<owner>/services/<svc>`) and the host prefers
-  it when both are present. If your own page gets a 401, check that the
+  covers a SET of that owner's services — one cookie for the origin, each service
+  with its own subject — and the host resolves the right one for whichever service a
+  request reaches, preferring it over the platform cookie when both are present. If
+  your own page gets a 401, check that the
   callback ran on your origin and set the cookie before reaching for a
   `credentials` option. See `boogy:boogy-account-auth`.
 - Set `credentials: "include"` **only** for a *cross-origin* API (a different

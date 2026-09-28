@@ -134,7 +134,7 @@ maximal, and every rule above applies.
 | "Amounts are all integers, I can compare them" | Not across denoms. Key caps on `(owner, chain, denom)`; amounts as strings. |
 | "The node told me the gas price / that it's a contract" | The node is adversarial. Clamp + fail closed; never let a node value drive allow/deny or an unbounded spend. |
 | "The host signs correctly, so the assembled tx is fine" | Splicing/encoding is on you. Recover-and-verify the signature against its sighash before broadcast. |
-| "Concurrency is rare, the nonce will be fine" | Two simultaneous sends collide on the nonce. Serialize the reservation; conflict → 409. |
+| "Concurrency is rare, the nonce will be fine" | Two simultaneous sends collide on the nonce. Serialize the reservation in a `tx`: the loser's conflict is retried and re-reads the winner's nonce, and only a sustained pile-up reaches the caller — as a 503, never a 409. |
 | "The doc says it's an external signer" | Verify from `boogy.toml` + the sign calls. Custodial vs external-signer changes the entire threat surface. |
 
 ## Integration

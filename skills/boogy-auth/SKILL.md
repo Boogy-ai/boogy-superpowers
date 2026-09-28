@@ -91,6 +91,22 @@ ingress concern still apply, an *undeclared* collection gets no
 exemption, and a mesh-`internal` service keeps its boundary regardless.
 See `boogy:boogy-file-storage`.
 
+#### `public` does not make data public — but anyone may sign in
+
+`public` ingress is the right mode for a service that serves its own page
+and then authenticates its own users, and it means exactly what it says:
+**anyone reaches the service, and anyone may complete the SSO flow
+against it.** A stranger who does arrives with a perfectly valid
+principal, so every route gated by `auth::required()` alone will serve
+them and let them create rows.
+
+That is correct for a multi-user app and wrong for an instance meant to
+belong to one person — a personal dashboard, a single-owner tool, one
+copy of a per-user module. **A login gate is not an owner gate.** Put
+`caller_is_service_owner()` (below) on the routes that write, and keep
+`auth::required()` alone only where many end users genuinely share one
+instance.
+
 An owner's own `allowlist`-gated or `private` surface will reject the owner's
 SSO session — after SSO they arrive as a pairwise, which cannot match an
 `allowlist` entry. Use `BOOGY_FIRSTPARTY_WORKLOADS` (global identity) or an
@@ -197,7 +213,16 @@ Why this is the right primitive: the **human owner can curl `/admin` directly**
 with their own token (the wasm can't resolve an agent's handle, but the host can —
 that's what the capability does), AND the owner's backend works as a workload.
 Fail-closed: anonymous, a different owner, or an unresolvable caller → `false`.
-(See the `resend-base` catalog module.) The earlier "`internal` + same-owner
+(See the `resend-base` catalog module.)
+
+**It is also `false` for any call carrying an `actor`** — i.e. any
+delegated (on-behalf-of) hop — refused before the caller is even
+resolved, so no lookup can talk it back open. That is what makes it the
+right gate on a service whose `[ingress.delegation]` grant is
+necessarily wide: a delegated hop cannot borrow the owner's identity
+however it arrives, while the owner's own SSO session still passes. A
+module that means to admit the owner's *own* backend checks `actor`
+itself, as the snippet above does. The earlier "`internal` + same-owner
 workload" pattern also works but EXCLUDES direct human curl — prefer
 `caller_is_service_owner` for owner-only surfaces.
 

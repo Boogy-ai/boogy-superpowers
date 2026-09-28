@@ -160,9 +160,26 @@ https://auth.<base>/authorize
 Concrete example (`alice`/`notes`, redirecting back to `/notes/`):
 `https://auth.boogy.app/authorize?aud=boogy%3A%2F%2Falice%2Fservices%2Fnotes&app_origin=https%3A%2F%2Falice.boogy.app&redirect=%2Fnotes%2F&state=abc123&code_challenge=E9Melh…&mode=redirect`
 
+**`aud` may name SEVERAL of the owner's services in one flow** — repeat the
+parameter, or whitespace-separate the values inside one. That is how a page
+framing several of an owner's apps signs into all of them with a single redirect
+and a single consent decision, and the result is still **one** cookie (see the
+cookie table below). Up to 32 per request; duplicates collapse. Every audience
+must belong to the app origin's own owner — **one foreign `aud` refuses the whole
+request**, never just that entry, so you cannot sign into two owners' apps at
+once.
+
 **3. The auth origin** logs the user in (Google / GitHub / passkey / password —
-new users pick a handle) if no `__Host-boogy_session` exists, shows consent,
-mints a one-time code, and 302s to `<app-origin>/boogy/callback?code=…&state=…`.
+new users pick a handle) if no `__Host-boogy_session` exists, shows consent **if
+it is needed**, mints a one-time code, and 302s to
+`<app-origin>/boogy/callback?code=…&state=…`.
+
+**Consent is only asked for an app someone ELSE owns.** Signing in to your own
+app — every `aud` under your own handle — is auto-granted: you do not consent to
+share your identity with yourself, and a twelve-pane board of your own would
+otherwise ask you twelve times in one list. So when you are testing your own app
+as its owner you will see no consent screen, and that is correct rather than a
+missing step; sign in as a different account to exercise the consent path.
 
 **4. The platform handles `<app-origin>/boogy/callback`** (this route is LIVE and
 reserved — you do NOT implement it): it reads the code + `state` + your
@@ -220,26 +237,57 @@ request.
 
 ### Sign out / session
 
-- `GET <app-origin>/boogy/me` → the current end-user session — `{ pairwiseId, connectedAt?, displayName, avatarUrl }` — or `null` if not signed in. `displayName`/`avatarUrl` are `null` unless the user's profile-share consent is on (see above); `connectedAt` is omitted if unavailable. Live route.
-- `POST <app-origin>/boogy/logout` → clears the `__Host-boogy_app` cookie (204). Live route.
+- `GET <app-origin>/boogy/me?service=<service>` → the current end-user session —
+  `{ pairwiseId, services, connectedAt?, displayName, avatarUrl }` — or `null` if
+  not signed in to that service. `services` lists every one of this owner's
+  services the session covers, so a page can tell which of its apps the person is
+  signed in to without a probe each. `pairwiseId` is **per service**, so `?service=`
+  is what makes it about YOUR app; it is `null` when the session covers several
+  services and none was named, because handing a page another app's id would be a
+  wrong answer rather than a partial one (`null` there still means signed in — the
+  bare `null` body is what means "not signed in"). `displayName`/`avatarUrl` are
+  `null` unless the user's profile-share consent is on (see above); `connectedAt` is
+  omitted if unavailable. Live route.
+- `POST <app-origin>/boogy/logout` → clears the `__Host-boogy_app` cookie and
+  returns `200 {"signedOut":"origin"}`. **Sign-out is all-or-nothing:** one cookie
+  covers every app the person signed in to on that origin, so clearing it signs them
+  out of all of them. A `?service=` is accepted but selects nothing — the response
+  body names the scope that was actually applied. Live route.
 - The `__Host-boogy_app` token has a **~15 min TTL**. On a `401` to a
   previously-authenticated call, re-run the `/authorize` redirect — short TTL is by design.
 
-**Pairwise pseudonym:** the `sub` in every `__Host-boogy_app` token is `pw_…` — the
-same human gets a **different** id at each service. The service can never recover
-the global id. It's a path-independent fingerprint of `(user, service)`: the same
-user always lands on the same pairwise whether they arrived directly or via a
-delegation chain. Because `current_principal()` returns an opaque string, handler
-code is unchanged — `find_owned`/`owns_resource` scope rows by the `pw_…` value
-(`find_owned` returns one bounded page plus a cursor, as it does for any
+**Pairwise pseudonym:** the subject your service sees is `pw_…` — the same human
+gets a **different** id at each service. The service can never recover the global
+id. It's a path-independent fingerprint of `(user, service)`: the same user always
+lands on the same pairwise whether they arrived directly or via a delegation chain.
+Read it with `auth::current_principal()`. Because that returns an opaque string,
+handler code is unchanged — `find_owned`/`owns_resource` scope rows by the `pw_…`
+value (`find_owned` returns one bounded page plus a cursor, as it does for any
 principal — see `boogy:boogy-auth`).
+
+> ⚠️ **Do not read the session token's top-level `sub` and expect your pairwise.**
+> One cookie covers several apps, so the token carries one subject **per app** and
+> its top-level `sub` is not any app's — it is a fixed placeholder chosen so that
+> reading it yields nothing usable rather than something plausible. The platform
+> resolves the right subject for the app a request routed to, before your code runs.
+> `current_principal()` is the only correct way to ask, and it always was; this is
+> the assumption that stopped being safe.
+
+**Your user's handle may be withheld because of a SIBLING app.** `current_handle()`
+rides one claim on the one cookie and every app on the origin reads the same claim,
+so the platform shares it only when the person has consented for **every** app the
+session covers — otherwise sharing it with one would disclose it to the others. So
+an app that had the handle can stop receiving it when the person signs in to a
+sibling app under the same owner without consenting there. Treat `None` as normal
+and never as an error: it already meant "not shared", and this is one more reason
+for it. `current_principal()` is unaffected, so ownership and storage never change.
 
 **Cookies — three names, never confused:**
 
 | Cookie | Origin | Set by | Contents |
 |---|---|---|---|
 | `__Host-boogy_session` | `auth.<base>` (host-only, httpOnly) | auth origin | Bootstrap PASETO; proves platform login; **cannot call any app** |
-| `__Host-boogy_app` | `<handle>.<base>` (host-only, httpOnly) | the callback | App PASETO (`aud` = one service, `sub` = `pw_…`; ~15 min); grants exactly one service |
+| `__Host-boogy_app` | `<handle>.<base>` (host-only, httpOnly) | the callback | App PASETO covering a **set** of this owner's services, each with its own `pw_…` subject (~15 min). **One cookie for the origin, not one per app** — signing in to a second app adds it to the set rather than replacing it, so the request header stays the same size however many apps the person uses |
 | `boogy_pkce` | `<handle>.<base>` (Path=`/boogy/callback`) | **you (the client)** | The PKCE verifier; short-lived; consumed + cleared by the callback |
 
 > **`@boogy/web` browser SDK** wraps all of the above (`boogy.connectApp('<owner>/<service>')`,
@@ -303,6 +351,8 @@ and cannot directly call a deployed app.
 | "There's no social login, only password/agentkey." | Wrong — social OAuth (Google/GitHub) is brokered at the platform bootstrap layer; end-users get it via the "Sign in with Boogy" SSO flow. |
 | "After OAuth I'll read the token in JS and attach a Bearer header." | You can't — both `__Host-boogy_session` and `__Host-boogy_app` are **httpOnly** by design. You don't need to: a same-origin request sends the cookie automatically. Don't try to extract it. |
 | "My global deploy token works fine for calling my deployed service." | A bare global Agent token is **rejected (403)** at a non-public app route — the control-plane/app-plane boundary. Use an SSO `__Host-boogy_app` cookie, an `sk_*` key on a public route, or add the service to the first-party allowlist. |
+| "The session cookie's token `sub` is my app's pairwise id, so I can read it directly." | One cookie covers several of the owner's apps, so the token carries a subject **per app** and its top-level `sub` is none of them — it is a placeholder that resolves to nothing usable on purpose. Ask `auth::current_principal()`, which the platform has already resolved for the app the request reached. |
+| "One cookie for several apps means signing in to the second signs me out of the first." | No — each sign-in UNIONS into the set. What it does mean is that **signing OUT signs you out of all of them**, and that a stolen cookie reaches every app in the set rather than one. |
 | "The `pw_…` pairwise id needs special handling in my code." | It is an opaque string to your service — exactly like any other principal. `find_owned`/`owns_resource` work unchanged (and `find_owned` is paginated for a pairwise principal exactly as for any other). Never parse or assume the `pw_` prefix. |
 | "If a user reaches my service via a chain, they get a different owner than a direct visit." | No — the pairwise is a fingerprint of `(user, your-service)`. Direct visit and chain arrival produce the same `pw_…`. |
 | "I'll use a `/boogy/me` field (or a handle the client sends me) as a unique user id." | Only the token handle — `auth::current_handle()`, read server-side — is verified. `/boogy/me` fields and client-supplied handles are browser-readable/-editable and can be spoofed; treat neither as authoritative. |

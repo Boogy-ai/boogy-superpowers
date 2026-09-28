@@ -108,6 +108,11 @@ Plain-language first; a concise technical aside for those who know the system.
 - an **existing module** that already fits → consume / provision your own;
 - two services that **need to talk** → peer wiring + `internal`/`mixed` ingress +
   delegation (`boogy:boogy-mesh-architecture`, `boogy:boogy-obo-delegation`);
+- the person wants **everyone to run their own copy and the copies to talk to
+  each other** (their answer to the Tier-1 provisioning question, and the shape
+  behind chat, contacts, a shared calendar) → the callers are owners you cannot
+  enumerate, so the ingress grant goes wide and the gate moves into the handler:
+  `boogy:boogy-peer-to-peer-apps`. Name this as a Tier-2 choice when you report;
 - a service that's grown **several responsibilities** → propose a split.
 
 ## Red flags

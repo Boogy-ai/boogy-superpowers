@@ -66,6 +66,28 @@ Module ref shape: `boogy://<owner>/modules/<id>@<version>`.
 3. Verify (see **Verify it actually works** below) — do not stop at "deploy
    succeeded".
 
+### `service.wasm` does not follow `CARGO_TARGET_DIR`
+
+The path is resolved **relative to the manifest file** and nothing else.
+Cargo, meanwhile, honours `CARGO_TARGET_DIR` (or `build.target-dir`) and
+writes the artifact wherever that points. `boogy build` shells out to
+cargo, so it redirects too — and then prints
+`target/wasm32-wasip2/release/*.wasm` regardless.
+
+With that variable exported you get one of two outcomes, and the bad one
+is the quiet one:
+
+| State of `target/` next to the manifest | What `boogy deploy` does |
+|---|---|
+| Empty (never built without the redirect) | fails, "wasm not found" — annoying, but it tells you |
+| Holds a wasm from an earlier, un-redirected build | **publishes that stale binary**, reports success, and serves code you did not just compile |
+
+Every symptom then points at the platform: your change has no effect, the
+new route 404s, the fix you just made is still broken. Either unset the
+variable for Boogy builds, or point `service.wasm` at the real output
+path — and if a deploy's behaviour does not match the source, check
+`ls -l` on the file the manifest names before you debug anything else.
+
 **With a `[grpc]` block, step 1 is not optional and not a convenience.** The
 build script compiles your `.proto` and writes the descriptor into the crate;
 `boogy deploy` ships that file beside the wasm and stops with exactly that
@@ -99,6 +121,17 @@ Published: boogy://<handle>/modules/<id>@<version>
 
 `<mount>` is the manifest's `[routing] path` — a module `hello-api` mounted at
 `/api` is served at `/api`, not `/hello-api`.
+
+**The printed URL is always `https://` and carries no port.** The platform
+builds it as `https://<handle>.<base>/<mount>` — scheme fixed, port never
+included. Against a production deployment that is exactly right. Against a
+stack reachable on a non-standard port (a local or self-hosted host on
+`:3000`, say) that origin does not resolve, and three things fail for the
+same reason rather than three: the printed URL is unreachable, `--smoke`
+loads that same URL and cannot reach the page either, and anything that
+frames or fetches the printed URL gets nothing. **It is not a deploy
+failure** — substitute the origin you actually serve on
+(`http://<handle>.<base>:<port>/<mount>`) and verify against that.
 
 That printed `URL:` is the source of truth. The app plane is **`boogy.app`**, not
 `boogy.ai` — `boogy.ai` is the control/marketing plane (`api.boogy.ai` for login +
@@ -329,5 +362,7 @@ app-plane credential:
 | "The URL printed, so the URL works" | Printing is not checking. A brand-new tenant subdomain can have no edge route and no certificate while the control plane reports the service perfectly healthy. Read the response headers, not just the status. |
 | "The deploy log said OK" | Check that it says *upgraded*, not *existing*. That one word is the difference between measuring your change and measuring the previous build — it has invalidated a real performance conclusion. |
 | "The container restarted, so it has my binary" | Recreating a container reuses the existing image. Without a rebuild you are running the old binary with new configuration — which looks like your change had no effect. |
+| "`CARGO_TARGET_DIR` is set, so the deploy picks the build up from there" | It does not — `service.wasm` is relative to the **manifest**, nothing reads that variable. A leftover `target/` next to the manifest means a **stale binary ships and the deploy reports success**. |
+| "The smoke can't reach the URL, so the deploy failed" | The printed URL is always `https://` with no port. On a stack served on a non-standard port that origin simply does not resolve — the deploy is fine; verify against the origin you actually serve on. |
 | "My schema change will apply on the next request" | A service's declared schema is resolved **once, at provision**. A type change, a nullability change, or promoting a plain column to an accumulator is a **conflict** that refuses the deployment outright. |
 | "I'll test against prod config later" | A default that differs between your stack and production is a measurement you cannot transfer. Pin the values the result depends on and state them. |

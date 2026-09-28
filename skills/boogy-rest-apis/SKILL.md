@@ -254,6 +254,33 @@ JSON **and** runs `garde` (missing body → 400, bad JSON → 400, failed
 validation → 422 with a per-field map). Use `parse_body` only when the
 type has no validation rules (avoids the `garde::Validate` bound).
 
+### Path params are NOT percent-decoded; query params are
+
+A path param reaches your handler **exactly as it appeared in the URL**.
+The router matches the raw path and hands you the matched segment
+verbatim — there is no decoding step. Query params are different: the
+platform decodes those before your code runs, which is why the asymmetry
+is easy to miss.
+
+This bites the moment a param can contain a reserved character — a
+workload URI, an email, a path-like key, anything a client will
+percent-encode:
+
+```
+GET /chat/peers/boogy%3A%2F%2Falice%2Fservices%2Fchat
+```
+
+`req.params.parse::<String>("peer")` returns the string still encoded, so
+a lookup against the stored (decoded) value matches **zero rows** — a
+`200` with an empty list. Nothing fails, no guard fires, and the
+existence mask makes it look like missing data rather than a bug.
+
+Three fixes, in preference order: put the value in the **body** (a POST
+with a typed DTO), put it in the **query string** (decoded for you), or
+decode the param yourself before using it. Prefer the first two — a
+reserved character in a path segment is a shape to design away, not to
+compensate for.
+
 ```rust
 #[derive(serde::Serialize, schemars::JsonSchema)]
 struct WidgetOut { id: u64, name: String }
@@ -540,6 +567,7 @@ See `boogy:boogy-route-pricing` for picking prices, units and `max`.
 | "My request struct only needs `Deserialize`." | Without `JsonSchema` the body can never be described — `schemars` emits a schema only when the derive is present. Derive both. |
 | "My DTOs all derive `JsonSchema`, so my request bodies are documented." | Only under the `Json<T>` extractor signature. With `&mut Req` + `validate_body` the derive is inert and the body is absent from `openapi.json` — and the extractor form doesn't run `garde`, so you can't have both without an explicit `.validate()`. CI proves neither; fetch the document. |
 | "201 when I create it, 200 when it already existed." | No response type expresses a runtime-chosen status. Return **one** status and put a boolean discriminator in the body (`already_member: bool`). |
+| "Path params arrive decoded, like query params do." | They do not — a path param is the raw URL segment. A percent-encoded URI, email, or path-like key matches **zero rows** and returns a cheerful empty `200`. Put it in the body or the query string. |
 
 → `boogy:boogy-api-specs` — the full picture of the auto-served
 `openapi.json`/`openrpc.json`, two-tier visibility, and overrides.
