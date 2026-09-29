@@ -164,7 +164,7 @@ up as `youtube-library` while building them a video library and you have
 permanently named their whole account after one of the things in it, and the
 next five apps they build sit under it too.
 
-**Your handle IS your subdomain** — a DNS label, lowercase `[a-z0-9-]`, **3–30
+**Your handle IS your subdomain** — a DNS label, lowercase `[a-z0-9-]`, **4–30
 characters** (no `_`, `.`, or spaces). Services are reached at
 `https://<handle>.<base>/<mount>/<path>`, where `<mount>` is the service's
 manifest `[routing] path` (NOT its `id` — the two only coincide when you mount

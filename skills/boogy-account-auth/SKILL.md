@@ -57,7 +57,7 @@ The platform exposes a self-serve account surface (mounted at
     rule, with what to tell them while they choose: `boogy:using-boogy`,
     "Choosing a handle".
   - **A handle IS the subdomain** — it must be a DNS label: lowercase
-    `[a-z0-9-]`, **3–30 characters** (no `_`, `.`, or spaces). Services are
+    `[a-z0-9-]`, **4–30 characters** (no `_`, `.`, or spaces). Services are
     reached at `https://<handle>.<base>/<service>/<path>`. Registration coerces
     fixable input to a valid label (`my_app` → `my-app`) and returns the final
     handle; reserved or already-taken handles are rejected so the user picks
