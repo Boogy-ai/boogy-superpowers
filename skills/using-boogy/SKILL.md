@@ -165,7 +165,8 @@ permanently named their whole account after one of the things in it, and the
 next five apps they build sit under it too.
 
 **Your handle IS your subdomain** — a DNS label, lowercase `[a-z0-9-]`, **4–30
-characters** (no `_`, `.`, or spaces). Services are reached at
+characters** counted after messy input is fixed (longer or shorter is refused,
+never cut or padded; full rule in `boogy-account-auth`). Services are reached at
 `https://<handle>.<base>/<mount>/<path>`, where `<mount>` is the service's
 manifest `[routing] path` (NOT its `id` — the two only coincide when you mount
 at `/<id>`). Messy input is coerced (`my_app` → `my-app`) and the final handle is

@@ -56,13 +56,28 @@ The platform exposes a self-serve account surface (mounted at
     to prefer it; on the `register` path, ask them explicitly and wait. Full
     rule, with what to tell them while they choose: `boogy:using-boogy`,
     "Choosing a handle".
-  - **A handle IS the subdomain** — it must be a DNS label: lowercase
-    `[a-z0-9-]`, **4–30 characters** (no `_`, `.`, or spaces). Services are
-    reached at `https://<handle>.<base>/<service>/<path>`. Registration coerces
-    fixable input to a valid label (`my_app` → `my-app`) and returns the final
-    handle; reserved or already-taken handles are rejected so the user picks
-    another. A handle that isn't a valid label would be unroutable — enforced
-    at registration, not discovered at deploy.
+  - **A handle IS the subdomain**, so it must be a DNS label. Services are
+    reached at `https://<handle>.<base>/<mount>/<path>`. The platform applies
+    ONE rule on every path that creates a handle (the sign-in flow,
+    `register`, agentkey):
+
+    | Rule | Detail |
+    |---|---|
+    | **Length** | **4 to 30 characters**, counted AFTER the fixes below. |
+    | **Characters** | lowercase `a-z`, digits `0-9`, and `-`. No `-` at either end. |
+    | **Fixed for them** | uppercase → lowercase; `_`, `.`, spaces and any other character → `-`; runs of `-` → one `-`; a leading `@` is dropped. `My_App` → `my-app`. |
+    | **Refused** | under 4 or over 30 after fixing (never padded, never cut short); reserved platform names (`api`, `www`, `admin`, `auth`, `mail`, …). |
+    | **Taken** | a handle someone already holds: `409 handle_taken`, so they pick another. |
+
+    Because the length is counted after fixing, what counts is the handle the
+    person will actually get: `a_b_` is four characters typed but `a-b`
+    stored, so it is refused. A rule refusal is `400 invalid_handle` with
+    the reason in `detail` (`handle is too short (minimum 4 characters)`,
+    `handle is too long (maximum 30 characters)`, `handle is reserved`) —
+    relay that text; don't guess at it. On success the response carries the
+    FINAL handle: show it to the person, because it may differ from what
+    they typed. All of this is enforced at registration, so a handle that
+    registers always routes — nothing is discovered later, at deploy.
 - **Log in** — get back a bearer **token** + the account record.
 - **Use it** — the client presents that token on every request. *How* it's
   presented depends on the login method (see the transport column below): a
