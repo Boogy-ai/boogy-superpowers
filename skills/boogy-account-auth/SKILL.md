@@ -139,9 +139,11 @@ const verifier  = base64url(crypto.getRandomValues(new Uint8Array(32)));
 const challenge = base64url(new Uint8Array(
   await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
 const state = base64url(crypto.getRandomValues(new Uint8Array(16))); // CSRF nonce
-// Path-scoped to the callback, short-lived, on THIS (app) origin:
+// Short-lived, on THIS (app) origin. The `__Host-` name is REQUIRED — the
+// callback reads no other — and the browser only keeps a `__Host-` cookie with
+// Secure and Path=/ exactly, so no other host can plant a verifier here:
 document.cookie =
-  `boogy_pkce=${verifier}; Secure; SameSite=Lax; Path=/boogy/callback; Max-Age=300`;
+  `__Host-boogy_pkce=${verifier}; Secure; SameSite=Lax; Path=/; Max-Age=300`;
 ```
 
 **2. Redirect (or open a popup) to `/authorize` on the auth origin** with these
@@ -183,8 +185,8 @@ missing step; sign in as a different account to exercise the consent path.
 
 **4. The platform handles `<app-origin>/boogy/callback`** (this route is LIVE and
 reserved — you do NOT implement it): it reads the code + `state` + your
-`boogy_pkce` cookie, verifies PKCE, mints the app token, sets the **httpOnly,
-Secure, host-only `__Host-boogy_app` cookie** (~15 min TTL), clears `boogy_pkce`,
+`__Host-boogy_pkce` cookie, verifies PKCE, mints the app token, sets the **httpOnly,
+Secure, host-only `__Host-boogy_app` cookie** (~15 min TTL), clears `__Host-boogy_pkce`,
 and 302s to your `redirect` path (or `postMessage`s `{boogy:'sso_done'}` to the
 opener in `popup` mode).
 
@@ -225,7 +227,7 @@ param — the most common mistakes:
 | `400 invalid authorization request` at `/authorize` | Missing/empty `app_origin`, `redirect`, `state`, or `code_challenge`; or you sent `redirect_uri`/`response_type` (ignored) instead of `redirect`; or `mode` isn't `redirect`/`popup` |
 | `400` even with all params present | `aud` owner ≠ the app_origin's **handle**; or `redirect` is an absolute URL / doesn't start with `/` |
 | `403 token audience does not match target` after callback lands back on the app | The `aud` owner isn't the service's handle owner — it MUST be `boogy://<handle>/services/<service>` (the handle everywhere: `aud`, routing, and the audience check all agree on the handle form) |
-| Sign-in never completes / app cookie missing | The `boogy_pkce` cookie wasn't set (or wrong name/path) before the redirect |
+| Sign-in never completes / app cookie missing | The `__Host-boogy_pkce` cookie wasn't set before the redirect — or was set as plain `boogy_pkce` (no longer read), or with a `Path` other than `/` (the browser silently drops a `__Host-` cookie then) |
 
 ### Owner form: always the handle
 
@@ -253,8 +255,26 @@ request.
   covers every app the person signed in to on that origin, so clearing it signs them
   out of all of them. A `?service=` is accepted but selects nothing — the response
   body names the scope that was actually applied. Live route.
-- The `__Host-boogy_app` token has a **~15 min TTL**. On a `401` to a
-  previously-authenticated call, re-run the `/authorize` redirect — short TTL is by design.
+  It also clears the renewal cookie (below), so a sign-out stays signed out.
+- `POST <app-origin>/boogy/renew` → swaps the origin's **renewal cookie** for a fresh
+  app session, with no page change: `200 {"services": [...]}` and a new
+  `__Host-boogy_app`, or `401` (and the renewal cookie cleared) when there is nothing
+  to renew. **Same-origin only** — call it from a page on the app's own origin
+  (`fetch('/boogy/renew', {method:'POST'})`). It renews only the apps the person
+  still has a grant for: revoking an app ends its renewal. Live route.
+- The `__Host-boogy_app` token has a **~15 min TTL**, by design. On a `401` to a
+  previously-authenticated call, **try `POST /boogy/renew` first**; re-run the
+  `/authorize` redirect only if that fails — and **never from inside a frame** (a
+  framed page cannot show the sign-in page, and a popup that flashes open and shut
+  is not a sign-in). A framed app reports "signed out" to whatever frames it and
+  lets that page sign it in.
+- `GET <app-origin>/boogy/signin?aud=boogy://<owner>/services/<service>&redirect=<url>`
+  (repeat `aud` for several apps) → starts the sign-in above from the app's own
+  origin, with the PKCE verifier made **on the server** — for a page on ANOTHER
+  origin that needs this one signed in, such as a board framing the owner's apps.
+  It navigates to `/authorize` and back to `redirect`; it grants nothing
+  `/authorize` would not. `400` for a bad link (no audience, one owned by someone
+  else, more than 32, or a `redirect` the platform would refuse). Live route.
 
 **Pairwise pseudonym:** the subject your service sees is `pw_…` — the same human
 gets a **different** id at each service. The service can never recover the global
@@ -282,13 +302,14 @@ sibling app under the same owner without consenting there. Treat `None` as norma
 and never as an error: it already meant "not shared", and this is one more reason
 for it. `current_principal()` is unaffected, so ownership and storage never change.
 
-**Cookies — three names, never confused:**
+**Cookies — four names, never confused:**
 
 | Cookie | Origin | Set by | Contents |
 |---|---|---|---|
 | `__Host-boogy_session` | `auth.<base>` (host-only, httpOnly) | auth origin | Bootstrap PASETO; proves platform login; **cannot call any app** |
 | `__Host-boogy_app` | `<handle>.<base>` (host-only, httpOnly) | the callback | App PASETO covering a **set** of this owner's services, each with its own `pw_…` subject (~15 min). **One cookie for the origin, not one per app** — signing in to a second app adds it to the set rather than replacing it, so the request header stays the same size however many apps the person uses |
-| `boogy_pkce` | `<handle>.<base>` (Path=`/boogy/callback`) | **you (the client)** | The PKCE verifier; short-lived; consumed + cleared by the callback |
+| `__Host-boogy_pkce` | `<handle>.<base>` (host-only, `Path=/`) | **you (the client)**, or `/boogy/signin` | The PKCE verifier; short-lived; consumed + cleared by the callback. `__Host-` so no other host can plant one |
+| `__Host-boogy_renew` | `<handle>.<base>` (host-only, httpOnly, `SameSite=Strict`, Path=`/`) | the callback | Renewal token: swapped at `POST /boogy/renew` for a fresh `__Host-boogy_app`. Lives one platform-session length (24 h) from the sign-in that set it and **never slides**; covers no app itself, so it authorizes nothing but a renewal on this one origin |
 
 > **`@boogy/web` browser SDK** wraps all of the above (`boogy.connectApp('<owner>/<service>')`,
 > `boogy.fetch('<owner>/<service>', path)`). If it's available to you, prefer it;
