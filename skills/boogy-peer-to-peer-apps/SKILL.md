@@ -265,12 +265,31 @@ it yourself. See `boogy:boogy-rest-apis`, "Extractors".
 ## Publishing the module
 
 A peer-to-peer module is only useful if others can run it, so leave
-`[provisioning]` at its `public` default and treat the mount path as
-part of the contract: instances address each other at
-`boogy://<owner>/services/<id>` plus a path, and a provisioner may
-relocate the mount (`boogy:boogy-registry-and-provisioning`). Either
-pin the peer path in the module and document it, or discover it —
-never assume every instance mounted where yours did.
+`[provisioning]` at its `public` default, and declare `[discovery]` so
+instances can find each other (`boogy:boogy-registry-and-provisioning`,
+"Finding another account's instance"):
+
+```toml
+[discovery]
+[[discovery.routes]]
+name = "peer-messages"
+path = "/chats/api/peer/messages"   # the module's own path
+version = 1
+```
+
+- **A peer is found by handle, never by assumption.** A provisioner
+  chooses the service id, so `boogy://<handle>/services/<your-id>` is a
+  guess. `discovery::lookup(handle, &Module::Same)` returns their listed
+  instances of your module, with addresses. Look up once, when the
+  relationship starts, and store the address.
+- **The peer path is the module's own path, whatever the mount.** A
+  provisioner may mount their instance at another path. A `peer::fetch` is
+  resolved by the target's address and handed the path unchanged, so the
+  module's own paths work on every instance. Only a browser's URL follows
+  the mount.
+- **Tell "gone" from "down".** When a stored peer's `peer::fetch` fails with
+  `PeerError::TargetNotFound`, they no longer run the module. Say so, and
+  keep "couldn't be reached" for the other failures.
 
 ## Checklist
 

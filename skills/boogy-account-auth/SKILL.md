@@ -220,9 +220,14 @@ settings — your app gets two different channels for it:
   `auth::current_handle() -> Option<String>` (see `boogy:boogy-auth`). It
   rides the signed app token as a claim, so it's safe to treat as the user's
   real, verified identity. `None` if they declined to share.
-- **Name + photo — browser-readable, via `/boogy/me`.** These aren't on the
-  token; fetch `GET <app-origin>/boogy/me` for `displayName`/`avatarUrl`
-  (both `null` when not shared — see "Sign out / session" below).
+- **Name + photo — browser-readable, via `/boogy/me`.** Fetch
+  `GET <app-origin>/boogy/me` for `displayName`, `handle` and `avatarUrl`.
+  `handle` is the same handle the token carries, so it is there exactly when
+  your app is entitled to it: always for the person's OWN app, otherwise only
+  with their consent to share their identity. `displayName` is the profile name
+  they shared, falling back to that handle — so "who is signed in" has a name to
+  show without anyone setting one. `avatarUrl` needs the shared profile. Each is
+  `null` when it does not apply (see "Sign out / session" below).
 
 > **Caution:** only the token handle (`current_handle()`) is trusted for
 > identity. Never treat a `/boogy/me` value, or a handle a client hands you
@@ -255,15 +260,17 @@ request.
 ### Sign out / session
 
 - `GET <app-origin>/boogy/me?service=<service>` → the current end-user session —
-  `{ pairwiseId, services, connectedAt?, displayName, avatarUrl }` — or `null` if
+  `{ pairwiseId, services, connectedAt?, displayName, handle, avatarUrl }` — or `null` if
   not signed in to that service. `services` lists every one of this owner's
   services the session covers, so a page can tell which of its apps the person is
   signed in to without a probe each. `pairwiseId` is **per service**, so `?service=`
   is what makes it about YOUR app; it is `null` when the session covers several
   services and none was named, because handing a page another app's id would be a
   wrong answer rather than a partial one (`null` there still means signed in — the
-  bare `null` body is what means "not signed in"). `displayName`/`avatarUrl` are
-  `null` unless the user's profile-share consent is on (see above); `connectedAt` is
+  bare `null` body is what means "not signed in"). `handle` is set when your app
+  is entitled to it (always for the person's own app, otherwise with their consent),
+  `displayName` is their shared profile name or else that handle, and `avatarUrl`
+  needs the shared profile — each `null` otherwise (see above); `connectedAt` is
   omitted if unavailable. Live route.
 - `POST <app-origin>/boogy/logout` → clears the `__Host-boogy_app` cookie and
   returns `200 {"signedOut":"origin"}`. **Sign-out is all-or-nothing:** one cookie

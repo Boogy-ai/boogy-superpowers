@@ -184,10 +184,67 @@ So: the author decides what the code *can* do; you decide how *your*
 instance is sized, exposed, rate-limited, and what egress + secret values
 it runs with.
 
+## Finding another account's instance
+
+The registry above finds **modules**. To find a **running instance**, ask the
+platform: "does this handle run this module, and where?" This is how instances
+of one module find each other, for example a messenger where every person runs
+their own copy. A service never has to assume the instance's address, because
+the provisioner chose its service id.
+
+- **Opt in with `[discovery]`.** An instance can only be found if its module
+  declares `[discovery]` (see the manifest reference). The author lists the
+  routes every instance publishes, and listing is on by default once routes
+  are declared. Whoever provisions an instance decides `listed` for theirs
+  (off, or on if the author left it off), and nothing else in that section.
+  A module with no `[discovery]` section can't be listed by anyone.
+- **To hide a running instance**, upgrade it to its current version with
+  new overrides: `boogy upgrade <id> --to <its version> --overrides off.toml`,
+  where `off.toml` holds `[discovery]` / `listed = false`. Its data stays.
+- **One handle, one module.** There is no way to list everyone who runs a
+  module.
+- **An unlisted instance and no instance give the same answer**, an empty
+  list. Word a refusal so it is true in both cases ("isn't on X, or keeps it
+  unlisted"), and it reveals nothing.
+- **From a service** (`[capabilities] peer = true`), use the generated
+  `discovery::lookup`. `Module::Same` means "the module I run", so a module
+  finds other instances of itself without naming its own address:
+
+```rust
+use boogy_sdk::discovery::Module;
+
+fn find_peer(handle: &str) -> Result<Option<String>, ApiError> {
+    // `handle`'s listed instances of the module THIS service runs, at most
+    // ten, ordered by service id. Each carries its address (the peer::fetch
+    // target), its module version, and its published routes.
+    let found = discovery::lookup(handle, &Module::Same)?;
+    Ok(found.first().map(|i| i.address.clone()))
+}
+```
+
+- **From a request, directly or on a user's behalf.** A service can look up
+  while handling any request, with or without a signed-in person, and
+  `Module::Same` resolves to the calling service's module either way. **Not
+  from a background job:** a job cannot reach the platform registry today,
+  so there `lookup` fails with `TargetNotFound`. That names the registry, not
+  the instance, so don't read it as "they left". Look up during a request and
+  store the address.
+- **An error is not an empty answer.** If the platform cannot answer, the
+  lookup fails. Never treat a failed lookup as "not on it".
+- **Over HTTP**, anyone signed in can call
+  `GET /v1/registry/instances/{handle}?module=<author>/<name>`.
+- **A route's `path` is the module's own path.** A call to another service
+  reaches it on every instance, whatever path that instance is mounted at, so
+  call `instance.address` with `route.path` as it is.
+- **Lookups are rate limited per caller**, from a service and over HTTP
+  (429). Look up once, for example when a buddy is added, and store the
+  address. Don't look up on every request.
+
 ## Red flags
 
 | Thought | Reality |
 |---|---|
+| "Their instance is surely at `boogy://<handle>/services/<my-id>`." | Service ids are chosen by whoever provisions. Look the handle up with `discovery::lookup` and use the address it returns. |
 | "Only admins can discover services." | False — the registry (`/v1/registry/*`) is authenticated, not admin-gated. `boogy list` shows your own deployments; `--all` is the operator view. |
 | "Provision a copy of everything by default." | Consume shared singletons for stateless utilities; provision only when isolation, data locality, or upgrade control demands it. |
 | "I'll just build the thumbnailer." | Search the registry first. Building is fine if nothing fits — but check. |
