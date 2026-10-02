@@ -264,6 +264,62 @@ allowed (no token for public channels); private channels carry the
 service-minted `grant`; principal channels carry the `principal` field
 (and a `grant` for guests).
 
+> **Connect with `transports: ["websocket"]`.** The gateway serves only the
+> websocket transport. A default Socket.IO client starts with HTTP
+> long-polling, gets a `400` handshake, and never connects — the browser
+> reports an `xhr poll error` and no subscribe is ever sent.
+
+### From a page built on `@boogy/web`: `openStream`
+
+The browser SDK does everything in the rest of this section for you — the
+transport, the subscribe, renewing the grant before it expires (a repeat
+subscribe on the same room with a fresh grant is how a renewal reaches the
+gateway), reconnecting — including after the server ends the connection, which
+a Socket.IO client never does by itself — re-subscribing, `JSON.parse`, the
+typed-envelope check and the `seq` dedupe.
+Your service mints a ticket from one of its own routes: the grant, plus where to
+subscribe, taken from the service's own identity (`self_identity()`), never from
+the hostname.
+
+```rust ignore-snippet: a handler shown for its ticket shape; the channel and DTO belong to the reader's service
+fn live_grant(_req: &mut Req<'_>) -> Result<Json<json::Value>, ApiError> {
+    if !caller_is_service_owner() {                    // or your own per-user check
+        return Err(ApiError::forbidden("owner only"));
+    }
+    let grant = ws_mint_subscribe_grant("live", 600)
+        .map_err(|_| ApiError::service_unavailable("try again shortly"))?;
+    let me = self_identity();
+    Ok(Json(json::json!({
+        "grant": grant, "ttl_secs": 600,
+        "owner": me.owner, "service": me.service_id, "channel": "live",
+    })))
+}
+```
+
+```ts
+import { io } from "socket.io-client";   // v4, passed in; the SDK bundles none
+import { openStream } from "@boogy/web";
+
+const stream = openStream({
+  io,
+  mint: async () => {
+    const r = await fetch("api/live/grant", { method: "POST" });
+    if (!r.ok) throw new Error(`grant: ${r.status}`);   // retried after a pause
+    return r.json();
+  },
+  onEvent: (e, seq, replayed) => {
+    if (e.type === "message.received") show(e.data);
+    // `replayed`: the channel's recent history, sent once on subscribe. Do not
+    // treat it as news — a typing signal or a notification from then is over.
+  },
+  onResync: () => reload(),              // after a reconnect: re-read real state
+});
+```
+
+In Preact, `useStream(options)` holds one stream for a component's lifetime and
+returns `connecting` / `live` / `offline`. The rest of this section is the wire
+protocol underneath, for a client that does not use the SDK.
+
 **Client version + bundling.** Use **`socket.io-client` v4.x** — the gateway
 speaks Socket.IO v5 / engine.io v4. For a browser frontend **served by Boogy**
 (`boogy:boogy-serving-frontends`), vendor a single-file ESM build under
@@ -284,7 +340,7 @@ breaks the page; the mount-relative import sidesteps it.
 ```js
 import { io } from "./vendor/socket.io-client.js";   // vendored, mount-relative
 
-const socket = io("https://<host>", { path: "/v1/stream" });
+const socket = io("https://<host>", { path: "/v1/stream", transports: ["websocket"] });
 
 // ── Public channel: no grant.
 socket.on("connect", () => {
@@ -310,6 +366,7 @@ socket.emit("subscribe", {
 //   Pass auth.token in the handshake so the gateway can verify identity.
 const authSocket = io("https://<host>", {
   path: "/v1/stream",
+  transports: ["websocket"],
   auth: { token: AGENT_PASETO_TOKEN },
 });
 authSocket.emit("subscribe", {
@@ -406,7 +463,14 @@ order.
 **If you need guaranteed completeness** — a ledger, an audit trail, anything
 where a missed message is a correctness bug — do not derive it from the live
 channel. Treat the channel as a hint that something changed and re-read the
-authoritative state from your REST endpoint.
+authoritative state from your REST endpoint. Do that re-read after every
+reconnect too: messages published while a client was away are not redelivered
+beyond the replay ring.
+
+**A snapshot is history, not news.** `svc:snapshot` replays what was published
+before you subscribed. Apply what it says about state (a message, a receipt),
+but do not act on it as something that just happened — a "typing" signal or an
+alert from then is long over, and a fresh page would show it as current.
 
 For principal channels, a subscriber can only join **their own** room: an
 authenticated agent cannot request another principal's room — the gateway
@@ -441,6 +505,7 @@ exactly what their bytes cost.
 
 | Thought | Reality |
 |---------|---------|
+| "The default Socket.IO client options will do." | The gateway serves only the websocket transport. Pass `transports: ["websocket"]`, or the polling handshake is refused and nothing ever connects. |
 | "I'll run my own WebSocket server inside the service." | You can't and don't need to. Declare channels + `ws_publish`; the platform's `/v1/stream` gateway owns connections and fan-out. |
 | "I'll publish to a channel on the fly without declaring it." | Undeclared channels fail with `UnknownChannel`. Declare every channel in the manifest (≤ 32). |
 | "Private channels just need the user logged in." | Subscribers present a **grant** your service mints (`ws_mint_subscribe_grant`) and hands them. Gate the mint behind your own auth and scope per user. |
