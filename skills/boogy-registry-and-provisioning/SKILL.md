@@ -236,9 +236,11 @@ fn find_peer(handle: &str) -> Result<Option<String>, ApiError> {
 - **A route's `path` is the module's own path.** A call to another service
   reaches it on every instance, whatever path that instance is mounted at, so
   call `instance.address` with `route.path` as it is.
-- **Lookups are rate limited per caller**, from a service and over HTTP
-  (429). Look up once, for example when a buddy is added, and store the
-  address. Don't look up on every request.
+- **Registry reads share one per-caller budget**: search, describe and
+  lookups alike, from a service and over HTTP (429 + `Retry-After`). A
+  service looking up for a signed-in person spends that person's budget.
+  Look up once, for example when a buddy is added, and store the address.
+  Don't look up on every request.
 
 ## Red flags
 
