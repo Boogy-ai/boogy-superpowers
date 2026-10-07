@@ -16,8 +16,8 @@ works, and how to control or override the generated output.
 | `GET …/openapi.json` | OpenAPI 3.0.3 | Always |
 | `GET …/openrpc.json` | OpenRPC 1.3.2 | One or more `Router::rpc(…)` mounts exist |
 | `POST <rpc path>` with body `{"method":"rpc.discover"}` | OpenRPC 1.3.2 (in-protocol) | Same document, served by the JSON-RPC dispatcher itself |
-| `GET <grpc mount>/descriptor.bin` | Compiled protobuf descriptor set (binary) | A `Router::grpc` mount exists with `[grpc] reflection` on (the default) |
-| gRPC server reflection under the same mount | In-protocol | Same condition |
+| `GET /descriptor.bin`, at the service's address | Compiled protobuf descriptor set (binary) | A `Router::grpc` mount exists with `[grpc] reflection` on (the default) |
+| gRPC server reflection at the same address | In-protocol | Same condition |
 
 **A protobuf mount has no per-method spec document**, and that is not an
 omission: method routing is by path, so one stub in `openapi.json` stands in
@@ -36,12 +36,14 @@ generated `openapi.json` lists each `Router::mcp` mount as a POST
 operation pointing clients at that flow.
 
 "Relative to service subtree" means the path is suffix-matched inside
-the service's own routing prefix. For a service `notes-api` deployed under
-handle `alice` (reached at `https://alice.<base>/notes-api/…`), its
-`GET /api/openapi.json` route is served at
-`https://alice.<base>/notes-api/api/openapi.json`. Services are addressed
-by **subdomain** (`<handle>.<base>/<service-id>/<path>`), never by an
-`/<owner>/<service>` URL path prefix.
+the service's own routes. Every service is served at the root of its own
+address, so a service `notes` (reached at, say,
+`https://notes-k3v9.boogy.app/`) declaring `[routing] path = "/"` has its spec
+at `https://notes-k3v9.boogy.app/openapi.json`. Read the address
+from the `boogy deploy` output; never assemble it from a handle or a service
+id. The served document's `paths` are relative to that root and its
+`servers[0]` is that address, so `servers[0]` plus a path key is a URL that
+reaches the route — whatever `[routing] path` the service declared.
 
 The host forwards spec-doc GETs to the service even when the manifest
 `[routing] methods` list excludes GET — no manifest change required.
@@ -225,7 +227,7 @@ There are two distinct levels of spec document:
 
 | Level | URL | Format | Covers | Auth |
 |---|---|---|---|---|
-| **Service spec** | `GET https://<handle>.<base>/<service-id>/…/openapi.json` | OpenAPI 3.0.3 | One deployed service's own routes | Two-tier (see above) |
+| **Service spec** | `GET https://<service address>/…/openapi.json` | OpenAPI 3.0.3 | One deployed service's own routes | Two-tier (see above) |
 | **Platform spec** | `GET <host>/openapi.json` | OpenAPI 3.1.0 | Full deploy lifecycle: `/_agents/*`, `/_admin/*`, `/v1/*` | Anonymous — no token needed |
 
 Use the **platform spec** when you need to understand the host's own API
@@ -241,7 +243,7 @@ own routes and schemas.
 If your service charges, its price list is published for callers and you do not
 write it:
 
-- `GET <mount>/pricing.json` — the authoritative, protocol-neutral list: every
+- `GET https://<service address>/pricing.json` — the authoritative, protocol-neutral list: every
   priced route with its payer, price, rate and `max`. Served by the platform, so
   no handler of yours runs for it, and on a priced service that path is reserved.
 - The served `openapi.json` carries an `x-boogy-pricing` extension on each priced

@@ -45,30 +45,37 @@ fn main() {
 It needs `boogy-wit` as a **build-dependency**, which is why the `Cargo.toml`
 above carries `[build-dependencies] boogy-wit = { git = ... }`.
 
-## Route paths INCLUDE the mount
+## Declare `[routing] path = "/"` — then your routes ARE your URLs
 
-The path you register in the router is the **full external path**, mount and
-all. The host forwards the request with the mount still attached — it does not
-strip it.
-
-If `boogy.toml` says:
+Every service is served at the root of its own address,
+`https://<name>-<suffix>.boogy.app/` (for example `https://board-k3v9.boogy.app/`),
+and the service's name is already in that hostname. So every new service
+declares the root:
 
 ```toml
 [routing]
-path = "/api/board"
+path = "/"
 ```
 
-then the router registers `/api/board/rooms`, **not** `/rooms`:
+and the path you register in the router, the path in `[[ingress.routes]]`, and
+the path in the URL are the same string:
 
 ```rust ignore-snippet: a routing shape shown against a manifest value, so the router and the model it would need are not in scope here
 Router::new()
     .summary("List rooms")
-    .get("/api/board/rooms", list_rooms)     // CORRECT — mount included
-    // .get("/rooms", list_rooms)            // WRONG — 404s every request
+    .get("/rooms", list_rooms)     // reached at https://board-k3v9.boogy.app/rooms
 ```
 
-The same frame applies to `[[ingress.routes]] path` entries: they are matched
-against the same mount-inclusive path.
+**The declared base never appears in a URL.** `[routing] path` is only what
+your service's own router sees: the platform receives a request at the root of
+the address and relocates it to the declared base before your code runs. A
+service that declares `path = "/api/board"` therefore registers
+`/api/board/rooms` — the base is part of every path its router and its
+`[[ingress.routes]]` match — and is STILL reached at
+`https://board-k3v9.boogy.app/rooms`. Registering `/rooms` under that base 404s
+every request; registering `/api/board/rooms` and then calling
+`…boogy.app/api/board/rooms` 404s too. Declaring `/` removes both mistakes, which
+is why new services never declare anything else.
 
 **A literal segment beats a `{param}` at the same position**, whichever order
 you register them in. So `GET /shop/{slug}` and `GET /shop/admin` can coexist:
@@ -77,19 +84,15 @@ param. You do not need to restructure URLs to avoid the overlap — but do keep 
 reserved-word list for the param, so a user cannot create a record whose key is
 `admin` and then find it unreachable.
 
-**One helper does not follow this rule for you.**
-`with_api_key_routes()` registers the **literal** `/_keys`, correct only when
-the manifest declares `path = "/"`. Anywhere else use
-`with_api_key_routes_at("<your mount>/_keys")`. It is worth knowing here rather
-than only in `boogy:boogy-auth`, because the failure lands on an author who has
-already applied the mount rule correctly everywhere else — so their own routes
-all work, and the one broken subtree is the last place they look. `boogy check`
-flags it as `unmounted-key-routes`.
+**One helper assumes the root.** `with_api_key_routes()` registers the
+**literal** `/_keys`, correct when the manifest declares `path = "/"` — the
+default above. Under any other base use
+`with_api_key_routes_at("<your base>/_keys")`. `boogy check` flags the mismatch
+as `unmounted-key-routes`.
 
-**Why this gets its own section:** it is the single mistake that breaks an
-entire service at once, and it is silent — the build succeeds, the deploy
-succeeds, and every request 404s. Two independent readers of an earlier version
-of these skills reached opposite conclusions about it.
+**Why this gets its own section:** a router that disagrees with the declared
+base is the single mistake that breaks an entire service at once, and it is
+silent — the build succeeds, the deploy succeeds, and every request 404s.
 
 ## The five files
 
@@ -389,7 +392,8 @@ cargo build --target wasm32-wasip2 --release
 | Editing `wit/` | It's regenerated every build; bump the pinned rev instead |
 | `service-with-jobs` without `handle_job` | Impl `job_handler::Guest` (stub is fine) or it won't compile |
 | Hand-writing a `cols` module / `Table::new(...)` / `create_table_from` | `#[derive(Model)]` + `create_model::<M>()` — the derive emits the column consts and schema |
-| `with_api_key_routes()` on a service mounted anywhere but `/` | `with_api_key_routes_at("<mount>/_keys")` — the bare form registers the literal `/_keys` and all four endpoints 404. `boogy check`: `unmounted-key-routes` |
+| `[routing] path = "/notes"` (or any base) on a new service | `path = "/"`. The name is already in the hostname, and a declared base never appears in a URL — it only makes every route repeat it |
+| `with_api_key_routes()` on a service declaring a base other than `/` | `with_api_key_routes_at("<base>/_keys")` — the bare form registers the literal `/_keys` and all four endpoints 404. `boogy check`: `unmounted-key-routes` |
 | Un-annotated routes / no `Router::info` | Set `Router::info(...)` and `.summary()`+`.description()` on every route (feeds `openapi.json`) |
 | Handler takes/returns `Json<json::Value>` or a `Deserialize`-only request struct | Typed `#[derive(…, schemars::JsonSchema)]` DTO in and out (`Json<T>`/`Created<T>`). The CI gate FAILS untyped I/O; untyped shapes have no schema in `openapi.json`. See `boogy:boogy-rest-apis`. |
 | Manifest has only `id` + `name` | Add a plain-words `description`, a few distinct `keywords`, and a precise `category` so the registry can index it |

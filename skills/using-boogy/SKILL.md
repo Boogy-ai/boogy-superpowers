@@ -105,7 +105,7 @@ compete.
 | `boogy-oauth-connections` | a service must act on a USER's account at a third-party API (Google/YouTube, Slack, GitHub, Notion) — "connect your account", OAuth2 consent, per-user tokens the platform holds, refreshes and injects |
 | `boogy-webhooks` | building a service that RECEIVES and verifies inbound webhooks from a third party (Stripe, GitHub, Twilio, any HMAC-signed callback) |
 | `boogy-serving-frontends` | a service must serve a web frontend — a reactive UI, SPA, dashboard, static HTML/JS/CSS, or a full-stack app serving both the page and its API (arrow-js, TypeScript-with-no-build, host-served assets) |
-| `boogy-custom-domains` | serving a service on a tenant's own domain instead of the platform subdomain — registration, DNS records, verification, root-serve semantics |
+| `boogy-custom-domains` | serving a service on a tenant's own domain as well as its own platform address — registration, DNS records, verification, root-serve semantics |
 | `boogy-rest-apis` | building HTTP/REST or JSON-RPC endpoints — routing, guards, request parsing/validation, response types, error wire format — protobuf is the next row, not this one |
 | `boogy-protobuf-rpc` | serving protobuf — gRPC, Connect, or gRPC-Web — from a `.proto` contract, or choosing between protobuf and REST/JSON-RPC for an endpoint |
 | `boogy-mcp-services` | exposing MCP tools/resources/prompts to LLM clients, or adding MCP alongside an existing REST service |
@@ -148,42 +148,57 @@ that step go past you.
 
 **You NEVER select the handle.** It is the person's **username** — the name of
 their *account*, not the name of the app you happen to be building for them.
-They pick it once, it is hard to change afterwards, and it becomes their
-subdomain, so everything they ever deploy lives under it. Either send them
-through the sign-in flow, which presents the handle-choosing step, and let them
-choose there — or, if you are collecting it yourself, **ask them explicitly and
-wait for their answer**. Never infer one from the project, the repo, the
-directory name, or the task you were given.
+They pick it once, it is hard to change afterwards, and every service they ever
+deploy is theirs under it. Either send them through the sign-in flow, which
+presents the handle-choosing step, and let them choose there — or, if you are
+collecting it yourself, **ask them explicitly and wait for their answer**. Never
+infer one from the project, the repo, the directory name, or the task you were
+given.
 
-**Tell them what they are choosing while they choose it.** One handle carries as
-many services as they like, each at its own route — so if they sign up as
-`alice`, a notes API lands at `https://alice.boogy.app/notes/` and a photo
-gallery at `https://alice.boogy.app/gallery/`: one account, two apps, two paths.
-That is why a handle taken from today's project is the wrong shape. Sign someone
-up as `youtube-library` while building them a video library and you have
-permanently named their whole account after one of the things in it, and the
-next five apps they build sit under it too.
+**Tell them what they are choosing while they choose it.** One handle owns as
+many services as they like, and **each service gets its own web address** —
+the handle is not part of any of them. If they sign up as `alice`, a notes API
+lands at something like `https://notes-7k3q.boogy.app/` and a photo gallery at
+`https://gallery-x2m9.boogy.app/`: one account, two apps, two addresses. The
+handle shows up where the account does — in a service's identity,
+`boogy://alice/services/notes`, in the console, in sharing — so a handle taken
+from today's project is the wrong shape. Sign someone up as `youtube-library`
+while building them a video library and you have permanently named their whole
+account after one of the things in it.
 
-**Your handle IS your subdomain** — a DNS label, lowercase `[a-z0-9-]`, **4–30
+**A handle is a DNS-label-shaped name** — lowercase `[a-z0-9-]`, **4–30
 characters** counted after messy input is fixed (longer or shorter is refused,
-never cut or padded; full rule in `boogy-account-auth`). Services are reached at
-`https://<handle>.<base>/<mount>/<path>`, where `<mount>` is the service's
-manifest `[routing] path` (NOT its `id` — the two only coincide when you mount
-at `/<id>`). Messy input is coerced (`my_app` → `my-app`) and the final handle is
-returned; reserved/taken → they pick another. (There is no path-based
-`/<owner>/<service>` form — routing is subdomain-only, so a non-label handle
-would be unroutable.)
+never cut or padded; full rule in `boogy-account-auth`). Messy input is coerced
+(`my_app` → `my-app`) and the final handle is returned; reserved/taken → they
+pick another. **It is not a hostname**: nothing is served at
+`<their handle>.boogy.app`, which answers every request with a page saying apps
+have their own addresses.
+
+**Every service is served at the root of its own address**,
+`https://<name>-<suffix>.<base>/` — the name derived from the service's `id`
+(lowercased, `_` → `-`; a name that would impersonate the platform, such as
+`login` or anything containing `boogy`, becomes `svc`), and a short random
+suffix the platform draws when the service is first deployed. The address is
+kept through every redeploy and is never given to anyone else, even after the
+service is deleted; a deleted and recreated service gets a new one. **Your
+service's `[routing] path` never appears in a URL**: declare `path = "/"` for
+every new service, and a route `/notes` is reached at
+`https://notes-7k3q.boogy.app/notes`. (A service that declares another base
+still works — the platform relocates requests to it internally — but the URL is
+the same; see `boogy:scaffolding-a-service`.) There is no path-based
+`/<owner>/<service>` form.
 
 **`<base>` is the app plane — in production it is `boogy.app`, NOT `boogy.ai`.**
-Your live URL is `https://<handle>.boogy.app/<mount>/`. `boogy.ai` is the
-**control/marketing plane** (`api.boogy.ai` for login + the `/v1` API, the docs
-site, the landing page) and **never serves your deployed app**. These two planes
-do not alias each other. Do **not** infer your app's domain from what the user
-typed ("deploy to boogy.ai"), from this skill's generic `<base>` placeholder, or
-from the host you logged in against — the **`boogy deploy` output prints the
-authoritative live URL** (`URL: https://<handle>.boogy.app/<mount>`). Read it
-from there; treat anything you assembled by hand as a guess until the deploy
-confirms it. See `boogy:boogy-custom-domains` to serve on your own domain instead.
+`boogy.ai` is the **control/marketing plane** (`api.boogy.ai` for login + the
+`/v1` API, the docs site, the landing page) and **never serves your deployed
+app**. These two planes do not alias each other. Do **not** infer your app's
+address from what the user typed ("deploy to boogy.ai"), from this skill's
+generic placeholders, or from the host you logged in against, and never
+assemble one from the service name: the suffix is random. The **`boogy deploy`
+output prints the authoritative live URL** (`URL: https://notes-7k3q.boogy.app`),
+and `boogy list` / `GET /v1/services` report it as `service_url`. Read it from
+there; treat anything you assembled by hand as a guess until the deploy
+confirms it. See `boogy:boogy-custom-domains` to serve on your own domain too.
 
 **MCP (primary — zero install):** If you are connected to Boogy's MCP server,
 call the `login` tool. It returns a `user_code`, a verification URL, and a
@@ -221,5 +236,7 @@ developer / agent) signing in to the platform to deploy.
 | "Integrity = wrap the whole handler in a `tx`." | No — a `tx` guards **store writes only**, and an `outbound_http` call (or other irreversible effect) inside one is **denied**. `boogy:boogy-transactions` already has the rule + the patterns to use instead (staged job in-tx, or after commit). Don't guess — read it. |
 | "I'll set the price now and tune it later." | You cannot tune what you never measured. A price and its `max` come from a deployed, **unpriced** route's own usage — `fuel`, bytes, and the spread between p50 and p99. Read `boogy:boogy-route-pricing` before writing a number. |
 | "I set `max` high to be safe." | `max` is the balance a caller must **hold** before you will serve them, not just a ceiling. Set high, it refuses callers who could have afforded the actual call, and caps nothing that was going to happen. |
-| "I'll pick a sensible handle from the project name and move on." | The handle is the person's **username**, not their app's name — chosen once, hard to change, and the subdomain every service they ever deploy sits under. Naming their account after one project misnames all the rest. You never select it: send them through the sign-in flow's handle step, or ask and wait. See "Choosing a handle" above. |
-| "The user said 'boogy.ai', so my app is at `<handle>.boogy.ai`." | No. The app plane is **`boogy.app`**; `boogy.ai` is control/marketing only. Your live URL is whatever the **`boogy deploy` output prints** — read it from there, never reconstruct it from the user's words or the login host. |
+| "I'll pick a sensible handle from the project name and move on." | The handle is the person's **username**, not their app's name — chosen once, hard to change, and the account every service they ever deploy belongs to. Naming their account after one project misnames all the rest. You never select it: send them through the sign-in flow's handle step, or ask and wait. See "Choosing a handle" above. |
+| "Their app is at `https://alice.boogy.app/notes`." | No. A handle is not a hostname, and that address only shows a "this address has moved" page. Every service has its own address, `https://<name>-<suffix>.boogy.app/`, with a random suffix — read it from the `boogy deploy` output. <!-- owner-subdomain-ok: a red-flag counter-example --> |
+| "I'll mount it at `/notes` so the URL says notes." | The service's name is already in its hostname. Declare `[routing] path = "/"`; the declared base never appears in a URL, so a second `/notes` would only add a path segment your routes have to repeat. |
+| "The user said 'boogy.ai', so my app is somewhere under `boogy.ai`." | No. The app plane is **`boogy.app`**; `boogy.ai` is control/marketing only. Your live URL is whatever the **`boogy deploy` output prints** — read it from there, never reconstruct it from the user's words or the login host. |

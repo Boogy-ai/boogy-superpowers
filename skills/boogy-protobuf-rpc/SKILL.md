@@ -5,9 +5,11 @@ description: Use when a Boogy service must serve protobuf — gRPC, Connect, or 
 
 # Boogy protobuf RPC
 
-One mount serves **three wire protocols** — Connect, native gRPC, and
-gRPC-Web — chosen by the caller's request content-type. You write one
-handler per method and none of the framing.
+One `Router::grpc` mount understands **three wire protocols** — Connect,
+native gRPC, and gRPC-Web — chosen by the caller's request content-type. You
+write one handler per method and none of the framing. The platform serves
+Connect and gRPC-Web on the service's own address today; native gRPC is not
+served at present (see "Availability" below).
 
 **The host owns the wire; your guest owns the codec.** The host terminates
 the transport, strips the length prefix / Connect envelope / compression,
@@ -94,7 +96,7 @@ version = "0.1.0"
 wasm = "target/wasm32-wasip2/release/notes.wasm"
 
 [routing]
-path = "/notes"
+path = "/"            # every new service: its name is already in its address
 methods = ["GET", "POST"]
 
 [grpc]
@@ -116,7 +118,7 @@ services = ["notes.v1.NotesService"]
   from the method list the same way `openapi.json` is.
 - A `[grpc]` block with an empty `services` list is simply off.
 
-### 4. The mount and the handlers
+### 4. The handlers
 
 ```rust ignore-snippet: needs a build.rs-generated module to expand against — include_protos! and the notes::v1 message types do not exist without a compiled .proto
 boogy_sdk::include_protos!();
@@ -204,11 +206,12 @@ everything:
 
 ## Discovery: reflection and the raw descriptor
 
-With `reflection` on (the default) the platform serves, from the same mount:
+With `reflection` on (the default) the platform serves, at the root of the
+service's own address:
 
 - **gRPC server reflection** (both the current and the still-widely-used
   older service name, so `grpcurl`'s fallback path works), and
-- **`GET <mount>/descriptor.bin`** — the compiled descriptor set verbatim,
+- **`GET https://<service address>/descriptor.bin`** — the compiled descriptor set verbatim,
   consumable as `grpcurl -protoset descriptor.bin ...` by a client that
   cannot or will not use reflection.
 
@@ -276,50 +279,28 @@ first-ever deploy has no previous version to fall back to.
   entirely — an undeclared service is not refused, it is simply not served
   over protobuf — and serve the unary methods over protobuf alongside.
 
-## Availability: Connect works everywhere; native gRPC may not
+## Availability: use Connect or gRPC-Web — native gRPC is not served
 
-Connect and gRPC-Web work over ordinary HTTP/1.1 and are reachable on any
-deployment that serves protobuf at all. **Native gRPC needs HTTP/2 end to
-end**, which needs a dedicated hostname on the deployment's edge, and that is
-an operator decision that may not be enabled where you are deploying.
+Connect and gRPC-Web work over ordinary HTTP/1.1 (or HTTP/2) and are served on
+the service's own address, at its root, whatever the declared `[routing] path`:
+
+```
+POST https://notes-7k3q.boogy.app/notes.v1.NotesService/GetNote
+```
+
+A Connect or gRPC-Web client takes that address as its base URL. **Native gRPC
+is not served by the platform at present**: it needs HTTP/2 end to end on a
+dedicated hostname per service, and the platform refuses that hostname
+(`<address>.grpc.<base>` answers 404) rather than serve a second origin for
+the same service. Every service is already at the root of its own address, so
+when native gRPC is offered a stock client (`grpcurl`) will reach any service
+without anything changing in your manifest.
 
 Practical consequence for an author: **do not make native gRPC the only way
 to call your service.** Connect speaks the same methods, the same messages
-and the same errors over ordinary HTTP/1.1, and a Connect client is the
-portable default. If native gRPC is a hard requirement for a consumer, that
-is a conversation with whoever operates the deployment before you design
-around it.
-
-### A native gRPC client also needs your service mounted at the root
-
-**`[routing] path = "/"`, or an off-the-shelf gRPC client cannot reach you
-at all.** This is unconditional, independent of the hostname question above,
-and it is the constraint most likely to surprise you — the failure is a
-transport-level error naming nothing about mounts:
-
-```
-Code: Unknown
-Message: unexpected HTTP status code received from server: 200 (OK);
-         transport: received unexpected content-type "application/octet-stream"
-```
-
-The platform serves the protobuf wire path *relative to your mount*
-(`/<mount>/<pkg.Svc>/<Method>`). A native gRPC client builds its path as
-`/<pkg.Svc>/<Method>` at the connection root and has **no mechanism to add a
-prefix** — that is the gRPC wire convention itself, not a limitation of any
-one client. Verified both ways against a real `grpcurl` on one fixture: the
-same service that fails as above at `path = "/notes"` round-trips at
-`path = "/"`.
-
-Connect and gRPC-Web clients are configured with a base URL, so they reach a
-mount-relative deployment normally. **Only native gRPC is affected.**
-
-The example above mounts at `/notes`, which is the right default: it keeps
-one owner subtree open for other services, and it costs you nothing unless a
-consumer needs plain gRPC. The trade is real and belongs to you — a root
-mount claims the whole owner subtree, so exactly one service per owner can
-have it. Decide which of your services, if any, is the one that speaks
-native gRPC.
+and the same errors, and a Connect client is the portable default. If native
+gRPC is a hard requirement for a consumer, that is a conversation with whoever
+operates the deployment before you design around it.
 
 ## Charging for a method
 

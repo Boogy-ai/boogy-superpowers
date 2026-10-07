@@ -130,27 +130,20 @@ Provision is a CREATE — re-running for an existing `service_id` is a 409;
 use `upgrade` to change the pinned version. See
 `boogy:deploying-boogy-services` for the build/deploy loop.
 
-### Per-instance mount path
+### Each instance has its own address
 
-A provision-time override can relocate where a service answers by setting
-`[routing] path`:
+Every instance is served at the root of an address of its own,
+`https://<name>-<suffix>.boogy.app/` — the name derived from the **service id**
+you provision it under, the suffix random — and `boogy provision` prints it. So
+one module runs as several instances side by side simply by provisioning it
+under distinct service ids (`personal-notes` and `company-notes` from the same
+`notes` module): each gets its own address, its own data and its own browser
+origin. The guest's own routes are unchanged on every instance.
 
-```toml
-# over.toml
-[routing]
-path = "/personal-notes"
-```
-
-This changes the **external** URL of this instance only — one module can
-run as several instances at distinct mounts (e.g. `/personal-notes` and
-`/company-notes` from the same `notes` module). The guest still serves its
-own module routes unchanged; the host rewrites the mount prefix
-transparently on the way in, and the served `openapi.json`/`openrpc.json`
-paths are remapped to the mount so clients see the real URLs. Arbitrary
-multi-segment paths are allowed (`/team/notes`, `/api/v2/notes`). Mount
-paths are unique per owner — a mount that equals or overlaps another of
-your services' mounts is rejected with **409**. Omit the override (or keep
-the module's own `path`) and nothing changes.
+**Do not override `[routing] path` to relocate an instance.** A provision-time
+`[routing] path` override is still accepted and checked for shape, but it
+addresses nothing: no URL carries a path prefix, so the override cannot move
+or rename an instance. The service id is the name to choose.
 
 ### Two tiers: module-intrinsic vs deployment config
 
@@ -170,7 +163,7 @@ when you provision someone else's module.
 
 **Deployment config** — set per instance, by you, at provision time:
 
-- service id and mount path (the external URL — see above).
+- service id (which names the instance's address — see above).
 - `[ingress]` — mode, rate limits, delegation.
 - `[limits]` — sized for *your* instance, within the platform caps (you
   may raise or lower; see `boogy:boogy-capability-limits`).
@@ -234,8 +227,8 @@ fn find_peer(handle: &str) -> Result<Option<String>, ApiError> {
 - **Over HTTP**, anyone signed in can call
   `GET /v1/registry/instances/{handle}?module=<author>/<name>`.
 - **A route's `path` is the module's own path.** A call to another service
-  reaches it on every instance, whatever path that instance is mounted at, so
-  call `instance.address` with `route.path` as it is.
+  reaches it on every instance at that path, so call `instance.address` with
+  `route.path` as it is.
 - **Registry reads share one per-caller budget**: search, describe and
   lookups alike, from a service and over HTTP (429 + `Retry-After`). A
   service looking up for a signed-in person spends that person's budget.

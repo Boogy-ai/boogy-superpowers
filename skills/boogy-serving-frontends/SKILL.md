@@ -47,9 +47,9 @@ version = "0.1.0"
 wasm = "target/wasm32-wasip2/release/notes.wasm"   # FullStack: your API wasm
 # owner: omit it — the platform sets it to your handle at deploy.
 
-[routing]             # `path` is the mount (see the mount rule below)
-path = "/notes"
-methods = ["GET", "POST"]
+[routing]             # `path` is the base your wasm's router sees. Always "/" for a
+path = "/"            # new service: the name is already in its hostname, and the
+methods = ["GET", "POST"]   # base never appears in a URL (see the base rule below).
 
 [ingress]             # REQUIRED — who may call this service. Stated, never
 mode = "public"       # inferred: `public` = anyone on the internet, no
@@ -60,7 +60,7 @@ store = true
 
 [frontend]
 root = "web"          # your source dir: index.html + .ts/.js/.css/assets
-api_prefix = "/api"   # FullStack: requests under <mount>/api go to the wasm. omit it for a Frontend site.
+api_prefix = "/api"   # FullStack: requests under /api go to the wasm. omit it for a Frontend site.
 index = "index.html"  # the SPA entry document (served for unmatched routes). default: index.html
 build = "source"          # "ts" = the platform transpiles your TypeScript. "none" = you uploaded plain JS.
 private = false       # false (default) = assets are public. true = assets require the service ingress.
@@ -77,7 +77,7 @@ name = "My Site"
 version = "0.1.0"
 
 [routing]
-path = "/mysite"
+path = "/"
 methods = ["GET"]
 
 [ingress]
@@ -159,15 +159,16 @@ boogy deploy app.boogy.toml --smoke
 boogy publish app.boogy.toml --provision --smoke
 ```
 
-After the deploy succeeds it loads `https://<handle>.<base>/<id>/` in a detected headless
+After the deploy succeeds it loads the printed URL — the root of the service's own
+address, e.g. `https://mysite-k3v9.boogy.app/` — in a detected headless
 Chrome/Chromium and asserts: the page renders non-empty content matching one of
 `--smoke-selector`'s selectors (`--smoke-selector` takes a comma-separated list and defaults to
 `#app,#root,#__next`, covering arrow-js, Vite/React and Next roots; a selector
 that matches **nothing** fails the smoke rather than silently checking `<body>`
 instead), the console has no errors / uncaught exceptions, and no same-origin
 sub-resource returned ≥ 400. Add `--smoke-path /some/nested/route` to check a
-deep or prerendered route — the mount root passing proves the least, since it
-is the one URL whose relative assets resolve no matter what. A failure prints a
+deep or prerendered route — the root passing proves the least, since it is the
+one URL whose relative assets resolve no matter what. A failure prints a
 report (which assertion, the console errors, the failed request URLs) and exits
 non-zero — fix and re-ship with `boogy deploy --replace`.
 
@@ -288,30 +289,30 @@ caution for other `.`-prefixed property bindings until the framework stabilizes.
 
 ### Asset paths at nested routes — the host injects `<base href>` for you
 
-Your service is served under a mount (`/<service>/…` on your tenant origin
-`<handle>.<base>`), not the host root. **The host injects a `<base href>` as the
+Your service is served at the root of its own address
+(`https://notes-7k3q.boogy.app/`). **The host injects a `<base href>` as the
 first element inside `<head>` of every HTML document it serves** — so every
 relative `<script src>`, `<link href>`, `<img src>`, relative import, and
 relative `fetch` resolves correctly **at any SPA-route depth**.
 
-The injected value is the mount joined with **that document's own directory in
-your bundle** — which is exactly where the deploy gate resolved the document's
+The injected value is `/` joined with **that document's own directory in your
+bundle** — which is exactly where the deploy gate resolved the document's
 relative references from, so the two always agree:
 
 | Document served | Injected base |
 |---|---|
-| `index.html` (the usual SPA shell) | `<mount>/` |
-| `about.html` (flat prerendered form) | `<mount>/` |
-| `about/index.html` (nested prerendered form) | `<mount>/about/` |
-| a nested `[frontend].index`, e.g. `app/index.html` | `<mount>/app/` |
+| `index.html` (the usual SPA shell) | `/` |
+| `about.html` (flat prerendered form) | `/` |
+| `about/index.html` (nested prerendered form) | `/about/` |
+| a nested `[frontend].index`, e.g. `app/index.html` | `/app/` |
 
-For the common case — a shell at the bundle root — that is simply `<mount>/`. On
-a custom domain the service serves at root, so the mount is `/` (see
-`boogy:boogy-custom-domains`).
+(With `build = "dist"` the base also points into a per-deployment `_a/<hash>/`
+segment — see "Routing" below. You never write it.) The same holds on a custom
+domain: every origin serves its one service at the root.
 
 That's what makes the SPA fallback safe: a hard refresh or shared deep link at
-`/<mount>/p/42` gets the `index` document back, and its `./app.js` still
-resolves to `/<mount>/app.js` rather than `/<mount>/p/app.js`.
+`/p/42` gets the `index` document back, and its `./app.js` still resolves to
+`/app.js` rather than `/p/app.js`.
 
 **So write ordinary relative references and stop thinking about it:**
 
@@ -322,22 +323,21 @@ resolves to `/<mount>/app.js` rather than `/<mount>/p/app.js`.
 
 | You write | What happens |
 |---|---|
-| `./app.js` / `app.js` (relative) | ✅ Resolves against the injected base — correct at the mount root, at `/<mount>/p/42`, and on a custom domain. Use this. |
-| `/app.js` (host-root-absolute) | ⚠️ **Passes the deploy gate, then breaks in the browser.** `<base>` does not apply to root-absolute URLs, so the browser requests `<handle>.<base>/app.js`, which leaves your mount entirely — it reaches whatever is at that path on your tenant origin (normally nothing → 404). The gate resolves it to the bundle key `/app.js`, which *does* exist, so nothing catches it. Never use root-absolute asset paths. |
-| `/<mount>/app.js` | ❌ **Rejected at deploy** — the gate resolves it to the key `/<mount>/app.js`, which is not a built asset (bundle keys are mount-relative). |
-| `<base href="/<mount>/">` (author-supplied) | ❌ **Rejected at deploy** — the gate scans every `href="` value and `/<mount>/` is not a bundle asset. You also don't want one: an author-supplied `<base>` *suppresses* the host's injection, so writing it can only lose you the correct value. |
-| a mount-root path string inside an HTML **comment** (e.g. documenting `href="/<mount>/"`) | ❌ **Also rejected** — the gate is a string scanner, not an HTML parser; it can't tell a comment from a live attribute. Keep mount-root path strings out of comments entirely. |
-| `https://<handle>.<base>/<mount>/app.js` (fully-qualified absolute URL) | Works, but **no longer necessary** — and it hardcodes the deployed origin, so a local preview server has to rewrite that prefix back. Prefer relative. |
+| `./app.js` / `app.js` (relative) | ✅ Resolves against the injected base — correct at the root, at `/p/42`, and on a custom domain. Use this. |
+| `/app.js` (host-root-absolute) | ⚠️ **Works today, and is still the wrong habit.** Your service is at the root, so it resolves — but it skips the injected base, so a `build = "dist"` bundle's per-deployment `_a/<hash>/` prefix is lost for that file (it is no longer cached as immutable),. Write `./app.js`. |
+| `/<service-id>/app.js` | ❌ **Rejected at deploy** — bundle keys are root-relative, so the gate resolves it to a key that is not a built asset. No URL carries the service's id or base as a path. |
+| `<base href="…">` (author-supplied) | ❌ **Rejected at deploy** if it names a path that is not a bundle asset. You also don't want one: an author-supplied `<base>` *suppresses* the host's injection, so writing it can only lose you the correct value. |
+| a path string inside an HTML **comment** that is not a bundle asset (e.g. documenting `href="/<service-id>/"`) | ❌ **Also rejected** — the gate is a string scanner, not an HTML parser; it can't tell a comment from a live attribute. Keep such path strings out of comments entirely. |
+| `https://notes-7k3q.boogy.app/app.js` (fully-qualified absolute URL) | Works, but **unnecessary** — and it hardcodes the deployed origin, so a local preview server has to rewrite it. Prefer relative. |
 
 **Verify with a headless browser at a NESTED route — a curl won't catch a
-runtime break.** A `curl` against the mount root only proves the shell HTML
-came back; it can't see that the app's own assets 404 once the browser is one
-level deeper (the root-absolute trap above is exactly this shape). Load
-`https://<handle>.<base>/<mount>/<some-nested-path>` in a headless browser and
+runtime break.** A `curl` against the root only proves the shell HTML came back;
+it can't see that the app's own assets 404 once the browser is one level deeper.
+Load `https://notes-7k3q.boogy.app/<some-nested-path>` in a headless browser and
 confirm the app actually boots (non-empty `#app`, no console errors, no failed
-sub-resource) — not just the mount root. `boogy deploy --smoke` (above) checks
-the mount root by default; if your app serves nested paths, also open one of
-those paths yourself before calling the deploy done.
+sub-resource) — not just the root. `boogy deploy --smoke` (above) checks the
+root by default; if your app serves nested paths, also open one of those paths
+yourself before calling the deploy done.
 
 ## Responsive by default — it must work on phone, desktop, AND wide screen
 
@@ -373,8 +373,9 @@ not a footnote — ship it unless the user explicitly wants a private/internal t
   `<meta name="description">`; `<meta name="viewport">` (already mandated above);
   `<link rel="canonical">` to the page's own URL; `<html lang="…">`.
 - **Absolute URLs (`canonical`, `og:url`, `sitemap.xml` `<loc>`) must be the real
-  deployed origin — `https://<handle>.boogy.app/<service>/`.** Don't guess the
-  domain before you have it: it's `boogy.app` (the app plane), not `boogy.ai` (the
+  deployed origin — the service's own address, `https://<name>-<suffix>.boogy.app/`
+  (or its custom domain).** Don't guess it before you have it — the suffix is
+  random: it's `boogy.app` (the app plane), not `boogy.ai` (the
   control/marketing plane), and the **`boogy deploy` output prints the exact URL**.
   Either fill these in *after* the first deploy from that printed URL, or leave a
   clear placeholder and reconcile before shipping. Note the gate trap: a *relative*
@@ -406,20 +407,20 @@ Yes — for routes you can enumerate at build time. The host serves a
 request it looks for `<path>/index.html`, then `<path>.html`, and only falls
 back to the SPA `index` when neither exists. So a build that emits
 `blog/my-post/index.html` gets that document — with its own `<title>`,
-`og:image`, `og:description` and body copy — served at `/<mount>/blog/my-post`,
+`og:image`, `og:description` and body copy — served at `/blog/my-post`,
 and crawlers and link-unfurlers read the real thing.
 
 One constraint on the route path: a request whose **last segment contains a
 dot** is read as a file request and 404s without ever being probed as a route.
 So `blog/node.js-tips/index.html` is stored but not reachable at
-`/<mount>/blog/node.js-tips`. Keep dots out of prerendered route segments.
+`/blog/node.js-tips`. Keep dots out of prerendered route segments.
 
 Prerendered documents revalidate (`no-cache` + `ETag`) exactly like the shell, so a
 redeploy reaches returning browsers immediately, and a `<base href>` is injected
-into each one. That base is the mount joined with the **document's own directory
-in the bundle** — `/about/index.html` served at `/<mount>/about` gets
-`<base href="/<mount>/about/">` — so a relative reference resolves to the same
-file the deploy gate resolved it to.
+into each one. That base is `/` joined with the **document's own directory in
+the bundle** — `/about/index.html` served at `/about` gets
+`<base href="/about/">` — so a relative reference resolves to the same file the
+deploy gate resolved it to.
 
 What this does **not** cover is a route whose content is not known until request
 time — a per-user dashboard, a search-results URL. There is no server-side
@@ -429,7 +430,7 @@ the rest.
 
 One collision to know about: a prerendered route whose path falls under
 `api_prefix` loses — the API check runs before any asset resolution, so
-`/<mount>/api/things` reaches the wasm even if `api/things/index.html` is in
+`/api/things` reaches the wasm even if `api/things/index.html` is in
 the bundle. Keep prerendered routes out of your `api_prefix` subtree.
 
 ## Routing: api_prefix → wasm, everything else → assets + SPA fallback
@@ -485,10 +486,10 @@ something you configure:
   a URL that encodes the deployment. Your asset URLs therefore change on each
   deploy — that is what makes caching them for a year safe.
 
-You will see that second form in the served HTML as a `_a/<hash>/` segment after
-your mount. It is not something to write, link to, or configure: the platform
-injects it and strips it, both spellings of a URL work, and an API client
-addressing `<mount>/<api_prefix>/…` directly never needs to know it exists.
+You will see that second form in the served HTML as a `_a/<hash>/` segment at
+the start of the path. It is not something to write, link to, or configure: the
+platform injects it and strips it, both spellings of a URL work, and an API
+client addressing `<api_prefix>/…` directly never needs to know it exists.
 
 A content-addressed URL keeps serving its bytes for a few deployments after the
 bundle that produced it stops being active, so a page loaded just before a
@@ -497,27 +498,25 @@ number of deployments, not forever — a client far enough behind gets a 404 and
 recovers on reload.
 
 The page and the API are
-**same-origin** (`<handle>.<base>/<service>/…`), so the page calls its API with relative
-URLs and there's no CORS.
+**same-origin** (`https://notes-7k3q.boogy.app/…`), so the page calls its API with
+relative URLs and there's no CORS.
 
-### ⚠️ The mount rule (FullStack) — get this right or every API call 404s
+### ⚠️ The base rule (FullStack) — get this right or every API call 404s
 
-Your `[routing] path` (the **mount**) MUST equal the path prefix your guest
-Router serves its routes under. The host forwards an API request to the guest
-with the mount **included** — it does not strip it. `api_prefix` is the API
-subtree **relative to the mount**, not an absolute path.
+Declare `[routing] path = "/"`. Then the URL path, your wasm Router's path and
+`api_prefix` line up with nothing to translate: with `api_prefix = "/api"`, the
+Router registers `.get("/api/items", …)`, and the page calls `./api/items` —
+`https://notes-7k3q.boogy.app/api/items`. Frontend assets are every path **not**
+under `api_prefix`.
 
-So if your wasm Router registers `.get("/notes/api/items", …)`:
-- mount → `[routing] path = "/notes"`
-- `api_prefix = "/api"` (the subtree under the mount that goes to the wasm)
-- frontend assets serve at the mount root (`<handle>.<base>/notes/…`, the paths **not**
-  under `api_prefix`).
-
-The trap: mounting at `/notes` but writing your guest routes as `/api/items`
-(without the mount). Then `<handle>.<base>/notes/api/items` reaches the guest as
-`/notes/api/items`, your Router has no such route, and **every API call 404s with
-no other error**. Simplest convention: pick one mount, put ALL your guest routes
-under it (`<mount>/…`), and set `api_prefix` to the API sub-path.
+`[routing] path` is only the base your wasm's own router sees; the platform
+relocates each request to it internally, and **it never appears in a URL**. So
+a service that declares `path = "/notes"` registers `.get("/notes/api/items", …)`
+and is still reached at `https://notes-7k3q.boogy.app/api/items` — `api_prefix`
+stays `/api`, relative to the root. The trap is a Router that disagrees with the
+declared base: declaring `/notes` but registering `/api/items` makes the guest
+see `/notes/api/items`, your Router has no such route, and **every API call 404s
+with no other error**. Declaring `/` makes that mistake impossible.
 
 ### Framework-built frontends (Vite, Astro, SvelteKit, Nuxt) → build with a RELATIVE base
 
@@ -533,20 +532,21 @@ what asset paths the build writes into your HTML.
 
 **Set it to relative.** In Vite that is `base: './'`; other build tools have the
 equivalent. The build then emits `./assets/index-abc123.js`, which resolves
-against the `<base href>` the host injects — correct at the mount root, at a
-deep SPA route, from a nested prerendered document, and on a custom domain.
+against the `<base href>` the host injects — correct at the root, at a deep SPA
+route, from a nested prerendered document, and on a custom domain.
 
 | The build emits | What happens |
 |---|---|
-| `./assets/index-abc123.js` (relative base) | ✅ Deploys and serves correctly at any mount. Resolved against the injected `<base href>`, which is the mount for a root-level document and the mount plus the document's own directory for a prerendered one — so a nested document's `./`-relative assets resolve alongside it, as the build emitted them. |
-| `/assets/index-abc123.js` (default absolute base) | ⚠️ **Passes the deploy gate, then breaks.** `<base>` does not apply to root-absolute URLs, so the browser leaves your mount. The gate resolves it to the bundle key `/assets/index-abc123.js`, which exists — so nothing catches it. |
-| `/<service>/assets/index-abc123.js` (base set to the mount) | ❌ **Rejected at deploy** — bundle keys are mount-relative, so `/<service>/…` is not one. |
+| `./assets/index-abc123.js` (relative base) | ✅ Deploys and serves correctly. Resolved against the injected `<base href>`, which is `/` for a root-level document and the document's own directory for a prerendered one — so a nested document's `./`-relative assets resolve alongside it, as the build emitted them. |
+| `/assets/index-abc123.js` (default absolute base) | ⚠️ **Resolves today, and loses what the base gives you.** The service is at the root, so the file is found — but `<base>` does not apply to root-absolute URLs, so the per-deployment `_a/<hash>/` prefix of a `build = "dist"` bundle is skipped and those files are no longer cached as immutable. |
+| `/<service>/assets/index-abc123.js` (base set to the service name) | ❌ **Rejected at deploy** — bundle keys are root-relative, so `/<service>/…` is not one, and no URL carries the service's name as a path. |
 
 That last rejection is **correct, and worth understanding rather than working
-around**: a frontend bundle is built once at publish and can be provisioned at a
-*different* mount than the author declared (a provisioner may relocate a
-service). A mount baked into the built HTML would break the moment that happens.
-A relative base cannot, because the host supplies the mount at serve time.
+around**: the service's name is in its hostname, never in its paths, and a
+bundle is built once at publish and served wherever it is provisioned — its own
+address, a custom domain, a board pane. A prefix baked into the built HTML
+would point at a path that does not exist on any of them. A relative base
+cannot, because the host supplies the base at serve time.
 
 Two things this does **not** get you:
 
@@ -566,22 +566,18 @@ Two things this does **not** get you:
 
 #### Where the app is served from
 
-You have three placements, and they are not a ladder — pick by what the app is:
+Always at the root of its own address, `https://<name>-<suffix>.boogy.app/` —
+every service has one, so an owner runs as many apps as they like side by side
+and none of them shares an origin with another. Two more places show the same
+app:
 
-- **`/<service>` on your tenant subdomain** (the default). Every service gets
-  its own mount, so a tenant runs as many apps as they like side by side. With a
-  relative base this Just Works.
-- **`/` on your tenant subdomain.** An author's own `[routing] path = "/"` is
-  legitimate — the `shortlinks` example claims the whole owner subtree so
-  `/{slug}` resolves at the root. Two things still resolve above it: the
-  platform's own paths (`/healthz`, `/_admin/…`, `/v1/…`), because those are
-  explicit routes and service dispatch is the router's fallback; and a sibling
-  service at a longer mount such as `/notes`, because frontend mount matching
-  takes the longest match. But a root mount does claim the rest of the subtree,
-  so it is a deliberate choice for one app, not the general answer.
-- **A custom domain.** One domain, one service, served at the domain root, its
-  own browser origin. The base question disappears there, since the mount *is*
-  the root.
+- **A board pane.** Boards frame the app from that same address, so a tab and a
+  pane share one origin, one storage and one session.
+- **A custom domain.** One domain, one service, served at the domain root. A
+  person's page visit to the app's own address then moves to the domain, while
+  board panes and API calls keep using the address (`boogy:boogy-custom-domains`).
+
+With a relative base none of this needs anything from you.
 
 ## Visibility
 
@@ -590,28 +586,92 @@ login screen) — while the wasm `api_prefix` routes enforce the service's norma
 ingress. Set `private = true` to put asset serving behind the service ingress too
 (for an internal tool whose shell itself shouldn't be exposed).
 
+## Your page runs on an origin of its own
+
+Every service is served at the root of an address of its own — not shared with
+any other app, yours or anyone else's — so the browser itself keeps apps apart.
+Shown on its own, your page is an ordinary top-level website at that address;
+`fetch("./api/…")` for your own app, as shown throughout this skill, just works.
+
+What this means for you as an author:
+
+- **Shown on its own, your page is not framed.** It owns its tab: full-page
+  navigation, `target="_top"`, OAuth and checkout redirects, install-to-home-screen
+  and password managers all behave as on any website.
+- **In a board, your page is framed — and can never navigate the page around
+  it.** The board's frame is sandboxed with no top-level navigation of any
+  kind: a `target="_top"` link does nothing there. Open anything that leaves
+  your app — OAuth consent, a payment page, "open elsewhere" — in a new window
+  (`target="_blank"` or `window.open`), which works in both cases.
+- **Who may frame you:** the platform's own framers — boards and the console —
+  and nobody else. `[frontend] frame_options = "deny"` refuses them too (and the
+  registry then reports your app as not embeddable); no setting lets any other
+  site frame your address (see **Security headers** below).
+- **Signing in:** shown on its own, a "Sign in" button calling `boogy.signIn()`
+  sends the person through the platform's sign-in and back to the page they
+  were on. In a board, the same call asks the board, which signs the pane in.
+  Nothing signs your app in on its own, so a sign-out stays signed out.
+  Details: `boogy:boogy-account-auth`.
+- **Browser storage is per instance.** `localStorage`, `IndexedDB` and
+  cookies on your address belong to THIS deployment alone. Redeploying keeps
+  them (it's the same instance, at the same address); deleting the instance
+  and provisioning a fresh one gives it a new address that starts empty, on
+  purpose — an address is never reused, so nobody inherits data a deleted
+  instance left behind.
+- **Your page calls only its own backend.** A request to a DIFFERENT app's
+  API — even one under your own account — is not authenticated: the session
+  cookie that makes a same-origin `fetch` "just work" is deliberately
+  withheld from a cross-origin call, including to another app on the same
+  base domain. A public route still answers such a call; a gated one answers
+  `401`. If your app genuinely needs another of your services' data, call it
+  from YOUR backend over the mesh (`boogy:boogy-mesh-architecture`) — never
+  directly from the browser.
+- **Camera, microphone and geolocation in a board need an explicit grant.** A
+  board frames you with `fullscreen` and `clipboard-write`; the other three are
+  opt-in, because they're the ones a person expects to be asked about:
+
+  ```toml
+  [frontend]
+  root = "web"
+  allow = ["camera", "microphone", "geolocation"]   # closed list
+  ```
+
+  Without the matching entry, a framed page is refused the permission exactly
+  as in any other frame, however your own code prompts for it. Shown on its own,
+  the browser asks the person as it would for any website.
+- **Use relative paths, never a hard-coded prefix.** The asset-path rule above
+  (write `./app.js`, never `/<service-id>/app.js`) applies to anything that
+  addresses your own page: build links and API calls from a relative path or
+  from the platform's own config. Your address carries no service prefix at
+  all.
+- **A page your BACKEND renders is served like any other response.** If your
+  wasm returns an HTML page from a handler — rather than through `[frontend]` —
+  it is served on your address under the same framing rules, but it gets none
+  of `[frontend]`'s serving (the injected base, the pane script, asset caching,
+  the deploy-time checks). An interactive page belongs in `[frontend]`; reserve
+  a backend-rendered HTML response for something small (an error page, a
+  redirect-with-explanation).
+
 ## Calling your API as a logged-in user
 
 For a same-origin FullStack app the auth token rides along **automatically** —
 the bare `fetch("./api/…")` shown above is usually all you write:
 
-- After a browser login (OAuth), the cross-origin SSO exchange ends at
-  `/boogy/callback` **on your app's own origin** (`<handle>.<base>`), which mints
-  an HttpOnly, host-only `__Host-boogy_app` cookie there. That is the cookie your
-  page's API calls ride on. A **same-origin** `fetch` sends it by default (the
+- After a browser sign-in, the platform's `/boogy/callback` **on your app's own
+  address** (or a board's background exchange, for a pane) sets an HttpOnly,
+  host-only `__Host-boogy_app` cookie there. That is the cookie your page's API
+  calls ride on. A **same-origin** `fetch` sends it by default (the
   Fetch API's default is `credentials: "same-origin"`), so you do **not** set
   `credentials` and you do **not** build an `Authorization` header. The host
   resolves it to the principal exactly like a Bearer token, and your `api_prefix`
   routes enforce the service's normal ingress.
 - Don't confuse it with `__Host-boogy_session`, the platform-login cookie set on
   the **auth** origin (`auth.<base>`). It is host-only too, so it never travels to
-  a tenant origin and cannot authenticate a call to your service. `__Host-boogy_app`
-  covers a SET of that owner's services — one cookie for the origin, each service
-  with its own subject — and the host resolves the right one for whichever service a
-  request reaches, preferring it over the platform cookie when both are present. If
-  your own page gets a 401, check that the
-  callback ran on your origin and set the cookie before reaching for a
-  `credentials` option. See `boogy:boogy-account-auth`.
+  a tenant origin and cannot authenticate a call to your service. On your
+  address `__Host-boogy_app` covers exactly YOUR one service. If your own page
+  gets a 401, call `POST /boogy/renew` first (the SDK's `fetch` does); if the
+  person is signed out, sign them in again (`boogy.signIn()`) — don't reach for
+  a `credentials` option. See `boogy:boogy-account-auth`.
 - Set `credentials: "include"` **only** for a *cross-origin* API (a different
   origin) — which also requires `[ingress.cors]` with `allow_credentials = true`
   (see *Cross-origin* below).
@@ -644,6 +704,14 @@ never overridden: it is a sentence you wrote, where `same_origin` is a default y
 inherited. Your own `csp` is sent as a SEPARATE header beside the grant, and two
 policies intersect — so `frame-ancestors 'none'` in your `csp` still blocks
 everything, and you can narrow the grant but never widen it.
+
+**On your service's own address the framing grant is fixed: the platform's
+framers — boards and the console — and nobody else.** `frame_options = "deny"`
+refuses them too (your sentence, never overridden), and the registry then
+reports the app as not embeddable; `same_origin` and `none` both leave the
+platform grant as it is, so `none` cannot make your address frameable by
+anybody else. Your `csp` still intersects as described above. The baseline and
+the exception above describe a custom domain.
 
 Two `[frontend]` knobs tune it:
 
@@ -733,12 +801,13 @@ bundle would mean redeploying to add one. See `boogy:boogy-file-storage`.
 | "TypeScript can't run in the browser, so I'll write plain JS" | Write TS — `build = "source"` transpiles it server-side. (Plain JS works too.) |
 | Embed assets in the wasm binary | Assets live in object storage, served by the host — not in your wasm (no artifact-size hit). |
 | `import "@arrow-js/core"` will just work from anywhere | Bare imports resolve via the import map — vendor the file under `web/vendor/` or set `allow_cdn = true`. |
-| Use a root-absolute asset path (`src="/app.js"`) because "the base tag handles it" | `<base>` only affects **relative** URLs. A root-absolute path goes to the host root, off-mount → 404 — and the deploy gate resolves it to a bundle key that exists, so it **passes the gate and breaks in the browser**. Write `./app.js`. |
+| Use a root-absolute asset path (`src="/app.js"`) because "the base tag handles it" | `<base>` only affects **relative** URLs. A root-absolute path skips the injected base, so a `build = "dist"` bundle loses its per-deployment prefix for that file. Write `./app.js`. |
+| `[routing] path = "/notes"` so the URL says notes | The name is already in the hostname, and the declared base never appears in a URL — it only makes every route repeat it. Declare `path = "/"`. |
 | Put a big video in `root` and serve it from a handler | Large assets auto-offload to object storage via redirect; just drop the file in `root`. |
 | Ship a bare `<div id="app">` SPA with no head metadata | Crawlers and AI agents get nothing. Put title/description/OG + core copy in the served `index` HTML; add JSON-LD, `robots.txt`, `sitemap.xml`. GEO/SEO is a default, not a follow-up. |
 | Hardcode `canonical`/`og:url`/`sitemap` to a guessed domain (e.g. `boogy.ai`, or whatever the user typed) before deploying | The app plane is `boogy.app`; the real URL is printed by `boogy deploy`. Fill absolute URLs from that output, not from a guess. A relative `href="./"` canonical also fails the dangling-reference gate. |
 | "I'll deploy my Next.js/SvelteKit app" without checking which mode it builds in | Only the **fully-static** build deploys (`output: 'export'`, `adapter-static`, `nuxi generate`). There is no JS runtime, so SSR/RSC/server actions/middleware/`route.ts` handlers never run — port those to the wasm under `api_prefix`. |
-| Point the framework's base option at the mount (`vite build --base=/todos/`) to fix off-mount 404s | Rejected at deploy, and correctly so — the bundle is built once at publish and may be provisioned at a *different* mount, so a baked-in prefix breaks on relocation. Use a **relative** base (`base: './'`); the host supplies the mount via the injected `<base href>`. |
+| Point the framework's base option at the service name (`vite build --base=/todos/`) | Rejected at deploy, and correctly so — no URL carries the service's name as a path, so a baked-in prefix points nowhere. Use a **relative** base (`base: './'`); the host supplies the base via the injected `<base href>`. |
 | "Deploy succeeded, so the page works" / treating a skipped `--smoke` as verification | A clean deploy only published + routed. `Smoke: skipped` verified nothing. Run `--smoke` with a real browser, or load the printed URL yourself, before claiming it renders. |
 | Fold a reusable backend into this frontend service | If the API logic is generically useful, build it as its **own** (publicly provisionable) module — see `boogy:growing-boogy-meshes` — and keep this service the app-specific shell. |
 

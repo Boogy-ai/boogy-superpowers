@@ -116,28 +116,40 @@ moment the remove is accepted, so export first. See
 
 ```
 Published: boogy://<handle>/modules/<id>@<version>
-  URL: https://<handle>.boogy.app/<mount>
+  URL: https://notes-7k3q.boogy.app
 ```
 
-`<mount>` is the manifest's `[routing] path` — a module `hello-api` mounted at
-`/api` is served at `/api`, not `/hello-api`.
+**Every service is served at the root of its own address**, `<name>-<suffix>`:
+the name is derived from the service `id` and the suffix is drawn at random the
+first time it is deployed, so you cannot work it out — read it. It is kept
+through every redeploy, upgrade and rollback. A route `/list` is at
+`https://notes-7k3q.boogy.app/list`, whatever the manifest's `[routing] path`
+says: the declared base is only what the service's own router sees, and never
+appears in a URL (new services declare `path = "/"`; see
+`boogy:scaffolding-a-service`). When the service's id would impersonate the
+platform (`login`, `admin`, anything containing `boogy`, …) or has no usable
+characters, the address uses `svc` instead and the deploy prints a `Note:`
+line saying so. A service with OAuth connections also prints its
+`OAuth redirect URI:` — register that exact URL with each provider (see
+`boogy:boogy-oauth-connections`).
 
-**The printed URL is always `https://` and carries no port.** The platform
-builds it as `https://<handle>.<base>/<mount>` — scheme fixed, port never
-included. Against a production deployment that is exactly right. Against a
+**The printed URL is `https://` and carries no port.** The platform builds it
+as `https://<label>.<base>` — scheme fixed, port never included — for a deploy
+made against the platform API. Against a production deployment that is exactly right. Against a
 stack reachable on a non-standard port (a local or self-hosted host on
 `:3000`, say) that origin does not resolve, and three things fail for the
 same reason rather than three: the printed URL is unreachable, `--smoke`
 loads that same URL and cannot reach the page either, and anything that
 frames or fetches the printed URL gets nothing. **It is not a deploy
 failure** — substitute the origin you actually serve on
-(`http://<handle>.<base>:<port>/<mount>`) and verify against that.
+(`http://<label>.<base>:<port>`, the same label) and verify against that.
 
 That printed `URL:` is the source of truth. The app plane is **`boogy.app`**, not
 `boogy.ai` — `boogy.ai` is the control/marketing plane (`api.boogy.ai` for login +
 `/v1`, the docs, the landing page) and **never serves your app**. Do **not**
-reconstruct the URL from the generic `<handle>.<base>` placeholder, from the host
-you logged in against, or from a domain the user happened to mention. Copy it from
+reconstruct the URL from the service's name, from your handle (a handle is not
+a hostname: its address only shows a "this address has moved" page), from the
+host you logged in against, or from a domain the user happened to mention. Copy it from
 the deploy output. Any absolute origin you wrote *before* this point (e.g. a
 `<link rel="canonical">`, `og:url`, or `sitemap.xml` in a frontend bundle — see
 `boogy:boogy-serving-frontends`) is a guess: reconcile it with the printed URL and
@@ -168,8 +180,8 @@ that the page renders or the endpoint behaves. Before you claim it works:
      app mounts elsewhere, pass your own.
 
    Add `--smoke-path /some/nested/route` to check a deep or prerendered route;
-   the mount root is the one URL whose relative assets resolve no matter what, so
-   it proves the least. Or load the printed URL in a real browser yourself.
+   the address's root is the one URL whose relative assets resolve no matter
+   what, so it proves the least. Or load the printed URL in a real browser yourself.
    Only then is it verified. (See `boogy:boogy-serving-frontends`.)
 2. **Public API route:** `curl` the printed URL and check the status + body.
 3. `boogy list` confirms the deployment row, but a row is not a working page.
@@ -188,7 +200,7 @@ Every platform response carries `x-boogy-deployment-id`. Use its presence, not
 the status, to decide whether the request reached your service at all:
 
 ```bash
-curl -sS -D- -o /dev/null https://<handle>.boogy.app/<mount>/health
+curl -sS -D- -o /dev/null https://notes-7k3q.boogy.app/health
 ```
 
 | What you see | What it means | Where the fix is |
@@ -199,8 +211,8 @@ curl -sS -D- -o /dev/null https://<handle>.boogy.app/<mount>/health
 | Connection refused / DNS failure | The host does not resolve or route | **Operator-side. Not your code.** |
 
 **Why this table exists.** A 404 from the edge's default backend is
-byte-identical to the 404 a mis-mounted router produces — and a mis-mounted
-router is the failure these skills warn about most loudly, so the evidence
+byte-identical to the 404 a router that disagrees with its declared base
+produces — and that router is the failure these skills warn about most loudly, so the evidence
 actively steers you into re-reading routing code that is already correct. Two
 independent checks settle it in seconds:
 
@@ -214,9 +226,10 @@ curl -H "Authorization: Bearer $BOOGY_TOKEN" \
 so nothing inside it — not the router, not a handler, not a capability — can be
 responsible. Stop debugging the service and report the URL as unreachable.
 
-A newly registered handle is the common case: tenant routing is subdomain-only,
-and a brand-new subdomain may not have an edge route or a certificate yet. That
-is a platform-side step, and no amount of redeploying will change it.
+A brand-new address is the common case: tenant routing is by hostname only,
+and an edge that is not yet carrying the platform's wildcard route or
+certificate cannot answer a new service's address. That is a platform-side
+step, and no amount of redeploying will change it.
 
 ### A clean retry can mean the platform reverted you, not that it's live
 
@@ -359,7 +372,7 @@ app-plane credential:
 | "The owner is missing, I'll set it from the project name" | The owner is the person's **handle** — their account username — and it is set from your authenticated deploy, so omit it. If they have no account yet, that is a sign-up, not a manifest field: you never choose a handle for them (`boogy:using-boogy`, "Choosing a handle"). |
 | "I re-ran provision, so it's running my new code" | Provisioning is **idempotent**: re-running against an existing service returns 409 and the host keeps serving the module it was FIRST provisioned with. The log reads like a successful no-op while every request executes old code. |
 | "I published a new version, so the service moved to it" | Publishing does not move a service onto a new module. Publish and provision are separate steps, and only the second changes what runs. |
-| "The URL printed, so the URL works" | Printing is not checking. A brand-new tenant subdomain can have no edge route and no certificate while the control plane reports the service perfectly healthy. Read the response headers, not just the status. |
+| "The URL printed, so the URL works" | Printing is not checking. A brand-new service address can have no edge route and no certificate while the control plane reports the service perfectly healthy. Read the response headers, not just the status. |
 | "The deploy log said OK" | Check that it says *upgraded*, not *existing*. That one word is the difference between measuring your change and measuring the previous build — it has invalidated a real performance conclusion. |
 | "The container restarted, so it has my binary" | Recreating a container reuses the existing image. Without a rebuild you are running the old binary with new configuration — which looks like your change had no effect. |
 | "`CARGO_TARGET_DIR` is set, so the deploy picks the build up from there" | It does not — `service.wasm` is relative to the **manifest**, nothing reads that variable. A leftover `target/` next to the manifest means a **stale binary ships and the deploy reports success**. |

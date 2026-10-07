@@ -40,13 +40,13 @@ therefore what its reach should be. You are the expert on those.
 The handle is not that kind of decision, on two counts, and both matter:
 
 - **It isn't yours.** It is the person's **username** — the name of their
-  account. They pick it once, it is hard to change afterwards, and it becomes
-  their subdomain.
+  account. They pick it once, it is hard to change afterwards, and every
+  service they ever deploy belongs to it.
 - **It isn't inferable from the task.** The task is one app; the handle outlives
-  it. One handle carries as many services as they ever build, each at its own
-  route — sign up as `alice` and a notes API lands at
-  `https://alice.boogy.app/notes/` while a photo gallery lands at
-  `https://alice.boogy.app/gallery/`. One account, two apps, two paths. Pick
+  it. One handle owns as many services as they ever build, and each gets an
+  address of its own — sign up as `alice` and a notes API lands at something
+  like `https://notes-7k3q.boogy.app/` while a photo gallery lands at
+  `https://gallery-x2m9.boogy.app/`. One account, two apps, two addresses. Pick
   `youtube-library` because that is what you happen to be building today and you
   have permanently named their whole account after one item in it.
 
@@ -84,7 +84,7 @@ Plain-language first; a concise technical aside for those who know the system.
 
 | Decision | Ask it like this | Technical aside | Recommend |
 |---|---|---|---|
-| **Handle** (Tier 0, first sign-up only) | "Before we deploy anything you need an account name — a username, not the app's name. Everything you ever build sits under it: `yourname.boogy.app/notes/`, `yourname.boogy.app/gallery/`. What would you like?" | the account handle = the tenant subdomain label | **nothing** — this is the one decision you offer no default for. Prefer letting them choose it in the sign-in flow's own handle step |
+| **Handle** (Tier 0, first sign-up only) | "Before we deploy anything you need an account name — a username, not the app's name. Everything you ever build belongs to it, and each app gets its own web address. What would you like?" | the account handle = the `<owner>` of every service's identity, `boogy://<handle>/services/<id>`; it is not a hostname | **nothing** — this is the one decision you offer no default for. Prefer letting them choose it in the sign-in flow's own handle step |
 | **Reach** | "Who should be able to use this — anyone, just you, or a specific list of people?" | `[ingress] mode` public / authenticated / allowlist | `authenticated` if it stores per-person data; `public` for read-only/utility |
 | **Provisioning / reuse** | "Should other people be able to spin up their **own** copy of this?" | `[provisioning] mode` public / private / allowlist | `public` for a generic, stateless or bring-your-own-key utility (it joins the shared library); `private` for a full app holding the person's data |
 | **Surface** | "Does this need its own web page, or is it just an API other things call?" | Frontend / FullStack / Service shape | `FullStack` for an app; `Service` for a pure API/utility |
@@ -119,7 +119,7 @@ Plain-language first; a concise technical aside for those who know the system.
 
 | Thought | Reality |
 |---|---|
-| "I'll pick a sensible handle from the project name and move on." | The one thing here you are not the expert on. It is their **username**, not the app's name — chosen once, hard to change, and the subdomain every service they ever deploy sits under. Tier 0: no default, no inference. Let the sign-in flow's handle step collect it, or ask and wait. |
+| "I'll pick a sensible handle from the project name and move on." | The one thing here you are not the expert on. It is their **username**, not the app's name — chosen once, hard to change, and the account every service they ever deploy belongs to. Tier 0: no default, no inference. Let the sign-in flow's handle step collect it, or ask and wait. |
 | "Asking for a handle contradicts 'don't interrogate the vibe coder'." | No — the rule is *don't make them choose wiring*. This is not wiring; it is their account's name, and it is not derivable from the task. One question, asked once, about the one answer you do not have. |
 | "I'll ask them which ingress mode / capabilities / indexes to use." | Those are yours (Tier 2/3). Decide the smart default and report it in one line. Don't make a vibe coder choose wiring. |
 | "I'll just ask every manifest field to be safe." | That's an interrogation. Ask only Tier-1, lead with a recommendation, and apply the rest. |

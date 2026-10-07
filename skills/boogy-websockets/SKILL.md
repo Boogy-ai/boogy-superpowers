@@ -325,20 +325,21 @@ speaks Socket.IO v5 / engine.io v4. For a browser frontend **served by Boogy**
 (`boogy:boogy-serving-frontends`), vendor a single-file ESM build under
 `web/vendor/` (e.g. `web/vendor/socket.io-client.js` from the package's
 `dist/socket.io.esm.min.js`, or `esm.sh/socket.io-client@4`) and import it by a
-**mount-relative path** — `import { io } from "./vendor/socket.io-client.js"` —
-NOT the bare specifier `"socket.io-client"`. The generated import map uses a
-host-root `/vendor/...` URL that **404s under a service mount**, which silently
-breaks the page; the mount-relative import sidesteps it.
+**relative path** — `import { io } from "./vendor/socket.io-client.js"` —
+NOT the bare specifier `"socket.io-client"`. A relative import resolves against
+the page's injected `<base href>`, wherever the page is served.
 
 > **`owner` is the service owner's handle — nothing else.** In the
-> `subscribe` envelope, `owner` is the `<handle>` label from that owner's
-> `<handle>.<base>` subdomain (e.g. `"alice"`). It is **not** the workload
-> URI (`boogy://alice/services/...`) and **not** a `pw_…` pairwise
-> principal. Getting this field wrong doesn't error — the ack still comes
+> `subscribe` envelope, `owner` is the owner's handle (e.g. `"alice"`), the
+> `<owner>` segment of the service's workload URI. A service's address does
+> not contain it, so a page reads it from the platform: the `owner` field of
+> its own `GET /boogy/config`. It is **not** the workload URI
+> (`boogy://alice/services/...`), **not** the service's address, and **not**
+> a `pw_…` pairwise principal. Getting this field wrong doesn't error — the ack still comes
 > back, subscribe "succeeds," and you silently receive no messages.
 
 ```js
-import { io } from "./vendor/socket.io-client.js";   // vendored, mount-relative
+import { io } from "./vendor/socket.io-client.js";   // vendored, relative
 
 const socket = io("https://<host>", { path: "/v1/stream", transports: ["websocket"] });
 

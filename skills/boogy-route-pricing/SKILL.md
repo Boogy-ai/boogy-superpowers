@@ -217,7 +217,7 @@ request cost — including one that failed. Expect them to read it.
 
 - The `[pricing]` section of the manifest reference — every field, its type, and
   the full refusal table.
-- `GET <mount>/pricing.json` on any priced service — the price list it publishes
+- `GET https://<service address>/pricing.json` on any priced service — the price list it publishes
   to callers, which is what your own callers will read.
 - `GET /v1/services/{service_id}/pricing` — your own view of what a deployment
   is actually charging, as compiled.

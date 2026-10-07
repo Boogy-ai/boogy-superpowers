@@ -20,8 +20,9 @@ code, calling the API, or improvising. Do NOT summarize, paraphrase, or
    `boogy login`.) Do this early — only the human can do the browser step.
    **A first-time user picks a handle in that browser step, and you NEVER pick
    it for them.** It is their account's username, not the name of the app you
-   are building — chosen once, hard to change, and the subdomain every service
-   they ever deploy sits under. Let them choose it in the flow; if you are ever
+   are building — chosen once, hard to change, and the account every service
+   they ever deploy belongs to (each service gets its own address; the handle
+   is not part of it). Let them choose it in the flow; if you are ever
    collecting one yourself, ask explicitly and wait for their answer. Full rule
    (and what to tell them while they choose): `using-boogy`, "Choosing a
    handle".

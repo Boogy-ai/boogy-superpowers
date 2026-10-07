@@ -121,24 +121,32 @@ you stop declaring while links for it still exist, so remove a
 ## 2. Register the callback URL
 
 The provisioner registers exactly this redirect URI in their own OAuth
-client, in the provider's console:
+client, in the provider's console — the root of **the service's own
+address**, plus a fixed path:
 
 ```
-https://<handle>.<base>/boogy/connections/callback
+https://<name>-<suffix>.<base>/boogy/connections/callback
 ```
 
-`<handle>` is the owner's handle, `<base>` the platform's base domain.
-`boogy` is a reserved path segment on every tenant subdomain, so no
+Do not assemble it: the suffix is random. **`boogy deploy` prints it** (`OAuth
+redirect URI: …`) for a service that declares a connection, as do the provision
+and upgrade responses (`connections_callback_url`) and the service's
+connections view (`GET /v1/services/{id}/connections`). It is fixed for the
+life of the service — kept through every redeploy, upgrade and rollback — and a
+service that is deleted and created again gets a new address, so its provider
+registration must change too. `boogy` is a reserved path segment, so no
 service can shadow this route; it is served by the platform and **no guest
 code runs for it**.
 
-**The callback is always on the platform subdomain, even for a service
-served on a custom domain.** The two origins answer different questions:
-the callback URI is where the *provider* sends the browser back (the
-platform subdomain, which is what was registered); `return_to` is where
-*your page* is (your custom domain, if you have one). A service on a
-custom domain still registers, and completes through, the platform
-subdomain — and can still return the user to a page on its own domain.
+**The callback is always on the service's own address, even for a service
+served on a custom domain.** The two origins answer different questions: the
+callback URI is where the *provider* sends the browser back (the service's
+address, which is what was registered); `return_to` is where *your page* is
+(your custom domain, if you have one). A service on a custom domain still
+registers, and completes through, its own address — and can still return the
+user to a page on its domain. A state minted for one service is refused on any
+other service's address, so one registration can never complete another
+service's connection.
 
 ## 3. Bind the client credentials
 
@@ -205,7 +213,9 @@ sharing one. The origin it is compared against is one the **platform
 derives** from the request's resolved host, using the SAME scheme and
 port the browser actually arrived on: `https` in production, and `http`
 (with whatever port you're running on) for a local development host like
-`http://<handle>.localhost:3000`. So `return_to` should match the page
+`http://notes-dev.localhost:3000`. A background job and a peer callee have no
+browser request of their own, so for them the origin is the service's own
+address. So `return_to` should match the page
 you're actually serving — pass an `http://` URL locally and an `https://`
 one in production; the `BadReturnTo` message names the origin it expected
 if you're unsure. After consent the platform finishes the token exchange
@@ -285,13 +295,26 @@ The platform, at the wire edge: checks the URL's host is in
 seconds; injects the bearer. The injected header is stripped on
 cross-origin redirects like any injected credential.
 
-**Refresh is lazy and single-flight.** A due refresh takes a per-`(connection,
-subject)` lock, so a burst of concurrent calls at expiry produces **one**
-call to the provider's token endpoint, not one per request. A non-expired
-token is served without taking the lock at all. If the provider answers
-`invalid_grant`, the connection moves to `NeedsReconnect`, the call fails
-with `connection-unavailable`, and the refresh is **not** retried in a
-loop — the user has to consent again.
+**Refresh is lazy and single-flight.** A due refresh claims a short **lease**
+on that `(connection, subject)` row, so a burst of concurrent calls at expiry
+produces **one** call to the provider's token endpoint, not one per request:
+the other callers wait for that one's answer and use it. A non-expired token is
+served without any of this. Nothing is held across the provider call itself:
+it is cut off at 15 seconds, DNS included, so a slow token endpoint costs a
+refresh, never a stalled row, and a refresher that crashes frees its row within
+30 seconds. If the provider answers `invalid_grant`, the connection moves to
+`NeedsReconnect`, the call fails with `connection-unavailable`, and the refresh
+is **not** retried in a loop — the user has to consent again.
+
+**A refresh that loses a race writes nothing.** If the user unlinks, re-links,
+or the service is deleted while a refresh is waiting on the provider, the
+refresh's result is discarded rather than written back over the newer state.
+When the connection was REMOVED meanwhile, the platform also revokes the token
+pair the provider just issued — best effort: if that revoke fails (the provider
+refuses or is down, or the connection declares no `revoke_url`), the grant may
+stay live at the provider with nothing on Boogy holding it, and your audit tail
+records a failed `connection.revoked` naming why. The remedy is the same as for
+any stranded grant: the provider's own account page.
 
 ## Errors
 
@@ -342,16 +365,22 @@ calls may use `connection_auth` normally.
   nothing: the service stops serving immediately, but its deployment, its
   data and its connection rows all survive the call. The platform then
   revokes each connection at its provider in the background and deletes
-  that row **only once its grant is actually settled** — so a provider
-  outage means a retry later, not a stranded grant. When none remain, the
-  service is really deleted.
+  that row **only once its grant is actually settled**, and only if the row
+  still holds the tokens it revoked — so a provider outage means a retry
+  later, not a stranded grant, and a token refreshed mid-revoke is revoked on
+  a later pass rather than deleted unrevoked. When none remain, the service
+  is really deleted.
 
   Three consequences worth knowing before you script against it:
 
   - **`GET /v1/services/{id}/connections` keeps answering** until the
     teardown finishes, so an owner can still see which grants are left.
     Re-creating a service with the same id is refused (409, "being
-    deleted") for the same window.
+    deleted") for the same window — and briefly after it, until the old
+    instance's stored data is removed (409, "still being removed"; deploy
+    again once it finishes). A deploy, rollback or delete of the id that
+    collides with another one still in progress answers 409 "in progress":
+    retry.
   - **A provider that refuses forever does not make the service
     undeletable.** Past a bounded number of failed attempts, or a bounded
     age, the platform deletes it anyway and records

@@ -120,6 +120,38 @@ the calling workload. The same user always lands on the same per-service pairwis
 regardless of path, so "both notes are mine" holds even when one note was filed
 directly and the other arrived via a chain.
 
+#### An app with its own page: the browser session is per instance, not per account
+
+If your service declares a `[frontend]`, its page runs on an origin of its
+own — not a shared one with any other app, yours or anyone else's (see
+`boogy:boogy-serving-frontends` for the full picture). That isolation is
+where the "Sign in with Boogy" session actually lives, and it changes a few
+things an app author otherwise assumes:
+
+- **The session cookie is per instance, and so is browser storage.** Every
+  service is served at an address of its own, and a person signing in to
+  YOUR app sets a cookie on that address. It covers only your service, and
+  `localStorage`/`IndexedDB` there is yours alone — redeploying keeps it,
+  deleting the instance and standing up a fresh one gives it a new address
+  that starts empty. Shown on its own, your page signs in with
+  `boogy.signIn()` (the platform's sign-in, then back to your page); in a
+  board, the same call asks the board (see `boogy:boogy-account-auth`).
+- **A cross-origin call never carries the cookie, even to your own sibling
+  app.** The cookie that makes `fetch("./api/…")` authenticate on your own
+  page is deliberately withheld from any request that isn't same-origin or a
+  plain page/frame navigation — including a call from one of your OWN other
+  apps' pages, on the same account. Such a call still reaches a `public`
+  route (anonymously) and a gated one (`401`); it is never silently
+  authenticated as the visitor. If one of your apps genuinely needs another
+  app's data on a user's behalf, that has to happen server-side, over the
+  mesh — see `boogy:boogy-mesh-architecture` and `boogy:boogy-obo-delegation`.
+- **In a board, your page is framed.** Camera, microphone and geolocation
+  need an explicit `[frontend] allow` entry to work inside a board's frame,
+  and a framed page cannot navigate the page around it; build API calls and
+  internal links from relative paths, never a hard-coded prefix. An
+  interactive sign-in UI belongs in `[frontend]`, not in a handler's own HTML
+  response. Full detail: `boogy:boogy-serving-frontends`.
+
 ## Per-route ingress: a public route inside a restricted service
 
 Layer 1 (ingress) is normally one service-wide `mode`. But sometimes one
@@ -149,25 +181,28 @@ mode = "public"                 # anyone may reach /webhook
 | **Host-enforced at the edge.** Ingress runs *before* your wasm instantiates. | You do NOT self-gate a public route in code; but a public route means **anyone** reaches it — authenticate it some *other* way (e.g. an HMAC signature; see `boogy:boogy-webhooks`). |
 | **Delegation gate + rate limit stay SERVICE-WIDE.** | A public carve-out can't bypass the `[ingress.delegation]` gate, and shares the rate-limit bucket. |
 
-**FullStack / non-root-mounted services: the `path` is MOUNT-INCLUSIVE.** "The
-path your Router sees" includes the service mount — the host forwards the request
-to the guest *with* the mount, it does not strip it (the same frame as the mount
-rule in `boogy:boogy-serving-frontends`). So for a FullStack app mounted at
-`/todos` whose API lives under `api_prefix = "/api"`, a public carve-out for the
-SPA's auth-check endpoint must be the **mount-inclusive** path:
+**The `path` is the path your Router sees.** With `[routing] path = "/"` —
+what every new service declares — that is also the URL path: a carve-out for
+`https://todos-k3v9.boogy.app/api/me` is `path = "/api/me"`. A service that
+declares another base sees that base in front of every path (the platform
+relocates each request to it internally, and the base never appears in a
+URL), so its carve-outs carry the base too. For a FullStack app declaring
+`path = "/todos"` whose API lives under `api_prefix = "/api"`, the SPA's
+auth-check endpoint is:
 
 ```toml
 [ingress]
 mode = "authenticated"
 
 [[ingress.routes]]
-path = "/todos/api/me"          # NOT "/api/me" — include the mount
+path = "/todos/api/me"          # the base it declared, then the route
 mode = "public"
 ```
 
-Writing the un-mounted `/api/me` is the trap: it never matches, the carve-out
-silently doesn't apply, and the route stays gated by the service default. (The
-`/webhook` example above works only because that service is mounted at root.)
+Writing `/api/me` there is the trap: it never matches, the carve-out silently
+doesn't apply, and the route stays gated by the service default. Declaring
+`path = "/"` removes it — the carve-out, the route and the URL are then one
+string.
 
 A manifest with no `[[ingress.routes]]` behaves exactly as before — this
 is purely additive.
@@ -441,16 +476,18 @@ Cursor/limit/ordering mechanics: `boogy:boogy-access-patterns`.
 Invoke `api_keys_glue!(bindings)` next to `wit_glue!`, then:
 1. `api_key_routes::install_table()` in `schema`.
 2. Mount management routes via the `ApiKeyRoutes` ext trait —
-   **`with_api_key_routes_at("<your mount>/_keys")`**, spelling the mount out.
+   `with_api_key_routes()` on a service declaring `path = "/"`, or
+   **`with_api_key_routes_at("<your base>/_keys")`** under any other base.
 3. Gate your routes: `.group([api_key_routes::guard], |g| ...)`.
 
-### 🚩 The bare `with_api_key_routes()` ignores your mount
+### 🚩 The bare `with_api_key_routes()` ignores a declared base
 
-`with_api_key_routes()` registers the **literal** `/_keys`. Every other route
-you write carries the mount (`/board/rooms`, not `/rooms` — see
-`boogy:scaffolding-a-service`), because the host forwards the request with the
-manifest's `[routing] path` still attached and never strips it. This one helper
-is the place that rule is broken *for* you.
+`with_api_key_routes()` registers the **literal** `/_keys`, which is right for a
+service declaring `path = "/"`. Under any other base, every other route you
+write carries the base (`/board/rooms`, not `/rooms` — see
+`boogy:scaffolding-a-service`), because the platform relocates each request to
+the declared base before your router sees it. This one helper is the place that
+rule is broken *for* you.
 
 So on any service not declaring `path = "/"`, all four key endpoints answer
 nothing:
@@ -463,7 +500,7 @@ path = "/board"
 
 ```rust ignore-snippet: a router shape shown against a manifest value, so the guard and handlers it would need are not in scope here
 Router::new()
-    .with_api_key_routes_at("/board/_keys")   // CORRECT — mount included
+    .with_api_key_routes_at("/board/_keys")   // CORRECT — base included
     // .with_api_key_routes()                 // WRONG — registers /_keys, 404s
     .group([api_key_routes::guard], |g| g.get("/board/rooms", list_rooms))
 ```
