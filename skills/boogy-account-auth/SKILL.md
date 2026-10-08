@@ -179,7 +179,10 @@ second domain.
   let them retry), or `'unavailable'` (nothing framing the app can sign it in —
   link the person to the app's own address, in a new window). A board signs in
   every pane it shows through one trip from `boards.<base>`, so no pane is ever
-  navigated through.
+  navigated through. Connect with `connectPane({ service, signsIn: true })` in
+  an app that signs people in: the board then keeps the pane covered until the
+  app reports signed in, so the app's signed-out view (and its "Sign in"
+  button) is shown in a board only when the board cannot sign it in.
 - **Why a navigation to your own address is fine:** your page can register a
   service worker on its own address, and that worker could answer the
   navigation back to `/boogy/callback`. That gains your app nothing it could not
