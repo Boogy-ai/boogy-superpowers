@@ -1,6 +1,6 @@
 ---
 name: designing-boogy-services
-description: Use when starting a new Boogy service or a major feature, before writing any code
+description: Use when starting a new Boogy service, a major feature, or the next stage of one, before writing that stage's code
 ---
 
 # Designing Boogy services
@@ -22,7 +22,13 @@ The ceremony scales with the work; the approval gate never does.
   six-line summary, present it, and **stop** until you hear yes.
 - **Architectural** — a new service, a new capability, a change to ingress mode,
   a mesh topology change, or anything that alters the data model's access
-  patterns. Full questionnaire, written design artifact, self-review, approval.
+  patterns. The questionnaire steps this stage needs, a written roadmap with
+  this stage's design, self-review, approval.
+
+**Classify each stage, not the whole app** (`boogy:shipping-in-stages`):
+stage 0 of an app with a page needs only step 0, step 1a and who can open it;
+an API-only stage 0 runs a wasm, so it also answers 4, 5, 6 and 8 in a six-line
+summary. Each later stage is Bounded or Architectural by what it adds.
 
 Say the classification out loud before your first question, so the person can
 overrule it. **When in doubt take the heavier path**, and the ratchet is one-way:
@@ -30,8 +36,11 @@ complexity discovered mid-task upgrades the classification. Nothing downgrades.
 
 ## HARD GATE
 
-**No scaffolding and no code until the questionnaire is answered.** Output
-the answers first, visibly, then proceed.
+**No stage's code until that stage's questions are answered.** Output the
+answers first, visibly, then proceed. Ask each step at the stage that first
+needs it: capabilities (4), ingress and provisioning (5), data (6) and limits
+(8) at the first stage with a wasm, a table or a sign-in. An app with a page
+asks none of them before its stage-0 wireframe is live.
 
 "Skip the design / just scaffold" **compresses** the questionnaire to a
 six-line summary — it never skips it. Quick is fine; silent is not. A
@@ -63,10 +72,11 @@ ungoverned scaffold.
    | A UI **and** an API behind it | **FullStack** | `[frontend]` + wasm under `api_prefix` |
    | An API, tools, or mesh service — no UI | **Service** | wasm only (today's default) |
 
-   A **Frontend** deployment runs no wasm: it has **no capabilities, no
-   store, no ingress *mode*** (visibility is the `[frontend].private`
-   flag, not a mode). If that's you, answer step 7 and **skip steps 4–6
-   and 8** — they govern a wasm backend you don't have. See
+   A **Frontend** deployment runs no wasm: it has **no capabilities and no
+   store**. It still declares `[ingress] mode` (the manifest requires one),
+   which gates the page only when `[frontend] private = true`. If that's you,
+   **skip steps 4–6 and 8** — they govern a wasm backend you don't have — and
+   leave step 7 until there is real content. See
    `boogy:boogy-serving-frontends`.
 
    **1b. Backend kind** — skip if **Frontend**; otherwise pick one for the
@@ -320,15 +330,18 @@ digraph ingress {
 
 ## Write the artifact down (architectural only)
 
-A bounded design can live in the conversation. An architectural one is written
-to a file before implementation starts, and it must contain:
+A bounded design can live in the conversation. An architectural one is a
+**roadmap** written to a file: one line per stage (what the person can try at
+its end), then the current stage's design, which must contain:
 
-- the **capability set** — every capability the service needs, and why
+- the **capability set** — every capability the stage needs, and why
 - the **ingress mode** — stated, never implied
 - the **data model** with each query's **declared access pattern**
 - the **failure modes considered**, including what happens under contention
 
-A design nobody can re-read is a design nobody can review.
+Revise it after each stage, once the person's answer has picked the next one.
+Later stages stay one line until they are next. A design nobody can re-read is
+a design nobody can review.
 
 ## Self-review before you show it
 
@@ -365,6 +378,7 @@ fabrication happens.
 |---------|---------|
 | "I'll express the design as the full implementation." | Every baseline that did this fabricated SDK signatures (outbound/peer/MCP builder calls, header-templating, middleware that doesn't exist). Decisions first; code after scaffolding. |
 | "They said skip design, so design is skipped." | Skip = compress to six lines, never zero. The gate holds under pressure. |
+| "I'll design every stage now so the stages are right." | One line per later stage; design the next (`boogy:shipping-in-stages`). |
 | "I know the right ingress mode without the flowchart." | The modes have non-obvious distinctions (`allowed_agents` vs `allowed_origins`; internal rejects humans; delegation is opt-in). Walk it. |
 | "I'll figure out request/response shapes when I write handlers." | Decide the surface now, but know the rule that binds it at implementation: every handler's request body and response is a typed `#[derive(…, schemars::JsonSchema)]` DTO (`Json<T>`/`Created<T>`) — a CI gate FAILS untyped I/O. See `boogy:boogy-rest-apis`. |
 | "I'll name it later / pick a slug myself." | The `service.id` is your route subtree + workload identity (`boogy://owner/services/<id>`) and is hard to change post-deploy. If the user didn't name it, ask before scaffolding (step 0). |
@@ -383,5 +397,6 @@ fabrication happens.
 is the conversational layer for a person in the loop (the ask/decide tiers + the
 mesh-growth loop) — it calls this questionnaire for the per-service detail.
 → `boogy:boogy-registry-and-provisioning` for discover-before-build + the
-provisioning modes (step 2 + 5b). Next, once the design artifact exists:
-`boogy:scaffolding-a-service` (ships in this release).
+provisioning modes (step 2 + 5b). Next, once this stage's design is agreed:
+`boogy:planning-boogy-work`, then `boogy:scaffolding-a-service` at the first
+stage that needs a wasm.

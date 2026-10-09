@@ -11,14 +11,11 @@ a 1% chance a skill applies, read it BEFORE acting. When no skill
 covers your task, work against the SDK reference docs — never invent
 APIs.
 
-**Design-first hard gate.** For a new service or feature, answer the
-design questions — **deployment shape (frontend / full-stack / backend
-service)**, then backend kind + surface (REST / MCP / RPC / protobuf),
-capabilities, ingress mode, data sketch — BEFORE writing any code or
-scaffolding. Shape comes first: a frontend-only site runs no wasm, so it
-skips capabilities, ingress, and data entirely. The
-`designing-boogy-services` skill runs this questionnaire once installed;
-until then, answer them yourself first.
+**Each stage's design before that stage's code.** A new app or service
+starts at stage 0 and grows by deploys the person tries
+(`boogy:shipping-in-stages`). Each stage answers the design questions it
+raises — **deployment shape** first, then backend kind + surface, capabilities,
+ingress mode, data sketch — BEFORE its code (`boogy:designing-boogy-services`).
 
 **Make it stick.** Early in the work, persist a short directive into the
 project's `CLAUDE.md` so a later session — or one whose context was compacted —
@@ -34,26 +31,29 @@ When there's a person in the loop (a "vibe coder" who wants to build, not to lea
 the manifest), **you are the expert**: walk them through the few high-level choices
 that are genuinely theirs — who can use it, whether others can run their own copy,
 whether it needs a web page, anything that moves money or holds a secret — in plain
-language, **leading with a recommended answer**. Decide and apply everything else
+language, each at the stage that first needs it, **leading with a recommended
+answer**. Decide and apply everything else
 (ingress mechanism, capabilities, data model, transactions, wiring, the TOML)
 yourself with the smart default, then report those choices in one line each. Don't
 turn a build into an interrogation. `boogy:growing-boogy-meshes` is the full
 playbook (the ask/decide tiers, the interview loop, and how to grow a mesh
 service-by-service).
 
-## The workflow — a sequence, not a menu
+## The workflow — a loop, not a line
 
 ```
-design → plan → build → check → deploy → exercise
+stage 0 → plan stage → build → check → deploy → try → steer → plan stage → …
 ```
 
-| stage | skill | the gate |
+| step | skill | the gate |
 |---|---|---|
-| design | `boogy:designing-boogy-services` | approval before any code |
-| plan | `boogy:planning-boogy-work` | the manifest is Task 1 |
+| stage 0 | `boogy:shipping-in-stages` | live on stub data before any written design |
+| plan stage | `boogy:designing-boogy-services`, `boogy:planning-boogy-work` | the stage's design before its code; manifest first |
 | build | `boogy:scaffolding-a-service` | — |
 | check | `boogy check` | offline, in the edit loop |
-| verify | `boogy:testing-boogy-services` | two witnesses before "done" |
+| deploy | `boogy:deploying-boogy-services` | same `service.id`, same URL |
+| try | `boogy:testing-boogy-services` | deployed and exercised, including the authz negatives once a stage adds auth; you look in a real browser; then the person tries it |
+| steer | `boogy:shipping-in-stages` | their answer picks the next stage |
 
 **Invoke the skill BEFORE answering, not after.** A question about how to model
 data is a data-modelling task; answering from memory and checking later is how
@@ -80,14 +80,15 @@ compete.
 | `using-boogy` | starting any Boogy work — routes you to the right skill |
 | `boogy-onramp` | **BEFORE any build, deploy, or platform call** — establishes the required setup contract |
 | `growing-boogy-meshes` | building with a person in the loop — walking them through high-level choices in plain language while you handle the wiring, and growing their mesh service-by-service |
-| `designing-boogy-services` | starting a new service or major feature — runs the design questionnaire before any code |
+| `shipping-in-stages` | starting any new app or service, a person who wants to see something fast, or a long stretch with no deploy |
+| `designing-boogy-services` | a new service, major feature, or the next stage — runs that stage's design questions before its code |
 | `boogy-capability-limits` | a requirement might not be supported, or designing any new service/feature |
-| `scaffolding-a-service` | starting implementation of a designed service — project, manifest, build loop |
+| `scaffolding-a-service` | the first stage that needs a wasm backend — project, manifest, build loop |
 | `testing-boogy-services` | testing a service, or before claiming one works — the test pyramid + deploy-and-exercise |
 | `deploying-boogy-services` | deploying, updating, or removing a deployed service — CLI commands, config, deploy errors |
 | `boogy-data-modeling` | declaring tables, designing schemas, or choosing how to represent data |
 | `boogy-access-patterns` | adding a list, lookup, ranking, filter, tag, or pagination query |
-| `planning-boogy-work` | turning an approved design into an ordered, testable plan — manifest first, capabilities named per task, no placeholders |
+| `planning-boogy-work` | turning a stage's approved design into a plan — a stage roadmap plus the next stage in detail, manifest first, capabilities named per task, no placeholders |
 | `boogy-transactions` | a write that must roll back if later work fails, writing multiple rows atomically, combining writes with cross-service calls, handling 409s, or placing side effects near writes |
 | `boogy-counters` | a value that only goes up or down (views, likes, stock, quota, "last active at"), a write contending on a hot row, choosing between a counter and a rollup, or a counter read refused inside a transaction |
 | `boogy-route-pricing` | deciding what a route should charge — picking a flat price or a rate, choosing which unit to rate on, setting the `max` callers must hold, or diagnosing callers refused with 402 |
@@ -105,6 +106,7 @@ compete.
 | `boogy-oauth-connections` | a service must act on a USER's account at a third-party API (Google/YouTube, Slack, GitHub, Notion) — "connect your account", OAuth2 consent, per-user tokens the platform holds, refreshes and injects |
 | `boogy-webhooks` | building a service that RECEIVES and verifies inbound webhooks from a third party (Stripe, GitHub, Twilio, any HMAC-signed callback) |
 | `boogy-serving-frontends` | a service must serve a web frontend — a reactive UI, SPA, dashboard, static HTML/JS/CSS, or a full-stack app serving both the page and its API (arrow-js, TypeScript-with-no-build, host-served assets) |
+| `running-in-a-board` | an app with a page is used inside a board — the board's Back/Forward, reload and Smaller/Larger, and checking them in a real pane |
 | `boogy-custom-domains` | serving a service on a tenant's own domain as well as its own platform address — registration, DNS records, verification, root-serve semantics |
 | `boogy-rest-apis` | building HTTP/REST or JSON-RPC endpoints — routing, guards, request parsing/validation, response types, error wire format — protobuf is the next row, not this one |
 | `boogy-protobuf-rpc` | serving protobuf — gRPC, Connect, or gRPC-Web — from a `.proto` contract, or choosing between protobuf and REST/JSON-RPC for an endpoint |
@@ -229,7 +231,7 @@ developer / agent) signing in to the platform to deploy.
 
 | Thought | Reality |
 |---------|---------|
-| "It's a small service, I'll just start from the template." | Small services still need ingress mode and capabilities decided. Design, then scaffold. |
+| "It's small, I'll just start from the template." | Start from a stage-0 wireframe (`boogy:shipping-in-stages`), yes; skip a stage's own design answers, no. The stage that adds a backend still decides ingress mode and capabilities before its code. |
 | "I know the SDK from training data." | The SDK surface is specific and moves. Confirm every call against the docs; never fabricate signatures. |
 | "This endpoint is too simple to need the catalog." | Simple endpoints still hit store/query/auth invariants. Scan first; if no skill fits, say what you're relying on. |
 | "I'll wire the happy path and worry about integrity later." | Treat each request as a **unit of work** — on ANY error the caller sees no partial state. Decide transactions and write-ordering as you write the handler, not after — **read `boogy:boogy-transactions` first**. |

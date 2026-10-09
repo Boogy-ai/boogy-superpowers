@@ -5,8 +5,12 @@ description: Use when beginning implementation of a designed Boogy service — c
 
 # Scaffolding a Boogy service
 
-A design artifact must exist first (run `boogy:designing-boogy-services`).
-This skill turns that design into a buildable project. Start from the SDK
+Scaffold against the current stage's design (`boogy:designing-boogy-services`,
+scaled to the stage), not a full design. A stage-0 Frontend has no wasm to
+scaffold (`boogy:shipping-in-stages`); start here at the first stage that needs
+a backend (for an app with a page, a redeploy of the same `service.id` as
+FullStack). This skill turns
+that stage's design into a buildable project. Start from the SDK
 repo's `smoke/` template and the SDK repo's `docs/quickstart.md` — follow
 the quickstart for exact, current copy; this skill only adds what agents
 get wrong.
@@ -102,7 +106,7 @@ silent — the build succeeds, the deploy succeeds, and every request 404s.
 | `build.rs` | Syncs WIT files from the pinned SDK into local `wit/` |
 | `boogy.toml` | Manifest: `[service]`, `[routing]`, `[capabilities]`, `[ingress]` |
 | `src/models.rs` | `#[derive(Model)]` structs — one per table; the derive emits the column consts (NO hand-written `cols` module) |
-| `src/lib.rs` | `mod bindings { wit_bindgen::generate!{...} }`, `wit_glue!`, `impl Api` (`schema` = `s.model::<M>()` per model; `build_router` = annotated routes) |
+| `src/lib.rs` | `mod bindings { wit_bindgen::generate!{...} }`, `wit_glue!`, `impl Api` (`schema` = `s.model::<M>()` per model, omitted while there are no tables; `build_router` = annotated routes) |
 
 ## Start from the model layer
 
@@ -127,7 +131,7 @@ pub struct Message {
 ```
 
 ```rust
-// src/lib.rs — inside impl Api
+// src/lib.rs — inside impl Api (the full file below shows the Schema import)
 fn schema(s: &mut Schema) {
     s.model::<Message>();                // schema + indexes from the struct
 }
@@ -161,6 +165,7 @@ mod bindings {
     wit_bindgen::generate!({ world: "service", path: "wit" });
 }
 boogy_sdk::wit_glue!(bindings, MyApi);
+use boogy_sdk::schema_decl::Schema;  // <-- the one SDK name wit_glue! does NOT inject
 
 struct MyApi;                        // <-- you declare this
 impl boogy_sdk::Api for MyApi {      // <-- and this
@@ -185,8 +190,8 @@ modules.
 The macro also emits **free functions** you call bare — no path, no import:
 
 - store: `db_insert`, `db_get`, `db_update`, `db_delete`, `db_find_by`,
-  `db_find_by_page`, `create_model`, `upsert_increment`, `tx`, `Query`,
-  `Schema`
+  `db_find_by_page`, `create_model`, `upsert_increment`, `tx`, and the
+  `Query` builder
 - identity: `current_principal`, `current_handle`, `current_scopes`,
   `self_identity`, `caller_is_service_owner`, and the `auth::*` guards
   (`auth::required`, `auth::owns_resource`, `auth::load_owned`,
@@ -199,13 +204,18 @@ The macro also emits **free functions** you call bare — no path, no import:
 hundred names. Do not treat an absence here as "needs an import". The
 falsifiable test is the compiler: `E0252` or "unused import" means it was
 already in scope, so delete the `use`; "cannot find" means you need a CRATE in
-`Cargo.toml`, not a `use`. (Note: `boogy_sdk::Query` the *request extractor* lands as
-`QueryExtractor`, so it doesn't collide with the `Query` DSL builder you
-call as `Query::on(M::TABLE)` — both are already in scope; don't import
-either.)
+`Cargo.toml`, not a `use` — except for `Schema`, below. (Note:
+`boogy_sdk::Query` the *request extractor* lands as `QueryExtractor`, so it
+doesn't collide with the `Query` DSL builder you call as `Query::on(M::TABLE)`
+— both are already in scope; don't import either.)
+
+**`Schema` is the exception: it is not injected.** `fn schema(s: &mut Schema)`
+with no `use boogy_sdk::schema_decl::Schema;` fails with `E0425: cannot find
+type Schema`. A service with no tables omits `fn schema` entirely; the `Api`
+trait's default declares nothing.
 
 **Rule of thumb: SDK types/traits/derives → already in scope, never
-`use` them; crates → declare in `Cargo.toml`.** You still add `serde`
+`use` them (except `Schema`); crates → declare in `Cargo.toml`.** You still add `serde`
 (derives), `serde_json`, and `schemars` as deps — those are crates the
 macro's output *references*, not names it re-exports. If the compiler
 flags an SDK name as "unused import" or "defined multiple times", delete
@@ -384,6 +394,7 @@ cargo build --target wasm32-wasip2 --release
 
 | Mistake | Do instead |
 |---------|------------|
+| `fn schema(s: &mut Schema)` fails with `E0425` | `use boogy_sdk::schema_decl::Schema;` — the one SDK name `wit_glue!` does not inject. No tables yet? Omit `fn schema` |
 | Forgetting `struct MyApi;` after `wit_glue!(bindings, MyApi)` | Declare the unit struct **and** `impl Api for MyApi` yourself — the macro takes the name but doesn't define the type |
 | Re-importing SDK names the macro injects (`use boogy_sdk::{Router, Json, ApiError}`, `use serde::{Serialize, Deserialize}`) | Delete them — `wit_glue!` already brings `Router`/`Req`/`Json`/`Created`/`ApiError`/`Serialize`/`Deserialize`/… into scope. Add `serde`/`serde_json`/`schemars` as *deps*, not `use`s |
 | Copying template `path`/`workspace` deps into a real project | Git deps pinned to a rev (above) |
@@ -403,6 +414,6 @@ cargo build --target wasm32-wasip2 --release
 
 ## Integration
 
-- ← `boogy:designing-boogy-services` (HARD GATE: a design artifact must
-  exist before scaffolding).
+- ← `boogy:designing-boogy-services` (HARD GATE: the current stage's design
+  answers come before its scaffold).
 - → `boogy:testing-boogy-services`, `boogy:deploying-boogy-services`.

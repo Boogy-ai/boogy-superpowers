@@ -103,7 +103,7 @@ does.
 
 | You did | What happens |
 |---|---|
-| added a field | the column is added automatically |
+| added a field | the column is added automatically — except a counter on a table that already exists, and a required foreign key (both below) |
 | renamed a field, marked `#[renamed_from = "old"]` | the column is renamed, data intact |
 | renamed a field, **not** marked | read as a drop plus an add — the new column starts EMPTY and the old one is orphaned. Refused only if the orphan would refuse writes; otherwise it deploys with a warning and the data is silently stranded |
 | removed a field, named in `dropped("col")` | the column is soft-dropped: bytes stay, stops being required/read |

@@ -54,13 +54,17 @@ in two places:
   is the same request after the fix. There is no other way to test glue, and a
   request you never ran RED is a request you have not really tested.
 
-**The first task has nothing deployed yet — deploy an empty router.** Before
-any route exists the test fails because the crate does not compile, and a build
-error is **not** a red: it is a broken test run, which the generic TDD loop
-tells you to fix and re-run until it fails *correctly*. Write the test, then a
-**compiling scaffold whose router registers no routes**, and deploy that. Your
-first red is then a real `404` from a real running service, and it goes green
-when the route lands. "The crate doesn't build yet" is never the RED step.
+**Deploy first, at every stage.** For an app with a page, stage 0 is a
+Frontend wireframe (`boogy:shipping-in-stages`); its witness is
+`boogy deploy --smoke` plus your own look at the printed URL in a real
+browser, and a skipped smoke is not a pass. A stage that adds a wasm deploys
+an empty router before its first route. Before any route exists the test fails
+because the crate does not compile, and a build error is **not** a red: it is a
+broken test run, which the generic TDD loop tells you to fix and re-run until
+it fails *correctly*. So write the test, then a **compiling scaffold whose
+router registers no routes**, and deploy that. Your first red is then a real
+`404` from a real running service, and it goes green when the route lands.
+"The crate doesn't build yet" is never the RED step.
 
 Watching a test fail first is not ritual: a test that has never failed has not
 been shown to test anything.
@@ -123,7 +127,8 @@ integration layer; there is no local substitute. Cover, per endpoint:
 > they do not stack.
 
 - **Happy path** — expected status + response shape.
-- **Authz negatives** (non-negotiable): no credential on a protected
+- **Authz negatives** (non-negotiable from the first stage that adds auth,
+  and in every stage after it): no credential on a protected
   route → **401**; a credential for a *different* principal asking for
   someone else's resource → **404** (existence-mask — missing and
   not-yours look identical; it is NOT 403).
@@ -178,9 +183,10 @@ auth/principal path), never by calling the tool function in isolation.
 
 ## Iron Law
 
-**NO completion claim without a deployed-and-exercised service.** Green
-build + passing unit tests ≠ done. "Works" means: deployed, and real
-requests — including the authz negatives — returned the right answers.
+**NO completion claim without a deployed-and-exercised service** — for each
+stage, not once at the end. Green build + passing unit tests ≠ done. "Works"
+means: deployed, and real requests — including the authz negatives — returned
+the right answers.
 
 ## Rationalizations
 

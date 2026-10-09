@@ -22,7 +22,7 @@ with a recommendation** so they can say "yep" and keep moving.
 | Tier | Who | What |
 |---|---|---|
 | **0 — Always ask, and lead with NOTHING** | The person | Their **handle** at first sign-up — the one decision you must not have an opinion about (see below) |
-| **1 — Always ask** (lead with a default) | The person | Reach (who can use it) · Provisioning (can others run their own copy) · Surface (web page or just an API) · Real-world stakes (signs/moves money, holds a secret, irreversible/external) |
+| **1 — Always ask** (lead with a default, at the stage that first needs it) | The person | Reach (who can use it) · Provisioning (can others run their own copy) · Surface (web page or just an API) · Real-world stakes (signs/moves money, holds a secret, irreversible/external) |
 | **2 — Decide, then report one line** | You | Ingress *mechanism* (`authenticated`/`allowlist`/`internal`/`mixed`, delegation) once reach is known · capability minimization · data model + indexes · transactions · peer wiring · mounts · CORS |
 | **3 — Do silently** | You | `cols` modules, `#[derive(Model)]`, validation, error wire format, OpenAPI annotations, the actual TOML |
 
@@ -62,15 +62,21 @@ not have. Mechanics (label rules, coercion, reserved/taken) are in
 
 ## The loop — run this per service AND each time the mesh grows
 
+Sign-in and the handle come first (`boogy:boogy-onramp`): nothing deploys
+without them.
+
 1. **Intent** — what do they want, in their words.
 2. **Discover before you build** — search the registry
    (`boogy:boogy-registry-and-provisioning`): does a mesh module already do this?
    If so, propose *consuming it* or *provisioning your own copy* instead of
    rebuilding. Growing by reuse is the point.
-3. **Decompose** — one app, or several? (heuristic below)
-4. **Tier-1 interview** — the catalog below; each leads with a recommendation.
-5. **Expert build** — run the per-service design with
-   `boogy:designing-boogy-services`, then implement. Decide + apply Tier-2/3.
+3. **Stage 0** — live first, before any Tier-1 interview
+   (`boogy:shipping-in-stages`).
+4. **Each stage** — ask the Tier-1 questions this stage first needs (the
+   catalog below; each leads with a recommendation), run the stage's design
+   with `boogy:designing-boogy-services`, build, deploy, and let them try it.
+   Their answer picks the next stage. Decide + apply Tier-2/3.
+5. **Decompose** — as stages reveal it: one app, or several? (heuristic below)
 6. **Metadata + docs + (frontend) SEO** — rich `[service]` metadata so it's
    discoverable; a real README; for frontends, the GEO/SEO baseline in
    `boogy:boogy-serving-frontends`.
@@ -123,6 +129,7 @@ Plain-language first; a concise technical aside for those who know the system.
 | "Asking for a handle contradicts 'don't interrogate the vibe coder'." | No — the rule is *don't make them choose wiring*. This is not wiring; it is their account's name, and it is not derivable from the task. One question, asked once, about the one answer you do not have. |
 | "I'll ask them which ingress mode / capabilities / indexes to use." | Those are yours (Tier 2/3). Decide the smart default and report it in one line. Don't make a vibe coder choose wiring. |
 | "I'll just ask every manifest field to be safe." | That's an interrogation. Ask only Tier-1, lead with a recommendation, and apply the rest. |
+| "I'll run the Tier-1 interview before deploying anything." | Stage 0 goes live first; each Tier-1 question waits for its stage (`boogy:shipping-in-stages`). |
 | "Simple app — I'll split it into five services." | Default to full-stack. Split only on a clear reuse signal. |
 | "I'll build the thing they asked for." | Search the registry first — it may already exist. Reuse grows the mesh faster than rebuilding. |
 | "This util holds user data but I'll make it public-provisionable." | Public provisioning suits **stateless / bring-your-own-config** utilities. A data-holding app is `private`. |

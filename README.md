@@ -147,7 +147,9 @@ Run their tests with `sh hooks/boogy-onramp-bootstrap.test.sh` and
 ## Start here
 
 `skills/using-boogy/SKILL.md` is the entry point — it routes every kind of
-Boogy task to the right skill. Open it first before any Boogy work.
+Boogy task to the right skill. Open it first before any Boogy work. A new app
+or service starts with `skills/shipping-in-stages/`: its main screen is live in
+minutes, then it grows by deploys the person tries and steers.
 
 Or connect to Boogy's **public, anonymous MCP server** at `https://api.boogy.ai/mcp`
 (no account, no install — e.g. `claude mcp add boogy https://api.boogy.ai/mcp`) and
@@ -158,16 +160,19 @@ validation (`validate_manifest`, `check_service`) and sign-in (`login`).
 
 ## Skill map
 
-30 skills, grouped by concern. Every skill appears exactly once.
+42 skills, grouped by concern. Every skill appears exactly once.
 
 ### Start here
 
 | Skill | Purpose |
 |---|---|
 | `skills/using-boogy/` | Entry point — routes any Boogy task (services, agent backends, MCP tools, meshes) to the right skill |
+| `skills/boogy-onramp/` | The setup every Boogy session needs before it builds, deploys or calls the platform |
+| `skills/shipping-in-stages/` | Put a new app live in minutes as a wireframe of its main screen, then grow it by deploys the person tries and steers |
 | `skills/growing-boogy-meshes/` | Build with a person in the loop — walk them through the high-level choices in plain language while you handle the wiring, growing their mesh service-by-service |
-| `skills/designing-boogy-services/` | Run before writing any code — questionnaire that produces a design artifact covering routing, data, auth, and capabilities |
-| `skills/scaffolding-a-service/` | Turns a design artifact into a buildable project: manifest, Cargo setup, build loop |
+| `skills/designing-boogy-services/` | Run before each stage's code — the design questions that stage raises (routing, data, auth, capabilities), written as a roadmap plus the current stage |
+| `skills/planning-boogy-work/` | Turn a stage's design into ordered tasks: a roadmap plus the next stage in detail, manifest first |
+| `skills/scaffolding-a-service/` | Turns the current stage's design into a buildable project: manifest, Cargo setup, build loop |
 
 ### Build the service
 
@@ -179,6 +184,7 @@ validation (`validate_manifest`, `check_service`) and sign-in (`login`).
 | `skills/boogy-websockets/` | Push real-time messages via named channels — public, private, or per-principal; minting subscription grants |
 | `skills/boogy-webhooks/` | Receive and verify inbound webhooks (HMAC-signed callbacks from Stripe, GitHub, Twilio, etc.) |
 | `skills/boogy-serving-frontends/` | Serve a web frontend (SPA, admin dashboard, static assets) decoupled from the wasm service |
+| `skills/running-in-a-board/` | Make an app work inside a board pane — the board's back and forward, reload, and text size — and check it there |
 | `skills/boogy-api-specs/` | Auto-served spec documents (openapi.json, openrpc.json, MCP discovery), visibility control, JsonSchema requirements |
 
 ### Data & storage
@@ -189,6 +195,8 @@ validation (`validate_manifest`, `check_service`) and sign-in (`login`).
 | `skills/boogy-access-patterns/` | List, lookup, ranking, filter, tag, and pagination queries using the Query DSL and typed model layer |
 | `skills/boogy-transactions/` | Atomic multi-row writes, rollback semantics, cross-service transactional calls, and 409 handling |
 | `skills/boogy-migrations/` | Change schema of a deployed service — versioned migrations for adding columns, indexes, and backfills |
+| `skills/boogy-counters/` | Values that only go up or down (views, likes, stock, quota) — counters vs. totals computed from stored rows |
+| `skills/boogy-file-storage/` | Store and serve files — uploads, images, documents, video, generated exports |
 
 ### Auth & security
 
@@ -199,6 +207,7 @@ validation (`validate_manifest`, `check_service`) and sign-in (`login`).
 | `skills/boogy-obo-delegation/` | One service acting on a user's behalf when calling another service (on-behalf-of delegation) |
 | `skills/boogy-secrets/` | Bind API keys and external credentials so the value never enters service code |
 | `skills/boogy-signing/` | Produce cryptographic signatures (receipts, attestations, wallet transactions) without holding the private key |
+| `skills/boogy-oauth-connections/` | Act on a user's account at a third-party API (Google, Slack, GitHub, Notion) with "connect your account" |
 | `skills/boogy-blockchain-transactions/` | Construct, sign, and broadcast on-chain transactions safely (custodial wallets, on-chain payments, multi-chain signers) — fund-safety rules on top of signing |
 | `skills/boogy-capability-limits/` | What the platform supports and doesn't — identify gaps and sanctioned alternatives before designing a feature |
 
@@ -209,6 +218,8 @@ validation (`validate_manifest`, `check_service`) and sign-in (`login`).
 | `skills/boogy-mesh-architecture/` | Compose multiple services, decide when to split, pass identity and data between services |
 | `skills/boogy-outbound-http/` | Call external HTTP APIs or bring-your-own backends — egress allowlist, caps, redirects, credentials |
 | `skills/boogy-background-jobs/` | Work outside the request — scheduled tasks, deferred or retried work, fan-out sweeps |
+| `skills/boogy-peer-to-peer-apps/` | Every user runs their own copy of a service and the copies talk to each other |
+| `skills/boogy-llm-gateway/` | Call an LLM — completions, tool use, model fallback, your own provider key, streaming to users |
 
 ### Operate & scale
 
@@ -220,6 +231,8 @@ validation (`validate_manifest`, `check_service`) and sign-in (`login`).
 | `skills/boogy-registry-and-provisioning/` | Check what already exists in the mesh, publish a module, decide whether to run your own instance |
 | `skills/deploying-boogy-services/` | Deploy, update, or remove a service — the authoritative CLI command reference |
 | `skills/testing-boogy-services/` | Test a service before claiming it works — build, unit, and live integration layers |
+| `skills/boogy-custom-domains/` | Serve a service on your own domain as well as its platform address — DNS records and verification |
+| `skills/boogy-route-pricing/` | Decide what a route charges — flat price or rate, the unit, the `max` a caller must hold |
 
 ---
 
@@ -229,12 +242,12 @@ validation (`validate_manifest`, `check_service`) and sign-in (`login`).
 flowchart TB
     U(["using-boogy — routes any Boogy task to the right area"])
     U --> A
-    A["Start here<br/>growing-boogy-meshes · designing-boogy-services · scaffolding-a-service"]
-    B["Build the service<br/>rest-apis · mcp-services · websockets · webhooks · serving-frontends · api-specs"]
-    C["Data & storage<br/>data-modeling · access-patterns · transactions · migrations"]
-    D["Auth & security<br/>auth · account-auth · obo-delegation · secrets · signing · capability-limits"]
-    E["Mesh & integration<br/>mesh-architecture · outbound-http · background-jobs"]
-    F["Operate & scale<br/>observability · performance-and-scaling · service-lifecycle · registry-and-provisioning · deploying-boogy-services · testing-boogy-services"]
+    A["Start here<br/>boogy-onramp · shipping-in-stages · growing-boogy-meshes · designing-boogy-services · planning-boogy-work · scaffolding-a-service"]
+    B["Build the service<br/>rest-apis · protobuf-rpc · mcp-services · websockets · webhooks · serving-frontends · running-in-a-board · api-specs"]
+    C["Data & storage<br/>data-modeling · access-patterns · transactions · migrations · counters · file-storage"]
+    D["Auth & security<br/>auth · account-auth · obo-delegation · secrets · signing · oauth-connections · blockchain-transactions · capability-limits"]
+    E["Mesh & integration<br/>mesh-architecture · outbound-http · background-jobs · peer-to-peer-apps · llm-gateway"]
+    F["Operate & scale<br/>observability · performance-and-scaling · service-lifecycle · registry-and-provisioning · deploying-boogy-services · testing-boogy-services · custom-domains · route-pricing"]
     A ~~~ B ~~~ C ~~~ D ~~~ E ~~~ F
 ```
 

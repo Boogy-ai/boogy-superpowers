@@ -1,6 +1,6 @@
 ---
 name: planning-boogy-work
-description: Use when turning an approved Boogy design into an ordered implementation plan — before writing service code, or when work has drifted and needs re-sequencing
+description: Use when turning an approved Boogy design or stage into an ordered implementation plan — before writing service code, or when work has drifted and needs re-sequencing
 ---
 
 # Planning Boogy work
@@ -8,9 +8,20 @@ description: Use when turning an approved Boogy design into an ordered implement
 A plan turns an approved design into an ordered list of tasks a competent
 engineer can execute without asking you what you meant.
 
-**Do not plan unapproved work.** If the design has not been agreed, stop and use
-`boogy:designing-boogy-services`. A plan for a design nobody accepted is a
-confident answer to a question nobody asked.
+**Do not plan unapproved work.** If the stage's design has not been agreed,
+stop and use `boogy:designing-boogy-services`. A plan for a design nobody
+accepted is a confident answer to a question nobody asked.
+
+## A plan is a stage roadmap plus the next stage
+
+- **The roadmap:** one line per stage, naming what the person can try at its
+  end, ordered by what they most want to see (`boogy:shipping-in-stages`).
+- **The next stage, in full:** the tasks below, for that stage only. Later
+  stages stay one line until they are next, after the person has tried the
+  one before.
+- **Every stage ends in deploy and try:** its last task redeploys the same
+  `service.id`, you look at it in a real browser, and the person tries it and
+  answers one question. That answer can reorder the roadmap.
 
 ## Map the files first
 
@@ -44,11 +55,16 @@ These are plan failures, not style preferences:
 A generic plan skill does not know how this platform fails. These are not
 style; each one is a defect class.
 
-### 1. Task 1 is the manifest
+### 1. Task 1 of each stage is the manifest
 
 Capabilities, ingress mode and routes are **declarations**. A plan that reaches
 them at Task 6 has already built five tasks on guesses about what the service is
-allowed to do.
+allowed to do. Stage 0's manifest is the Frontend one
+(`boogy:shipping-in-stages`). The stage that adds a backend starts by adding
+`wasm`, `[capabilities]` and `[frontend] api_prefix = "/api"`, adding every
+method the API serves to `[routing] methods` (stage 0 declared only `GET`, so a
+`POST` answers 404 until you do), deciding `[ingress] mode` again now that the
+data is real, and bumping the version.
 
 ### 2. Every task names the capabilities it needs
 
@@ -94,6 +110,7 @@ at snapshot and written in the same transaction. It is offline, fast, and
 belongs in the edit loop rather than before shipping.
 
 Neither command proves the service works. See `boogy:testing-boogy-services`.
+A Frontend-only stage has no wasm to build: `boogy check`, then its deploy.
 
 ### 6. Every task names the skills to invoke before starting it
 
@@ -152,10 +169,12 @@ is a point lookup without reading the code.
 | "The query is fine, it's fast locally." | Locally you have twelve rows. State the access pattern or state that it is a scan. |
 | "I'll check conventions before I ship." | `boogy check` is seconds. Running it once at the end means finding ten things at once, in code you have stopped thinking about. |
 | "It builds, so the task is done." | A build proves it compiles. Only exercising the deployed URL proves it serves. |
+| "I'll plan every stage in detail now, and deploy at the end." | Roadmap plus the next stage; every stage ends in a deploy (`boogy:shipping-in-stages`). |
 | "I read the skills while writing the plan." | Whoever executes Task 7 did not, and cannot tell from the task that a skill exists. A skill not named in the task is a skill not invoked — and the plan is the summary it told you not to build from. |
 
 ## See also
 
+- `boogy:shipping-in-stages` — the stage cycle this plan follows
 - `boogy:designing-boogy-services` — the design this plan implements
 - `boogy:testing-boogy-services` — RED/GREEN and what "done" requires
 - `boogy:boogy-access-patterns` — declaring the reads named in requirement 3

@@ -113,6 +113,15 @@ stale build artifact), and a directory's `index.*` is only tried once no direct
 file matches. An import that matches nothing still fails the deploy, naming the
 specifier and the file that imported it.
 
+**`@boogy/web` needs neither.** The platform's browser SDK is the one reserved
+specifier: `import { installFoundation, stack, button } from "@boogy/web"`
+resolves to the platform's own copy, served from your app's origin, with
+nothing vendored and no `allow_cdn` (which never applies to it). Its layout and
+component functions return attributes you set on plain elements, and
+`installFoundation()` adds their stylesheet, so a first screen needs no
+framework. Every other package follows the rule above. A stage-0 wireframe
+built from it is in `boogy:shipping-in-stages`.
+
 > **Pin your CDN imports.** With `allow_cdn = true`, always write
 > `<pkg>@<version>` (e.g. `react@18.2.0`) rather than a bare `react`. A bare
 > specifier floats to the CDN's current latest — a supply-chain risk. The
@@ -134,8 +143,11 @@ You author `app.ts`, but reference the **output** in your HTML:
 <script type="module" src="./app.ts"></script>   <!-- ✗ 404 → blank page -->
 ```
 
-(An **inline** `<script type="module">…</script>` sidesteps it — its imports are
-rewritten normally.)
+**The entry must be a file, not an inline script.** With `build = "source"`
+the platform bundles from the `<script type="module" src="…">` tags in your
+index HTML. An inline `<script type="module">…</script>` is not an entry, and a
+page whose only module script is inline is refused at deploy: `no <script
+type="module" src="…"> entry found in the index HTML`.
 
 **The deploy enforces this now.** A frontend bundle with a **dangling reference**
 (a `<script src>`/`<link href>`/`<img src>` or relative import that points at a
@@ -190,7 +202,8 @@ below — run it as the last step of every frontend deploy.
 
 [arrow-js](https://github.com/standardagents/arrow-js) is the recommended frontend
 framework here precisely because it is **buildless and ES-module-native** — a tiny
-reactive runtime you `import` directly, no compiler required. A minimal `web/index.html`:
+reactive runtime you `import` directly, no compiler required. A minimal
+`web/index.html` loads the entry module as a file:
 
 ```html
 <!doctype html>
@@ -198,24 +211,26 @@ reactive runtime you `import` directly, no compiler required. A minimal `web/ind
 <head><meta charset="utf-8" /><title>Notes</title></head>
 <body>
   <div id="app"></div>
-  <script type="module">
-    import { reactive, html } from "@arrow-js/core";   // resolved by the import map
-    const state = reactive({ notes: [] });
-    async function load() {
-      const r = await fetch("./api/notes");            // same-origin → the wasm /api
-      state.notes = (await r.json()).items ?? [];
-    }
-    html`<ul>${() => state.notes.map(n => html`<li>${n.title}</li>`)}</ul>`(
-      document.getElementById("app"));
-    load();
-  </script>
+  <script type="module" src="./app.js"></script>
 </body>
 </html>
 ```
 
-(You can write the same logic in `web/app.ts` with full types and `import` it — the
-platform transpiles it.) Include arrow-js at `web/vendor/@arrow-js/core.js`, or set
-`allow_cdn = true`.
+and `web/app.ts` holds the code (served transpiled, as `./app.js`):
+
+```ts
+import { reactive, html } from "@arrow-js/core";   // resolved by the import map
+const state = reactive({ notes: [] as { title: string }[] });
+async function load() {
+  const r = await fetch("./api/notes");            // same-origin → the wasm /api
+  state.notes = (await r.json()).items ?? [];
+}
+html`<ul>${() => state.notes.map(n => html`<li>${n.title}</li>`)}</ul>`(
+  document.getElementById("app")!);
+load();
+```
+
+Include arrow-js at `web/vendor/@arrow-js/core.js`, or set `allow_cdn = true`.
 
 ### Vendor a KNOWN-GOOD build — verify the artifact, don't pattern-match a URL shape
 
@@ -599,7 +614,7 @@ What this means for you as an author:
   navigation, `target="_top"`, OAuth and checkout redirects, install-to-home-screen
   and password managers all behave as on any website.
 - **In a board, your page is framed — and can never navigate the page around
-  it.** The board's frame is sandboxed with no top-level navigation of any
+  it.** (Its Back/Forward, reload and the board's size: `boogy:running-in-a-board`.) The board's frame is sandboxed with no top-level navigation of any
   kind: a `target="_top"` link does nothing there. Open anything that leaves
   your app — OAuth consent, a payment page, "open elsewhere" — in a new window
   (`target="_blank"` or `window.open`), which works in both cases.
@@ -800,7 +815,8 @@ bundle would mean redeploying to add one. See `boogy:boogy-file-storage`.
 | "I'll run `vite`/`esbuild`/a Node build first" | Not for a hand-authored frontend — write `.ts`/`.js` and the platform transpiles + bundles at deploy. (Shipping a **pre-built framework bundle** is a separate, supported case: `build = "dist"` and serve the output verbatim.) |
 | "TypeScript can't run in the browser, so I'll write plain JS" | Write TS — `build = "source"` transpiles it server-side. (Plain JS works too.) |
 | Embed assets in the wasm binary | Assets live in object storage, served by the host — not in your wasm (no artifact-size hit). |
-| `import "@arrow-js/core"` will just work from anywhere | Bare imports resolve via the import map — vendor the file under `web/vendor/` or set `allow_cdn = true`. |
+| `import "@arrow-js/core"` will just work from anywhere | Bare imports resolve via the import map — vendor the file under `web/vendor/` or set `allow_cdn = true`. `@boogy/web` is the one exception: it always resolves. |
+| "An inline `<script type="module">` is simplest" | Refused at deploy when it is the page's only module script. Put the code in `web/app.ts` and load `./app.js`. |
 | Use a root-absolute asset path (`src="/app.js"`) because "the base tag handles it" | `<base>` only affects **relative** URLs. A root-absolute path skips the injected base, so a `build = "dist"` bundle loses its per-deployment prefix for that file. Write `./app.js`. |
 | `[routing] path = "/notes"` so the URL says notes | The name is already in the hostname, and the declared base never appears in a URL — it only makes every route repeat it. Declare `path = "/"`. |
 | Put a big video in `root` and serve it from a handler | Large assets auto-offload to object storage via redirect; just drop the file in `root`. |
