@@ -61,7 +61,7 @@ about your request/schema rather than about the fleet; only
 automatically inside `tx`, so a 409 always means the write genuinely
 conflicts — a duplicate on a unique index, a required column left null or
 absent, a transaction poisoned by a failed participant. Retrying it is
-wasted work. See `boogy:boogy-transactions`.
+wasted work. See `boogy:boogy-transaction-conflicts`.
 
 ## Four rules that catch the common mistakes
 
@@ -109,7 +109,7 @@ which directly reduces 503s. Cut the per-request op budget:
   also skips the total.
   And an index-served read is still only as narrow as its seek: an
   equality matching most of the table conflicts with nearly every writer.
-  `boogy:boogy-transactions` has the detail. See also
+  `boogy:boogy-transaction-conflicts` has the detail. See also
   `boogy:boogy-access-patterns`.
 - **Keyset pagination, not offset.** Offset re-scans every skipped row
   on each page; keyset (cursor) resumes after the last row. Big lists
@@ -143,7 +143,7 @@ writer. A
 **409** never means "busy": it means the write genuinely conflicts — a
 duplicate on a unique index, a required column left null or absent, a
 transaction poisoned by a failed participant. See
-`boogy:boogy-transactions`.
+`boogy:boogy-transaction-conflicts`.
 
 ## Red flags
 
@@ -154,5 +154,5 @@ transaction poisoned by a failed participant. See
 | "The 503s are load — raise capacity." | Read `cause` in the JSON body. Only `scheduler_shed` and `tx_admission_exhausted` are pure capacity problems. `tx_contended` is a *schema* problem: one row every request writes, or an unindexed search inside a `tx` whose read set is the whole table. `store_op_ceiling_exceeded` and `store_op_rate_limited` are about how much/how fast THIS caller is doing store work. Capacity divides none of those last three. |
 | "The endpoint is slow, raise the timeout." | Slow-under-load is usually queue time (503 territory) or too many ops per request — not a budget that's too small. Reduce work per request first. |
 | "Add a cache before reducing ops." | First make the query index-served and keyset-paginated; a scanning query behind a cache is still a scanning query on every miss. |
-| "`tx_contended` means one hot row — my transaction only *reads* that table." | Reads conflict too, and it is your transaction's own **write** that gets aborted for it (a genuinely read-only tx commits regardless). A search with no filter on a column that **leads** an index scans inside the closure, putting every row of that table in the read set, so any concurrent write to it aborts you. Index the filtered column so it leads — that applies to an `update_where`/`delete_where` predicate too — and check `boogy:boogy-transactions` for the cases no index rescues: an unfiltered `count()`, and an ordered read that asks for a total it doesn't use. |
+| "`tx_contended` means one hot row — my transaction only *reads* that table." | Reads conflict too, and it is your transaction's own **write** that gets aborted for it (a genuinely read-only tx commits regardless). A search with no filter on a column that **leads** an index scans inside the closure, putting every row of that table in the read set, so any concurrent write to it aborts you. Index the filtered column so it leads — that applies to an `update_where`/`delete_where` predicate too — and check `boogy:boogy-transaction-conflicts` for the cases no index rescues: an unfiltered `count()`, and an ordered read that asks for a total it doesn't use. |
 | "All four store-congestion 503s mean the same thing — just back off." | Only three of the four (`tx_admission_exhausted`, `store_op_rate_limited`, `tx_contended`) are helped by backing off. `store_op_ceiling_exceeded` needs the request itself changed — an identical retry re-trips the same per-request ceiling every time, which is why it's the one 503 cause with no `Retry-After`. |

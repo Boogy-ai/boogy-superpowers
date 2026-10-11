@@ -29,7 +29,9 @@ ask three questions, each with your recommendation, and nothing else:
 2. **Shape** — will it have a page? If yes, stage 0 is a **Frontend** whatever
    the final shape: no wasm, no capabilities, no store. If not, stage 0 is a
    router answering its main call with stub JSON; its wasm needs the six-line
-   design summary first (`boogy:designing-boogy-services`).
+   design summary first (`boogy:designing-boogy-services`). A page is
+   **board-ready** from stage 0 (below) unless the person says it is only ever
+   opened on its own; that is not a question, it is the default.
 3. **Who can open it**, for stage 0 only: it holds only stub data, so recommend
    "anyone who has the address". Ask again at the first stage that stores real
    data. If they want only themselves now: `[frontend] private = true`,
@@ -61,6 +63,9 @@ mode = "public"
 root = "web"
 build = "source"
 
+[boards]
+background = "board"   # in a board pane, the board's background shows through
+
 [provisioning]
 mode = "private"   # until the person decides whether others may run their own copy
 ```
@@ -85,10 +90,10 @@ mode = "private"   # until the person decides whether others may run their own c
 You write `main.ts`; the HTML loads its output, `./main.js`. A page whose only
 module script is inline is refused at deploy (`no <script type="module"
 src="…"> entry found`). The rest of the SEO baseline
-(`boogy:boogy-serving-frontends`) waits for real content.
+(`boogy:boogy-frontend-discoverability`) waits for real content.
 
 ```ts
-import { installFoundation, stack, cardGrid, card, button } from "@boogy/web";
+import { installFoundation, connectPane, stack, cardGrid, card, button } from "@boogy/web";
 
 // Stub data, shaped like the API a later stage adds.
 const poll = {
@@ -103,7 +108,10 @@ function el(tag: string, attrs: object = {}, ...kids: (Node | string)[]) {
   return node;
 }
 
-installFoundation();
+// The page scale on: every SDK size follows the window, or the pane in a board.
+installFoundation({ scale: true });
+// In a board: its background, colour scheme and Smaller/Larger reach the page.
+connectPane({ service: "pollster" });
 const grid = el("ul", cardGrid());
 for (const option of poll.options) {
   const vote = el("button", { ...button({ variant: "solid", fill: true }), type: "button" }, "Vote");
@@ -118,12 +126,18 @@ Its functions return attributes for plain elements; `installFoundation()`
 adds their styles and the tokens (`--space-*`, `--font-body`) any page style
 of yours is sized from.
 
+**Board-ready** is those four lines working together: `[boards] background`,
+`connectPane`, the page scale, and every colour and size in your own CSS taken
+from an SDK token (never a `px`/`rem` size or a literal colour), so the page
+reads on the board's background, in its scheme, at its size. A page with more
+than one screen also routes with `pane.navigate` (`boogy:running-in-a-board`).
+
 ```bash
 boogy check && boogy deploy boogy.toml --smoke
 ```
 
 Open the printed `URL:` in a real browser yourself (`Smoke: skipped` is not a
-pass), and in a board pane if they will use it there
+pass), and in a board pane, unless the page is standalone-only
 (`boogy:running-in-a-board`). Then give the person that URL and one question.
 
 ## The stage contract
@@ -137,8 +151,8 @@ Every later stage, in order (item 3 holds for stage-0 tweaks too):
    unbumped one is a 409); the URL stays.
 4. **You look first**: the new route and the main one in a real browser, plus
    the authz negatives from the first stage that adds sign-in
-   (`boogy:testing-boogy-services`), plus the board checks for an app used in
-   a board (`boogy:running-in-a-board`).
+   (`boogy:testing-boogy-services`), plus the board checks for every page that
+   is not standalone-only (`boogy:running-in-a-board`).
 5. **They try it**: the URL, what to try, and ONE question about what comes
    next, with your recommendation.
 6. **Their answer picks the next stage.** Revise the roadmap
@@ -170,7 +184,7 @@ backend.
 
 - **Stub data lives in the page**, never in a store real people write to.
   Delete it in the stage that makes that screen real.
-- **Columns reconcile on every deploy** (`boogy:boogy-data-modeling`): a new
+- **Columns reconcile on every deploy** (`boogy:boogy-migrations`): a new
   table, a new rollup (filled from the rows already stored) and a new field are
   added automatically, except a required reference to another table: make it
   optional. A rename needs `#[renamed_from = "old"]`, a removal needs
@@ -205,6 +219,7 @@ their phones, I see the results. Only I create polls. Invite with links."
 
 | Thought | Reality |
 |---|---|
+| "It is a standalone app; the board can wait." | Board-ready is the stage-0 default: `[boards] background`, `connectPane`, the page scale, token colours and sizes. Only a page the person says is never used in a board leaves it out. |
 | "A placeholder page counts as stage 0." | "Coming together" or "you're the owner" gives them nothing to react to. Stage 0 is the main screen on stub data. |
 | "I'll write the full design and plan first so the stages are right." | The stages are right once the person has steered them. Stage 0 needs three answers; each stage is designed when it is next. |
 | "Hand-roll the grid, it's quicker." | `cardGrid()`, `card()`, `stack()` and `button()` are one import away, already mapped. |

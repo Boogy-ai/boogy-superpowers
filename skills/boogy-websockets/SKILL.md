@@ -322,7 +322,7 @@ protocol underneath, for a client that does not use the SDK.
 
 **Client version + bundling.** Use **`socket.io-client` v4.x** — the gateway
 speaks Socket.IO v5 / engine.io v4. For a browser frontend **served by Boogy**
-(`boogy:boogy-serving-frontends`), vendor a single-file ESM build under
+(`boogy:boogy-serving-frontends`; vendoring: `boogy:boogy-frontend-builds`), vendor a single-file ESM build under
 `web/vendor/` (e.g. `web/vendor/socket.io-client.js` from the package's
 `dist/socket.io.esm.min.js`, or `esm.sh/socket.io-client@4`) and import it by a
 **relative path** — `import { io } from "./vendor/socket.io-client.js"` —

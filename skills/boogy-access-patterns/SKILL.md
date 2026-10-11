@@ -366,7 +366,7 @@ raw. Don't re-derive the overfetch logic — use the helper.
 
 ## Counter columns — never merged unless asked, sortable nowhere
 
-A counter column (see `boogy:boogy-data-modeling`; declared
+A counter column (see `boogy:boogy-counters`; declared
 `#[model(counter(name = "..."))]` on the struct, no backing field) is stored
 in its own cell, not inside the row. **Nothing merges it back for you.** A
 point read (`db_get`, `db_find_by`), a plain list page, an index walk, and
@@ -512,7 +512,7 @@ sub-range it seeked plus the rows it fetched. Consequences for reads a
   without a leading-index filter the sweep scans. So does a
   bare `.count()` with no filter, which reads the whole key range without
   consulting the planner at all (a *filtered* `.count()` does).
-  `boogy:boogy-transactions` has the detail.
+  `boogy:boogy-transaction-conflicts` has the detail.
 - **Don't ask for a total you won't use.** A read whose only narrowing is
   its SORT takes the whole table inside a `tx` unless it skips the total.
   `.fetch_page()`, `.fetch_one()` and a `.limit()`ed `.fetch_all()` ask

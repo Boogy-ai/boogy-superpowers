@@ -94,123 +94,15 @@ One consequence worth internalising:
   index your models do not declare is indistinguishable from one whose
   declaration you deleted, so the reconcile removes it on the next deploy.
 
-### Columns follow the model too, with narrower rules than indexes
+### Columns follow the model too, with narrower rules
 
-Columns are reconciled against your struct on every deploy, the same way
-indexes are — but a column carries data an index does not, so a change that
-could lose it needs an explicit signal from you, where an index change never
-does.
-
-| You did | What happens |
-|---|---|
-| added a field | the column is added automatically — except a counter on a table that already exists, and a required foreign key (both below) |
-| renamed a field, marked `#[renamed_from = "old"]` | the column is renamed, data intact |
-| renamed a field, **not** marked | read as a drop plus an add — the new column starts EMPTY and the old one is orphaned. Refused only if the orphan would refuse writes; otherwise it deploys with a warning and the data is silently stranded |
-| removed a field, named in `dropped("col")` | the column is soft-dropped: bytes stay, stops being required/read |
-| removed a field, **not** named | refused, unless the stored column already tolerates absence (nullable, has a default, or is a counter) |
-| re-declared a field that is currently soft-dropped | the column revives with its old data — unless the platform is mid-sweep reclaiming it (see below), which refuses instead |
-| changed a field's type or nullability, or promoted a plain column to a counter | refused — always |
-
-**Adding needs nothing.** Add the field and redeploy. A required
-(non-`Option`) field with no `#[default]` gets a platform-synthesised zero
-value, so rows that predate the column still read — and if the field gets a
-**newly declared** index on the same deploy, pre-existing rows are backfilled
-into it (under that synthesised value, not a real one), rather than being
-invisible to seeks. An index that **already existed** is not rebuilt, so it
-holds no entry for those rows at all. Either way a seek on the new column
-finds no pre-existing row by any value it was actually written with, until
-something rewrites it. The one case that still fails the deploy is a required field that
-is also a `#[belongs_to(Parent)]` foreign key: no synthesised value can point
-at a real row, so declare it `Option<T>` or give it a `#[default]` naming one
-that exists.
-
-**Renaming is never inferred, and forgetting the annotation is not caught for
-you.** A diff containing a drop and an add looks identical whether you renamed
-a field or replaced it with an unrelated one, and guessing wrong either
-destroys data or silently rebinds the column to the wrong field with no way to
-see which happened — so the platform never guesses. What it does with the two
-halves is the ordinary drop and add rules, which means an unmarked rename off
-a column that tolerates absence (nullable, defaulted, or a counter) **deploys
-successfully**: the new column is added empty, the old one is logged as an
-undeclared orphan, and the values stay in a column nothing reads. Only an
-orphan that would refuse writes stops the deploy. `#[renamed_from = "old"]` on
-the new field is the only way a rename is ever expressed:
-
-```rust
-use boogy_sdk::model::Id;
-use boogy_sdk::Model;
-
-/// `title` used to be called `name`. `#[renamed_from]` carries the stored
-/// column — and its data — across to the new field name; without it, this
-/// declaration would read as `name` dropped and `title` added, and the
-/// platform refuses that combination rather than guess which you meant.
-#[derive(Model)]
-#[model(table = "docs")]
-pub struct Doc {
-    #[pk]
-    pub id: Id<Doc>,
-    #[renamed_from = "name"]
-    pub title: String,
-}
-```
-
-**Removing needs `#[model(dropped("old_name"))]` on the struct** — the field
-itself is gone, so the annotation cannot live on it:
-
-```rust
-use boogy_sdk::model::Id;
-use boogy_sdk::Model;
-
-/// `subtitle` existed on an earlier version of this table and is gone from
-/// the struct. Naming it in `dropped(...)` soft-drops the stored column:
-/// the bytes stay (re-declaring `subtitle` later would revive them), it
-/// stops being required, and it stops being read. Those bytes are not
-/// permanent: once every deployment that could still be rolled back to
-/// has aged out of the platform's retention window, the space comes back
-/// on its own — no separate call needed. `GET /v1/services/{id}/schema`
-/// shows the state while you wait (`boogy:boogy-observability`), and a
-/// column can't be revived while it's actively being reclaimed.
-#[derive(Model)]
-#[model(table = "articles", dropped("subtitle"))]
-pub struct Article {
-    #[pk]
-    pub id: Id<Article>,
-    pub title: String,
-}
-```
-
-Deleting a field without naming it in `dropped(...)` still deploys as long as
-the stored column already tolerates a missing value (nullable, has a
-default, or is a counter) — logged as a warning, because a hand-written
-migration may legitimately own a column your model never declares. If the
-stored column has none of those escape valves, the deploy is refused rather
-than shipping a table that accepts no more writes.
-
-**A column a hand-written migration created is a common way to hit the
-nullability conflict.** `MigrationCtx::add_column` creates a column nullable
-unless you give it a default. If your model then declares that same field as a
-required (non-`Option`) type, the declared shape and the stored shape genuinely
-disagree, and the deploy is refused — the field IS declared, so the
-undeclared-orphan tolerance above does not apply, and no backfill closes it —
-nothing alters a stored column's nullability in place, so writing a value into
-every row leaves the column exactly as nullable as it was. Two remedies, both
-named in the error: declare the field `Option<T>` to match the column the
-migration actually created (the smaller change, and always available), or add a
-NEW field with the shape you want, deploy, copy the values across in a
-migration, and remove the old one with `dropped("old_name")`. Deployments in
-that state used to go live and work; they now stop at the deploy. See
-`boogy:boogy-migrations` for the migration side of it.
-
-**Type changes, nullability changes, and promoting a plain column to a
-counter are always refused**, in every case — the deployment does not go
-live. In the common case whatever was running before it is restored to
-active automatically; that is a best-effort step, not something to depend
-on — it can fail, and a service's very first deploy has nothing to restore
-to, so occasionally the refused deployment is simply left on record rather
-than replaced. Either way, the bad deployment never serves. Each of these
-changes needs every existing row rewritten, which needs a backfill this pass
-does not do. Bring a new table with the shape you want, plus a migration
-that copies the data across — see `boogy:boogy-migrations`.
+Columns are reconciled on every deploy as well, but a column carries data, so
+only an addition is automatic. A rename needs `#[renamed_from = "old"]` on the
+new field, a removal needs `#[model(dropped("old"))]` on the struct, and a type
+or nullability change, or a plain column made a counter, is refused: the
+deployment never goes live. A required `#[belongs_to]` field added to a table
+that has rows needs `Option<T>` or a `#[default]`. The full rules, including
+what an unmarked rename silently does to the data: `boogy:boogy-migrations`.
 
 ## 🚩 RED FLAG — raw schema is a regression, not a choice
 
@@ -246,86 +138,15 @@ Each field's Rust type maps to a column via the `Field` trait:
 | typed foreign / primary id | `Id<T>` (a typed `u64`; `Id<Post>` ≠ `Id<User>`) |
 | optional / nullable | `Option<T>` (the only thing that makes a column nullable) |
 
-### `Decimal` — exact, for money, scores, and weights
+### `Decimal` for exact decimals
 
-`Decimal` is a fixed-point decimal, exact to **6 decimal places**. It
-sorts and range-filters correctly at any magnitude and either sign
-(`.order(..)`, and `gt`/`lt` range filters, all rank it as a genuine
-number, never as text), and its arithmetic is exact — no binary
-floating-point rounding error:
+`Decimal` is exact fixed-point (6 decimal places): safe for money, prices,
+rates and running balances. `f64` is for measurements with no exactness
+expectation, and a plain integer column counting minor units is just as valid
+as `Decimal`. Choosing between them, its range, parsing and rounding:
+`boogy:boogy-money-and-decimals`.
 
-```rust
-use boogy_sdk::model::Decimal;
-
-fn decimal_addition_is_exact() {
-    let a: Decimal = "0.1".parse().unwrap();
-    let b: Decimal = "0.2".parse().unwrap();
-    // holds exactly — this does NOT hold for f64 (0.1 + 0.2 != 0.3)
-    assert_eq!(a + b, "0.3".parse().unwrap());
-}
-```
-
-That makes `Decimal` a genuinely safe choice for money — not just for
-scores and weights — including sums, splits, and running balances that
-must reconcile exactly.
-
-Build one from a decimal literal or string, the natural way to write a
-price, a rate, or a weight:
-
-```rust
-use boogy_sdk::model::Decimal;
-
-fn a_price() -> Decimal {
-    let price: Decimal = "19.99".parse().unwrap();
-    let total = price + price;   // exact: "39.98"
-    debug_assert_eq!(total.to_string(), "39.980000"); // Display form
-    total
-}
-```
-
-A `Decimal` field on a DTO serializes to and from JSON as that same
-decimal string (`"19.990000"`), never as a float — a client reads and
-writes the value it expects, with no float rounding introduced on the
-wire.
-
-**Range and overflow.** Six decimal places gives a usable range of about
-±9.22 trillion (`i64::MAX` at that scale) — far past any plausible
-money, score, or weight value. `+`/`-`/unary `-` are exact within that
-range and **panic on overflow** rather than silently wrapping, the same
-posture as an unexpected integer overflow anywhere else: loud, not a
-quietly corrupted balance. A literal needing a 7th decimal digit, or a
-magnitude outside the range, is a **parse error** — refused rather than
-silently rounded or truncated.
-
-Two more constructors exist for specific situations: `from_minor_units`
-for a caller that already holds an exact integer count from elsewhere (a
-payment provider, an invoice import) — an additional constructor, not
-the primary way to build one; and `Decimal::new(f64)` / `.get() -> f64`
-for interop with code that already computes in `f64` — a value built or
-read that way carries ordinary float rounding at that boundary, same as
-any `f64`.
-
-Not provided: multiplication and division as operators. A rate times a
-quantity, or splitting a total, needs a rounding rule only the caller
-can decide correctly (round up? down? to the nearest cent?) — compute in
-minor units explicitly and re-wrap with the rounding you intend.
-
-### `Decimal` vs `f64` vs a plain integer column
-
-| You want | Use |
-|---|---|
-| A decimal quantity where the value matters exactly — a price, a rate, a running balance, a weight or score you'll sum or compare exactly | `Decimal` |
-| A measurement with no decimal-exactness expectation — a coordinate, a ratio, a sensor reading | `f64` |
-| You already think in whole minor units yourself and never want a decimal view | a plain `i64`/`u64` column, counting cents (or whatever the unit is) directly |
-
-All three are legitimate — pick by how the field is actually used, not
-by which "sounds more precise." Counting minor units in a plain integer
-column is exactly as valid as `Decimal` for an author who prefers to
-work in cents directly and never format a decimal string. `Decimal` is
-for the author who wants to write, read, and reason about decimal
-values (`"19.99"`, not `1999`) while still getting exact arithmetic
-underneath — it does not force a conversion to minor units at every call
-site.
+### What a column accepts
 
 **The column type binds the stored value, not just the declaration.** A whole
 number written to a `f64` column is stored as a float, and a float written to an
@@ -390,7 +211,7 @@ Three things to know, in the order they bite:
    already has rows. Omitting it from a write is fine (the store materializes
    the default into the row); writing an *explicit* null is still a 409. This
    is also the clean answer to `upsert_increment`'s coverage rule — see
-   **Counters** below.
+   `boogy:boogy-counters`.
 2. **Nothing is backfilled, ever.** Declaring or changing a default never
    rewrites a stored row. A write that omits the column records the default in
    force *at that moment*, so changing the default later does not move that row.
@@ -408,8 +229,8 @@ Three things to know, in the order they bite:
    cell regardless, and an absent counter already reads as `0`.
 
 Adding or changing a `#[default = ...]` on a column of a **deployed** table
-needs no migration — it is part of the same column reconciliation covered
-above, so editing the attribute and redeploying is enough; the store applies
+needs no migration — it is part of the same column reconciliation
+(`boogy:boogy-migrations`), so editing the attribute and redeploying is enough; the store applies
 the new default in place. This is narrower than a type or nullability change,
 which the reconcile still refuses: only the default itself may move.
 
@@ -459,7 +280,7 @@ Pick per column, not per table — the same model routinely has both.
   amplification).
 - `#[lookup_by]` — declares a unique point-lookup access pattern → UNIQUE
   single-column index. (Cannot be the `#[pk]` field.) This is the
-  attribute a single-column counter key needs — see **Counters** below.
+  attribute a single-column counter key needs — see `boogy:boogy-counters`.
 - `#[default = <literal>]` — the column's default: the value a read gives
   back when the row carries none. `#[default = "pending"] status: String`,
   `#[default = 0] retries: i64`, `#[default = 1.5] weight: f64`,
@@ -552,7 +373,7 @@ filter**, which reads the whole key range without consulting the planner
 at all (a *filtered* count does, and is served by the same rule); and an
 ordered read with no filter on a leading index column, which takes the
 whole table unless it also skips the total.
-`boogy:boogy-transactions` has the detail — check it before designing a
+`boogy:boogy-transaction-conflicts` has the detail — check it before designing a
 schema around a read an index cannot serve.
 
 **"Has an index" is not the test — "leads one" is.** Given
@@ -563,7 +384,7 @@ index that column leads — `#[index] slot`, or an access pattern whose
 filter column is `slot`. And a seek is only as narrow as the sub-range
 it covers: an equality matching most of the table is index-served and
 still conflicts with nearly every writer. See
-`boogy:boogy-transactions`.
+`boogy:boogy-transaction-conflicts`.
 
 ## Modeling patterns
 
@@ -572,368 +393,9 @@ still conflicts with nearly every writer. See
 | Entity | one `#[derive(Model)]` struct per noun; `#[pk] id: Id<Self>` |
 | Owned entity | add an `owner_principal: String` field; scope rows by the current principal (see the `auth` owner-scoped helpers) |
 | Junction / edge | a model for a relationship (`follows`, an affinity `Edge`); usually **no owner column**; composite `unique_index` on the pair |
-| Counter | `upsert_increment` for atomic keyed counts — never read-modify-write. Declare a struct-level `#[model(counter(name = "..."))]` column when the row is **hot** (conflict-free, but then the value can't be indexed, and reading it is an explicit opt-in). See below |
+| Counter | `upsert_increment` for atomic keyed counts — never read-modify-write. Declare a struct-level `#[model(counter(name = "..."))]` column when the row is **hot** (conflict-free, but then the value can't be indexed, and reading it is an explicit opt-in). See `boogy:boogy-counters` |
 
-## Counters — `upsert_increment`
-
-`upsert_increment(table, key, counter, delta, columns)` finds the row matching
-`key`, adds `delta` to `counter`, and writes `columns.always` — inserting the
-row (`key` + `columns.always` + `columns.on_insert` + `counter = delta`) if it
-isn't there. `columns` is an `UpsertColumns { always, on_insert }`: `always`
-is written on **every** call (insert and update alike); `on_insert` only by
-the call that creates the row, and never touched again. Concurrent bumps
-compose; a read-modify-write of the same count loses updates.
-
-```rust
-use boogy_sdk::model::{Id, Model as _, Timestamp}; // `Model as _` for `TABLE`
-use boogy_sdk::Model;
-
-/// `slug` is `#[lookup_by]` for two jobs at once: the point lookup every
-/// `/rooms/{slug}` route performs, AND the UNIQUE index `upsert_increment`
-/// keys `post_count` by. One declaration, both obligations.
-#[derive(Model)]
-#[model(table = "rooms", list_by(filter = "visibility", newest = "last_post_at"))]
-pub struct Room {
-    #[pk]
-    pub id: Id<Room>,
-    #[lookup_by]
-    pub slug: String,
-    pub visibility: String,
-    pub post_count: i64,
-    pub last_post_at: Timestamp,
-}
-
-/// `post_count += 1` AND `last_post_at = now`, in ONE call.
-fn on_new_post(slug: &str, now: i64) -> Result<(), ApiError> {
-    upsert_increment(
-        Room::TABLE,
-        &[store::Column {                                   // key: the unique index
-            name: Room::SLUG.to_string(),
-            val: store::Value::Text(slug.to_string()),
-        }],
-        Room::POST_COUNT,                                   // the one counter
-        store::Value::Integer(1),                           // delta
-        UpsertColumns::always(&[store::Column {              // `always`: rewritten every call
-            name: Room::LAST_POST_AT.to_string(),
-            val: store::Value::Integer(now),
-        }]),
-    )?;
-    Ok(())
-}
-```
-
-Rules the signature does not tell you:
-
-| Rule | Consequence of missing it |
-|------|---------------------------|
-| The `key` columns need a **UNIQUE index** covering them — `#[lookup_by]` for one column, `unique_index(cols = [...])` for a composite | the key is the conflict target. Without one the call is **refused** with a `ConstraintViolation` naming the key columns and the remedy. There is no scan fallback: find-then-write over a scan has no single-row meaning, since two concurrent upserts on the same key could both find nothing and both insert |
-| The **auto-PK is not a usable key** | `_id` is the row's identity, not an indexed *column*, so no unique index covers it and the call is refused. This is why a model carrying a counter needs an opaque `#[lookup_by]` column |
-| `#[unique]` does **not** satisfy it | it isn't an index, and the derive no longer accepts it at all. Use `#[lookup_by]` |
-| **`key ∪ always ∪ on_insert` must cover every non-nullable column that has no default** | the first call for a key **inserts**, so a required column that appears in none of them is a row-creating write that omits it → refused with `ConstraintViolation` naming the column. See the fix below — it is not "add it to `always`" |
-| **One counter per call** | a two-counter rollup (`receipt_count` + `total_bytes`) is two calls on the same `key`. A missing counter column starts at `delta`, so call order is irrelevant — never RMW the second one |
-| It **inserts** when the key matches nothing | see `boogy:boogy-transactions`: load the parent inside the same `tx` so a bump can't resurrect a deleted row as a stub |
-
-### 🚩 Satisfy the coverage rule with `#[default]` or `on_insert`, NOT by padding `always`
-
-Adding the missing column to `always` makes the *insert* legal and silently
-breaks every *update*: `always` columns are written on **both** arms, so each
-later bump rewrites that column — resetting an accumulator, or stamping a
-`created_at` on every increment.
-
-Two ways out, and they answer different questions:
-
-- **A static starting value** (a counter's zero, a status's default) — declare
-  it **on the column** with `#[default = ...]`. It is consulted only when a
-  write omits the column, so it seeds the insert arm and never touches the
-  update arm.
-- **A value computed at call time** (`now()`, a derived id) — a `default` can't
-  express it; a `default` is always a static literal. Put it in `on_insert`
-  instead: written only by the call that creates the row, never touched again.
-
-```rust
-use boogy_sdk::model::Id;
-use boogy_sdk::{Counter, Model};
-
-#[derive(Model)]
-#[model(table = "rollups", counter(name = "hits"))]  // the one counter this call bumps — no field
-pub struct Rollup {
-    #[pk] pub id: Id<Rollup>,
-    #[lookup_by] pub key: String,          // the upsert's conflict target
-    #[default = 0] pub total_bytes: i64,   // seeds the insert arm, and only it
-}
-
-/// Names the cell `#[model(counter(name = "hits"))]` above declared —
-/// `Rollup::HITS` (a `&'static str` const the derive still emits, struct- or
-/// field-declared alike) works directly with `upsert_increment` below; this
-/// marker type is what a READ goes through instead.
-#[derive(Counter)]
-#[counter(of = Rollup, name = "hits")]
-pub struct RollupHits;
-```
-
-```rust
-// WRONG — `total_bytes` is now reset to 0 on every single bump.
-upsert_increment(Rollup::TABLE, &key, Rollup::HITS, store::Value::Integer(1),
-                 UpsertColumns::always(&[store::Column { name: Rollup::TOTAL_BYTES.to_string(),
-                                   val: store::Value::Integer(0) }]))?;
-
-// RIGHT — the `#[default = 0]` above covers the insert; `always` stays empty.
-upsert_increment(Rollup::TABLE, &key, Rollup::HITS, store::Value::Integer(1), UpsertColumns::none())?;
-```
-
-A default is consulted only when a write omits the column, so it seeds the
-insert arm and never touches the update arm. It also keeps `always` empty,
-which is what a counter column needs to stay conflict-free.
-
-Now the computed case — a value `#[default]` cannot express because it isn't
-known until the call:
-
-```rust
-// `stamp` here plays a *creation* timestamp, computed at call time. It rides
-// `on_insert`, not `always`: written once, when the row is created, and never
-// rewritten by a later bump — so it costs this counter column nothing.
-upsert_increment(
-    Rollup::TABLE,
-    &key,
-    Rollup::HITS,
-    store::Value::Integer(1),
-    UpsertColumns::on_insert_only(&[stamp]),
-)?;
-```
-
-## 🚩 RED FLAG — a companion column updated with `db_update`
-
-`always` columns are written on **both** the insert and the update path. That
-is the entire point: a counter row's companion columns that must keep
-changing on every call are updated via `always` in the **same**
-`upsert_increment` call, not a second write.
-
-```rust
-// WRONG — silent lost update on the hottest write path
-// (`tx` takes an `Fn` closure, so build the row OUTSIDE it — a struct-update
-//  `..room` inside the closure would move a captured value and not compile.)
-let bumped = Room { last_post_at: now, ..room };
-tx::<_, _, ApiError>(|| {
-    db_insert(&post)?;
-    upsert_increment(Room::TABLE, &key, Room::POST_COUNT, store::Value::Integer(1), UpsertColumns::none())?;
-    db_update(bumped.id.get(), &bumped)?;                            // 🚩
-    Ok(())
-})
-```
-
-`db_update` writes **every** column of the model — including the
-`post_count` that was read *before* the increment. Every concurrent post's
-count is lost. No error, no conflict, no failing test unless someone
-writes a concurrency test. Fold the field into `always` instead — `on_insert`
-does not fit here, because `last_post_at` must keep advancing on every post,
-not just the row's first.
-
-## Counter columns — the conflict-free variant, for hot counters
-
-`upsert_increment` on a **plain** column (everything above) is atomic and
-loses no updates, but it still **rewrites the row**, so it takes a
-read-conflict range. Under real contention — a like button, a view count,
-a rate meter — concurrent bumps on the same row conflict. Those conflicts
-are retried automatically (see `boogy:boogy-transactions`), so the first
-symptom is latency rather than an error; past the attempt budget the
-request gets a 503. Correct, but it does not scale, and the cost hides
-until load.
-
-A **counter column** removes that: `#[model(counter(name = "<column>"))]`
-on the struct — **not a field**, there is no backing field at all — plus a
-companion `#[derive(Counter)] #[counter(of = <Self>, name = "<column>")]`
-marker type that gives the cell a name and a typed key to read or add it
-through. The column is stored in its **own cell**, not packed into the row,
-and an increment is an atomic add that registers **no read-conflict range**.
-Concurrent increments compose instead of conflicting.
-
-That covers the **counter write**, not the rest of the transaction. If the
-closure that bumps the counter also runs a filtered search the planner
-can't serve from an index, that search scans and takes every row of the
-table as its read set. The bumps still don't collide with each other — an
-empty-`always` increment on an existing row touches only the counter cell,
-which is outside the row range the scan read — but any concurrent **row**
-write to that table (an insert, an update, or the first bump for a key,
-which inserts the row) now aborts the scanning transaction. Narrow the
-reads in that closure too — filter on a column that leads an index (see
-*Indexes decide contention* above).
-
-```rust
-use boogy_sdk::model::Id;
-use boogy_sdk::{Counter, Model};
-
-#[derive(Model)]
-#[model(table = "posts", counter(name = "vote_score"))]
-pub struct Post {
-    #[pk]
-    pub id: Id<Post>,
-    #[lookup_by]
-    pub slug: String,
-    pub title: String,
-}
-
-/// The read/add handle for `vote_score` — see "Reading a counter" below.
-#[derive(Counter)]
-#[counter(of = Post, name = "vote_score")]
-pub struct PostVoteScore;
-```
-
-You still increment with `upsert_increment` (`Post::VOTE_SCORE` is the
-`&'static str` const the derive still emits for a struct-level counter,
-just like it would for a field) — a counter column changes how the value is
-*stored*, not how you call it. **The conflict-freedom holds only
-with an EMPTY `always`:**
-
-```rust
-// Conflict-free: nothing but the counter cell is touched.
-upsert_increment(Post::TABLE, &key, Post::VOTE_SCORE, store::Value::Integer(1), UpsertColumns::none())?;
-
-// NOT conflict-free: a non-empty `always` rewrites the row, which is an
-// ordinary read-modify-write and conflicts like any other.
-upsert_increment(Post::TABLE, &key, Post::VOTE_SCORE, store::Value::Integer(1), UpsertColumns::always(&[stamp]))?;
-
-// Still conflict-free — `on_insert` writes only the arm that creates the
-// row, so it costs a later bump nothing. Only useful for a value the row
-// needs once, at creation.
-upsert_increment(Post::TABLE, &key, Post::VOTE_SCORE, store::Value::Integer(1),
-                  UpsertColumns::on_insert_only(&[stamp]))?;
-```
-
-That is a genuine trade-off against the plain-column pattern above, which
-folds companion columns that must keep changing into `always` precisely to
-avoid a second write. Pick per column: **hot and standalone → a counter
-column with an empty `always`; needed once, at creation → a counter column
-with `on_insert`; updated together with companion fields on every call → plain
-column + `always`.**
-
-### There is no field — writes cannot clobber it, and reads are an explicit opt-in
-
-A counter column has **no backing struct field at all**, so `Post` above
-carries no `vote_score` member to accidentally round-trip. `db_insert`
-starts the column at zero (there is nothing to write) and `db_update`
-**never mentions the column** — a struct-update write can't write back a
-value it never held:
-
-```rust
-// SAFE — `Post` has no `vote_score` field to read a stale value from or
-// write one back through.
-db_update(post.id.get(), &Post { title: new_title, ..post })?;
-```
-
-On a **plain** counter column that same line is the silent lost-update bug
-the RED FLAG above describes. A counter column is the structural fix for
-it — more structural than the old field form, which excluded the field from
-writes but still let a caller read it as an ordinary struct member.
-
-The trade is on the READ side: nothing merges a counter's value in for you
-any more. `Post::schema()`/`db_get`/`db_find_by`/plain `Query::fetch_*` all
-return the row with the counter cell unmerged — reading it is always an
-explicit ask, through one of:
-
-- **`Query::on(Post::TABLE)...with_counter(PostVoteScore::NAME, &[])`** — the
-  ordinary row-listing path. `key_cols` is empty for an `of = Model`
-  counter (it is keyed by the row's own id implicitly); a `key = (...)`
-  standalone counter passes the column names that supply its key.
-- **`for_each_batch(..., counters: &[PostVoteScore::NAME], f)`** — the
-  streaming-cursor twin, same opt-in.
-- **`.order(Post::vote_score.desc())`** — ranking BY a counter's cells is
-  the one path that merges it without a separate `.with_counter(..)`, since
-  sorting by it is already an explicit ask.
-
-Naming one counter opts in every LIVE counter column the table declares
-(per-table granularity, not per-column) — cheap on the common one-counter
-table, worth knowing on a table with several.
-
-### A counter cannot back an index — enforced at compile time
-
-Index maintenance needs the previous value to clear the stale entry, and an
-atomic add never reads one. So the derive **refuses to build**:
-
-| You wrote | Result |
-|---|---|
-| `counter(name = "x")` sharing a name with a declared `#[index]` / `#[lookup_by]` / `#[covering_index]` / struct-level `index(cols = [...])` column | compile error |
-| A `counter(...)` column named by `list_by` / `ranked_by` / `tagged_by` | compile error |
-<!-- retired-spelling: the field form is retired — `#[model(counter(name =
-     ..))]` on the struct is the replacement, which this row already
-     names. -->
-| `#[counter]` written as a FIELD attribute at all | compile error naming the replacement — there is no field form any more |
-
-This is deliberately a compile error, not a runtime one: the alternative is
-an index that *looks* maintained and silently is not — wrong answers rather
-than a failure.
-
-**So you cannot sort, rank, or seek by a counter.** "Top posts by score"
-is not available as an indexed read (except by `.order(...)`, which reads
-the cells directly rather than through an index — see "Reading a counter"
-above). The two sanctioned escape hatches for anything an ordered PAGE
-needs to seek into rather than sort in memory: scope the ranking to a
-**bounded sub-range and sort in memory**, or **materialize the value into a
-separate plain column** refreshed by a background job (see
-`boogy:boogy-background-jobs`) and index *that*.
-
-<!-- retired-spelling: this section teaches the retired field form as a
-     NEGATIVE — the live declaration is `#[model(counter(name = ..))]`
-     plus a `#[derive(Counter)]` marker type. -->
-## There is no field form — `#[counter]` on a field is a compile error
-
-A counter has no field of its own. Declaring one is always
-`#[model(counter(name = "<column>"))]` on the **struct**, read through a
-companion `#[derive(Counter)]` marker type — never a field-level
-<!-- retired-spelling: the paragraph below names the retired field form so a
-     reader recognises it in an older note; the live declaration is
-     `#[model(counter(name = "..."))]` plus a `#[derive(Counter)]` marker. -->
-`#[counter]` attribute. If you have seen `#[counter] pub x: i64` in an
-older note, it predates this: the derive now rejects it outright, naming
-the replacement.
-
-<!-- retired-spelling: the fence below is the RETIRED field form, shown so it
-     is recognised and never written; `#[model(counter(name = ..))]` on the
-     struct is the replacement, as the fence's own comment says. -->
-```rust ignore-snippet: shows code the derive is meant to REJECT — compiling it would assert the opposite of what it teaches
-#[counter]                   // compile error: no field form — declare
-pub vote_score: i64,         // #[model(counter(name = "vote_score"))] on the struct instead
-```
-
-`#[model(counter(...))]` itself takes **no arguments other than the
-required `name = "..."`** — in particular no `index` option:
-
-```rust ignore-snippet: shows code the derive is meant to REJECT — compiling it would assert the opposite of what it teaches
-#[model(table = "posts", counter(name = "vote_score", index = true))]     // compile error
-```
-
-If you have seen `#[counter(index = true)]` in a design note, it is **not
-built** — and an indexed counter is refused at compile time anyway, for the
-reason above. Write `counter(name = "...")` with nothing else, and use one
-of the two escape hatches above if you need to rank by the value.
-
-## 🚩 RED FLAG — you cannot add a counter column to a deployed table
-
-A migration-added column is **never** a counter: `add_column` **refuses** a
-counter column outright (a `ConstraintViolation`). A counter's value lives in
-a per-row sidecar cell that `insert` seeds, and every read path assumes every
-row of that table owns one — flipping the flag on a populated table would make
-every pre-existing row read as `0`. Establishing the invariant needs a
-backfill, which `add_column` is not.
-
-**Consequence: decide the counter when you create the table.** Whichever way
-you reach for the conversion, the refusal is loud rather than silent: an
-in-migration `add_column` refuses at that call with a `ConstraintViolation`,
-and declaring `#[model(counter(...))]` on a model whose table already has a
-plain column under that name is caught by the same column reconciliation
-that catches a type or nullability change — the deploy is refused before the
-new version ever goes live, not accepted and then left disagreeing with the
-deployed table. Either way, a counter is not something to retrofit.
-
-If you need to convert a live column, the supported route today is a **new
-table** with the counter declared up front, plus a migration that copies
-the values across (see `boogy:boogy-migrations`).
-
-**Overflow wraps.** The column is a 64-bit signed integer and the add
-**wraps** past `i64::MAX` to `i64::MIN` rather than erroring or saturating.
-Irrelevant at 9.2 quintillion for a counting workload, but real for a
-counter accumulating large deltas (byte totals, currency in minor units) —
-clamp the delta on the way in. The delta must be an **integer**; a
-fractional delta on a counter column is rejected by the store.
+## More modeling rules
 
 **Public ids.** `Id<T>` is a typed `u64`, not enumeration-resistant. For
 opaque user-facing ids use an `IdCodec` at the API edge or a TEXT
@@ -970,45 +432,15 @@ promote fields to real columns later via a migration.
 
 ## Red flags
 
-- "I'll bump the counter, then `db_update` the row's other columns" → the
-  update clobbers the counter with its pre-increment value. Companion
-  columns that must keep changing go in `upsert_increment`'s `always`, same
-  call; a companion needed only once, at creation, goes in `on_insert`
-  instead.
-- "The counter keys on `_id` — that's the row's identity" → not an indexed
-  column, so no unique index covers it and the call is refused. Key on a
-  `#[lookup_by]` column.
-- "The upsert's first call inserts, so I'll pad `always` with the required
-  columns" → `always` is written on the update arm too, so every later bump
-  rewrites them. Give those columns a `#[default = …]` for a static value, or
-  `on_insert` for one computed at call time, and leave `always` alone.
 - "`#[unique]` makes it a unique key" → it isn't an index, nothing is
   enforced, nothing can be sought — and the derive now refuses to build it
   rather than let that pass silently. Use `#[lookup_by]`.
-- "One `upsert_increment` can bump both counters" → one counter per call.
-  Two calls, same key; the second column starts at `delta` if absent.
 - "This field is optional, so `Option<T>`" → not if you'll `eq`-filter on
   it. NULL isn't equality; the ordered index walk is never chosen. Sentinel.
 - "One `list_by` per model" → the verbs repeat, and identical ones dedupe.
   Declare one per read instead of hand-rolling `index(cols = [...])`.
-- "I'll make it a counter column so I can rank by it" → backwards. A counter
-  column is *unindexable* (compile error on any index or `ranked_by` naming
-  it) — `.order(...)` reads its cells directly instead. Materialize into a
-  plain column via a job if you need a true indexed seek, or sort a bounded
-  sub-range in memory.
-- "`#[counter(index = true)]` gives me a sortable counter" → the feature
-  does not exist; `#[model(counter(...))]` takes only `name = "..."` and
-  the derive rejects anything else.
-<!-- retired-spelling: the field form is retired; the bullet below names
-     `#[model(counter(name = ..))]` as the replacement, which is why it is
-     listed as a red flag at all. -->
-- "I'll write `#[counter]` on the field like I used to" → there is no field
-  form any more; it is a compile error naming the replacement,
-  `#[model(counter(name = "..."))]` on the struct.
-- "A counter column plus an `always` column, still conflict-free" → a non-empty
-  `always` rewrites the row and conflicts like any other write. Empty
-  `always`, or a value moved to `on_insert` if it's only needed at creation,
-  or it isn't conflict-free.
+- "I'll keep a count on the row and bump it" → `upsert_increment` or a counter
+  column, never read-modify-write; read `boogy:boogy-counters` first.
 
 ## Integration
 
@@ -1019,4 +451,6 @@ read surface that consumes these models) → `boogy:boogy-rest-apis`
 later error — multi-write (insert + a dependent counter / summary, debit +
 credit) or a single write with fallible work after it: see
 `boogy:boogy-transactions`.
-Evolving a deployed schema lives in `boogy:boogy-migrations`.
+Counts, counter columns and `upsert_increment`: `boogy:boogy-counters`.
+Money and exact decimals: `boogy:boogy-money-and-decimals`. Evolving a
+deployed schema, the column reconcile included, lives in `boogy:boogy-migrations`.

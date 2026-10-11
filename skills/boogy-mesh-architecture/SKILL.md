@@ -221,7 +221,7 @@ fn reserve(payload: serde_json::Value) -> Result<(), ApiError> {
   requires the explicit `peer_fetch_raw` opt-in above — the host poisons the
   tx on a non-2xx participant response independently of which call your
   closure uses, so this only changes whether your own code notices first.
-  See `boogy:boogy-transactions`.
+  See `boogy:boogy-cross-service-transactions`.
 
 ## Origin billing
 
@@ -259,7 +259,7 @@ the rule is "check first", not "never".
 ## Integration
 
 → `boogy:boogy-obo-delegation` (authoritative cross-service identity),
-`boogy:boogy-transactions` (cross-service writes),
+`boogy:boogy-cross-service-transactions` (cross-service writes),
 `boogy:boogy-registry-and-provisioning` (mesh discovery, provision-vs-consume),
 `boogy:boogy-peer-to-peer-apps` (one module, many owners — instances that
 call each other as equals),

@@ -25,6 +25,14 @@ there, change nothing). Name the skills in **every subagent dispatch** too: a
 subagent inherits no hook and no conversation, so unless you tell it, it builds
 from guesswork.
 
+**Every page is board-ready.** An app with a page also runs in a pane of a
+Boogy board, unless the person has said it is only ever opened on its own.
+From stage 0 it declares `[boards] background = "board"`, calls `connectPane`,
+turns the page scale on, and takes every colour and size from `@boogy/web`
+tokens, so the board's background, colour scheme and Smaller/Larger reach it
+(`boogy:running-in-a-board`). Checking it in a board is part of every stage
+that changes the page.
+
 ## Interaction model — you wire, the person decides the shape
 
 When there's a person in the loop (a "vibe coder" who wants to build, not to learn
@@ -87,14 +95,19 @@ compete.
 | `testing-boogy-services` | testing a service, or before claiming one works — the test pyramid + deploy-and-exercise |
 | `deploying-boogy-services` | deploying, updating, or removing a deployed service — CLI commands, config, deploy errors |
 | `boogy-data-modeling` | declaring tables, designing schemas, or choosing how to represent data |
+| `boogy-money-and-decimals` | a field holds money, a price, a rate, a balance or a score — `Decimal`, `f64` or integer minor units, parsing, summing or splitting amounts |
 | `boogy-access-patterns` | adding a list, lookup, ranking, filter, tag, or pagination query |
 | `planning-boogy-work` | turning a stage's approved design into a plan — a stage roadmap plus the next stage in detail, manifest first, capabilities named per task, no placeholders |
-| `boogy-transactions` | a write that must roll back if later work fails, writing multiple rows atomically, combining writes with cross-service calls, handling 409s, or placing side effects near writes |
-| `boogy-counters` | a value that only goes up or down (views, likes, stock, quota, "last active at"), a write contending on a hot row, choosing between a counter and a rollup, or a counter read refused inside a transaction |
+| `boogy-transactions` | a write that must roll back if later work fails, writing multiple rows atomically, combining writes with cross-service calls, handling 409s, or placing side effects near writes. The core; its parts are the next two rows |
+| `boogy-transaction-conflicts` | a transaction conflicts or retries, answers 409 or 503 (`TooContended`), reads, counts or sweeps rows inside a `tx`, or slows under concurrent writers |
+| `boogy-cross-service-transactions` | a write must stay consistent across services called with `peer::fetch`: one transaction across the call tree, and a callee that requires one |
+| `boogy-counters` | a value that only goes up or down (views, likes, stock, quota, "last active at"), incrementing with `upsert_increment` or a counter column, a write contending on a hot row, choosing between a counter and a rollup, or a counter read refused inside a transaction |
 | `boogy-route-pricing` | deciding what a route should charge — picking a flat price or a rate, choosing which unit to rate on, setting the `max` callers must hold, or diagnosing callers refused with 402 |
-| `boogy-migrations` | changing the schema of a deployed service — adding columns or indexes, or backfilling data |
+| `boogy-migrations` | changing the schema of a deployed service — adding, renaming or removing a field (the deploy-time column reconcile), a column conflict refused at deploy, changing a type, adding indexes, or backfilling data |
 | `boogy-auth` | adding authorization — per-user data, ownership checks, "only my X" endpoints, API keys, or scope gating |
-| `boogy-account-auth` | wiring login/signup for a service's users, or asking where principals and tokens come from |
+| `boogy-account-auth` | wiring login/signup for a service's users, or asking where principals and tokens come from. The core; its parts are the next two rows |
+| `boogy-app-tokens` | a page on ANOTHER website must sign people in and call a service (or a service with no frontend serves browser clients) — `[ingress.app_tokens]`, `appTokenSession`, refresh tokens |
+| `boogy-sign-in-sessions` | signing a person out, renewing or reading the app session (`/boogy/me`, `/boogy/logout`, `/boogy/renew`), the sign-in flow by hand (`/authorize`, PKCE), a `400` at `/authorize`, or which platform cookie does what |
 | `boogy-obo-delegation` | one service must act on a user's behalf when calling another service — delegation config, principal-vs-actor authorization |
 | `boogy-mesh-architecture` | composing multiple services, deciding whether to split a service, or passing identity/data between services |
 | `boogy-peer-to-peer-apps` | one module, **many owners** — every user provisions their own instance and the instances call each other as equals; cross-owner grants you cannot enumerate, and the in-handler gate that has to compensate |
@@ -105,8 +118,11 @@ compete.
 | `boogy-blockchain-transactions` | a service constructs, signs, or broadcasts on-chain transactions — a custodial wallet, on-chain payments/payouts, a swap or bridge relayer, or any EVM/Cosmos/Solana/Bitcoin signer that moves funds (fund-safety: one gate per sign path, total-outflow + fee bounds, denom-aware caps, signature self-verify, adversarial RPC, nonce serialization) |
 | `boogy-oauth-connections` | a service must act on a USER's account at a third-party API (Google/YouTube, Slack, GitHub, Notion) — "connect your account", OAuth2 consent, per-user tokens the platform holds, refreshes and injects |
 | `boogy-webhooks` | building a service that RECEIVES and verifies inbound webhooks from a third party (Stripe, GitHub, Twilio, any HMAC-signed callback) |
-| `boogy-serving-frontends` | a service must serve a web frontend — a reactive UI, SPA, dashboard, static HTML/JS/CSS, or a full-stack app serving both the page and its API (arrow-js, TypeScript-with-no-build, host-served assets) |
-| `running-in-a-board` | an app with a page is used inside a board — the board's Back/Forward, reload and Smaller/Larger, and checking them in a real pane |
+| `boogy-serving-frontends` | a service must serve a web frontend — a reactive UI, SPA, dashboard, static HTML/JS/CSS, or a full-stack app serving both the page and its API (TypeScript-with-no-build, host-served assets). The core; its parts are the next three rows |
+| `boogy-frontend-builds` | a frontend uses a UI framework, a build tool or a vendored package (arrow-js, Preact, Vite, Astro, SvelteKit, a Next.js export), sets the build's base path, or renders blank / 404s its assets at a nested route |
+| `boogy-frontend-discoverability` | a page must be found by search engines or AI crawlers, or previewed when shared: title, description, OpenGraph, JSON-LD, robots.txt, sitemap, prerendered routes |
+| `boogy-frontend-security` | a page is framed, opens OAuth or payment pages, needs camera/microphone/geolocation, sets a CSP or frame options, is called from another website (CORS), or uses browser storage |
+| `running-in-a-board` | building or changing any app with a page (every page is board-ready unless standalone-only) — the board's Back/Forward, reload, Smaller/Larger and background, and checking them in a real pane |
 | `boogy-custom-domains` | serving a service on a tenant's own domain as well as its own platform address — registration, DNS records, verification, root-serve semantics |
 | `boogy-rest-apis` | building HTTP/REST or JSON-RPC endpoints — routing, guards, request parsing/validation, response types, error wire format — protobuf is the next row, not this one |
 | `boogy-protobuf-rpc` | serving protobuf — gRPC, Connect, or gRPC-Web — from a `.proto` contract, or choosing between protobuf and REST/JSON-RPC for an endpoint |
@@ -232,6 +248,7 @@ developer / agent) signing in to the platform to deploy.
 | Thought | Reality |
 |---------|---------|
 | "It's small, I'll just start from the template." | Start from a stage-0 wireframe (`boogy:shipping-in-stages`), yes; skip a stage's own design answers, no. The stage that adds a backend still decides ingress mode and capabilities before its code. |
+| "It's a standalone app; making it work in a board can wait." | Every page is board-ready from stage 0 unless the person said it is only ever opened on its own. Retrofitting colours, background and sizes later touches every screen. |
 | "I know the SDK from training data." | The SDK surface is specific and moves. Confirm every call against the docs; never fabricate signatures. |
 | "This endpoint is too simple to need the catalog." | Simple endpoints still hit store/query/auth invariants. Scan first; if no skill fits, say what you're relying on. |
 | "I'll wire the happy path and worry about integrity later." | Treat each request as a **unit of work** — on ANY error the caller sees no partial state. Decide transactions and write-ordering as you write the handler, not after — **read `boogy:boogy-transactions` first**. |

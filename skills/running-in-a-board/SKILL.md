@@ -1,13 +1,23 @@
 ---
 name: running-in-a-board
-description: Use when a Boogy app with a page will be used inside a board (Boards panes), when the person mentions their board, or when a board's Back, Forward, reload or Smaller/Larger buttons misbehave for an app
+description: Use when building or changing any Boogy app with a page (every page runs in a board's panes unless the person says it is standalone-only), when the person mentions their board, or when a board's Back, Forward, reload, Smaller/Larger or background misbehave for an app
 ---
 
 # Running in a board
 
 A board frames your app in a pane and drives it: its own Back and Forward, a
-reload that reopens the pane where it was, and Smaller/Larger buttons. None of
-that works by accident, and a check in a browser tab proves none of it.
+reload that reopens the pane where it was, Smaller/Larger buttons, and its
+background behind your page. None of that works by accident, and a check in a
+browser tab proves none of it.
+
+**Every app with a page is board-ready by default**, unless the person has said
+it is only ever opened on its own. Board-ready from stage 0 means:
+
+- `[boards] background = "board"` in the manifest (below);
+- `connectPane({ service })` in the page, with `onNavigate` once it has routes;
+- the page scale on: `installFoundation({ scale: true })`;
+- every colour and size in your CSS from an `@boogy/web` token, so it reads in
+  the board's scheme on the board's background and follows its size.
 
 ## The acceptance checks
 
@@ -18,7 +28,7 @@ Try each in a real board pane, on every stage a person will use there:
 | Open a sub-screen (a form, a detail page) | the pane's Back and Forward appear and step through your screens | every page-like screen is a route, opened with `pane.navigate` |
 | Reload the board while on a sub-screen | the same screen comes back | the board reopens the pane at its last reported location; a cold load renders the route from the address |
 | Press the board's Smaller / Larger | the type on EVERY screen changes and the layout still fills the pane | the board's zoom arrives as `--u-zoom`; sizes come from SDK tokens or are multiplied by it |
-| Open the app from Your apps on a board with a coloured background (only if it declares `[boards] background = "board"`) | the board's colour shows through the app; its text reads | the app draws no page background and renders in the board's scheme |
+| Open the app from Your apps on a board with a coloured background | the board's colour shows through the app; its text reads | `[boards] background = "board"`: the app draws no page background and renders in the board's scheme |
 
 ## Every page-like screen is a route
 
@@ -95,8 +105,8 @@ layout must still fill the pane on both axes, not only narrow.
 
 ## Showing the board's background
 
-By default an app paints its own page background. To let the board's show
-through in a pane, declare it:
+Without a declaration an app paints its own page background over the board.
+Declare it from stage 0, unless the page is standalone-only:
 
 ```toml
 [frontend]
@@ -155,14 +165,14 @@ boards entirely.
 **Who runs the checks:** you run them only in a browser signed in to the
 person's own board. Otherwise the stage hands the person the checks, in
 their words, beside its one question: "In your board: open New retro, press
-Back; reload; press Larger. Did each work?" For an app that shows the board's
-background, add the fourth: "Does your board's colour show through it, with
-its text readable?"
+Back; reload; press Larger. Does your board's colour show through it, with its
+text readable? Did each work?"
 
 ## Red flags
 
 | Thought | Reality |
 |---|---|
+| "Nobody said it would run in a board, so I'll leave that out." | Board-ready is the default; only a page the person says is standalone-only leaves it out. |
 | "A pushState/popstate router gives back and forward." | In a frame, pushState moves the board's history. Use `pane.navigate` + `onNavigate`. |
 | "Text in `rem` scales with the board." | The zoom never changes the root font size. Use SDK tokens; multiply fluid sizes by `var(--u-zoom)`. |
 | "`clamp(…vw)` makes it scale with the screen." | Viewport and container units ignore the board's zoom. Multiply by `var(--u-zoom)`. |

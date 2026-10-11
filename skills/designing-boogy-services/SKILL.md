@@ -79,6 +79,12 @@ ungoverned scaffold.
    leave step 7 until there is real content. See
    `boogy:boogy-serving-frontends`.
 
+   **A Frontend or FullStack is board-ready by default**: it runs in a pane of
+   a Boogy board as well as on its own, with `[boards] background = "board"`,
+   `connectPane`, the page scale on, and colours and sizes from `@boogy/web`
+   tokens (`boogy:running-in-a-board`). Only a page the person says is never
+   used in a board leaves it out.
+
    **1b. Backend kind** — skip if **Frontend**; otherwise pick one for the
    wasm:
 

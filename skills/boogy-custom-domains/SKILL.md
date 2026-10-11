@@ -39,7 +39,7 @@ A domain is globally unique on the platform: once a domain reaches
 **A custom domain serves at the origin root**, so the served index's injected
 `<base href>` is `/`, exactly as on the service's own address. A relative base
 (Vite's `base: './'`) works on both, and is still the right habit. See
-`boogy:boogy-serving-frontends`.
+`boogy:boogy-frontend-builds`.
 
 ## Register a custom domain
 
@@ -164,7 +164,7 @@ service.
 
 - **Start it with the SDK** (`boogy.connectApp('<owner>/<service>')`, which
   navigates the domain to its own `/boogy/signin`), or by hand —
-  `boogy:boogy-account-auth`, "The classic flow". `app_origin` is your domain
+  `boogy:boogy-sign-in-sessions`, "The classic flow". `app_origin` is your domain
   itself (`https://app.theircompany.com`), and the request names exactly ONE
   `aud`: the service the domain serves.
 - **It signs in for the one service the domain is bound to.** `/authorize`
@@ -207,7 +207,7 @@ service.
   domains attach to an existing `service_id`.
 - → `boogy:boogy-auth` — the bound service's ingress mode applies
   normally on the custom domain, including per-route overrides.
-- → `boogy:boogy-account-auth` — the classic sign-in flow a custom domain runs
+- → `boogy:boogy-sign-in-sessions` — the classic sign-in flow a custom domain runs
   (see *"Sign in with Boogy" on a custom domain* above).
-- → `boogy:boogy-serving-frontends` — serving a frontend, including a
-  framework build's relative base, on a custom domain and off it.
+- → `boogy:boogy-serving-frontends` — serving a frontend; a framework build's
+  relative base, on a custom domain and off it, is `boogy:boogy-frontend-builds`.

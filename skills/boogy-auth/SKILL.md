@@ -124,7 +124,7 @@ directly and the other arrived via a chain.
 
 If your service declares a `[frontend]`, its page runs on an origin of its
 own — not a shared one with any other app, yours or anyone else's (see
-`boogy:boogy-serving-frontends` for the full picture). That isolation is
+`boogy:boogy-frontend-security` for the full picture). That isolation is
 where the "Sign in with Boogy" session actually lives, and it changes a few
 things an app author otherwise assumes:
 
@@ -150,7 +150,7 @@ things an app author otherwise assumes:
   and a framed page cannot navigate the page around it; build API calls and
   internal links from relative paths, never a hard-coded prefix. An
   interactive sign-in UI belongs in `[frontend]`, not in a handler's own HTML
-  response. Full detail: `boogy:boogy-serving-frontends`.
+  response. Full detail: `boogy:boogy-frontend-security`.
 
 ## Per-route ingress: a public route inside a restricted service
 

@@ -152,7 +152,7 @@ a hostname: its address only shows a "this address has moved" page), from the
 host you logged in against, or from a domain the user happened to mention. Copy it from
 the deploy output. Any absolute origin you wrote *before* this point (e.g. a
 `<link rel="canonical">`, `og:url`, or `sitemap.xml` in a frontend bundle — see
-`boogy:boogy-serving-frontends`) is a guess: reconcile it with the printed URL and
+`boogy:boogy-frontend-discoverability`) is a guess: reconcile it with the printed URL and
 redeploy if it differs.
 
 ## Verify it actually works (deploy success ≠ working)

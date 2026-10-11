@@ -44,32 +44,6 @@ Read this skill before you reach for `tx`; the right shape is often not "wrap
 everything."
 
 
-## A callee that REQUIRES a transaction can now check
-
-A read-modify-write — read a value, decide from it, write it back — is
-serializable only inside a transaction. Outside one, every store call is its own
-auto-commit transaction, so two racing callers both pass the same check and both
-commit. For a callee like "reserve stock", that is an oversell.
-
-A callee cannot open a transaction defensively: **a callee that calls `tx` fails
-at commit.** So refuse instead:
-
-```rust ignore-snippet: a guard fragment — the handler, its DTO and its error type are not in scope in this block
-if !in_transaction() {
-    return Err(ApiError::conflict(
-        "reserve must be called inside a caller's transaction",
-    ));
-}
-```
-
-`in_transaction()` is emitted by `wit_glue!` — no import. It reads no data and
-takes no conflict range, and returns `false` when the store capability is not
-granted.
-
-**Use it only where the contract is real.** Most callees are fine either way;
-this is for a service whose correctness genuinely depends on the caller's
-transaction, where the alternative is a silent wrong answer under contention.
-
 ## ⚖️ THE DECISION RULE — wrap writes in `tx` when an error must undo them
 
 Wrap store writes in `tx::<_, _, ApiError>(|| { … })` **whenever an error
@@ -362,7 +336,7 @@ not need to see stays outside it.
    isn't involved in and widens the conflict window for every other
    writer on those rows. Build the row struct, *then* open the tx.
    **This is now a correctness rule, not just a cost one:** a conflicted
-   closure is **re-run** (see *Conflicts are retried for you* below), so
+   closure is **re-run** (`boogy:boogy-transaction-conflicts`), so
    anything inside it runs again — and anything with a side effect outside
    the store must not be there at all.
 3. **Sign** — still before the tx opens. `signing_sign_digest` /
@@ -399,37 +373,18 @@ not need to see stays outside it.
   `store::*` auto-joins and the callee does **NOT** call `tx` (a callee
   that opens its own `tx` fails at commit). Only the **originating owner**
   commits. Any participant failure **poisons** the transaction → commit
-  refuses, rollback only.
+  refuses, rollback only. Opening one across a call tree, what a retry
+  re-issues, and a callee that refuses to run outside its caller's
+  transaction (`in_transaction()`): `boogy:boogy-cross-service-transactions`.
 - **One envelope:** every transaction — single-service or spanning a
   whole `peer::fetch` tree — lives inside a single ~5 s / 10 MB budget,
   and **your own code inside the closure spends it too**. Compute before
   you open it; split work that won't fit.
-- **`upsert_increment(table, key, counter, delta, columns)`** — atomic keyed
-  counter, the correct shape for every `+1` / `-1`. Requires a **unique
-  index over the `key` columns** (`#[lookup_by]` on a single column
-  derives one; the auto-PK does not qualify) — without one the call is
-  **refused**, not silently scanned. `columns` is an `UpsertColumns {
-  always, on_insert }`: `always` columns are written on **both** the insert
-  and the update path; `on_insert` columns only by the call that creates the
-  row, never touched again. **Inserts on missing** — it never errors on a
-  vanished row, it recreates it as a stub. Because the first call for a key
-  is an insert, **`key ∪ always ∪ on_insert` must cover every non-nullable
-  column that has no default**, or that call is refused with
-  `ConstraintViolation` naming the column. Give the column a `#[default = …]`
-  for a static value, or put it in `on_insert` for a value computed at call
-  time, rather than padding `always` — an `always` column is rewritten on the
-  *update* arm too, which silently resets an accumulator on every later
-  bump. On a **plain** column the increment still rewrites the row, so
-  concurrent bumps take a conflict range; those conflicts are retried, but a
-  genuinely hot row will burn the attempt budget and 503. Then declare the
-  column a counter (`#[model(counter(name = "..."))]` on the struct, no
-  field) and pass an **empty `always`** — the value lives in its own cell and
-  the add takes no conflict range at all. `on_insert` does not
-  buy that conflict-freedom on the read-modify-write arm of a plain
-  (non-counter) target column: there, the counter itself still goes through
-  the ordinary row update regardless of `on_insert`. Cost: a counter
-  column cannot back an index. See
-  `boogy:boogy-data-modeling`.
+- **`upsert_increment(table, key, counter, delta, columns)`** — the atomic
+  keyed counter, the correct shape for every `+1` / `-1`. It **inserts on
+  missing** (a vanished parent comes back as a stub), needs a unique index over
+  its `key`, and a hot row wants a counter column with an empty `always`. Its
+  rules in full: `boogy:boogy-counters`.
 - **`insert_many(table, &[&[Column]])`** — batch insert, in or out of a
   tx, returns the new ids in input order.
 - **Denied inside a tx:** `outbound_http`; every `signing` **write** —
@@ -446,244 +401,6 @@ not need to see stays outside it.
   `background_jobs` *enqueue* is allowed (staged). A denial does **not**
   poison the transaction: handle the error and the tx can still commit.
 
-## Reads inside the tx — the whole table is your read set unless the planner can narrow it
-
-A transaction conflicts on what it **read**, not only on what it wrote.
-Reads inside the closure go through the same planner as reads outside
-it. *Which* read you wrote decides how much of the table you conflict
-with:
-
-- **The planner can serve the query from an index** → the transaction
-  conflicts only on the index sub-range(s) it seeked plus the rows it
-  actually fetched. A concurrent write outside those bounds is invisible
-  to you.
-- **No usable index** → the read scans, and **every row of that table
-  joins your read set**. Any concurrent write anywhere in that table
-  aborts your commit — including rows your filter never matched. Past a
-  row threshold (half the one that guards a scan outside a transaction,
-  because this scan costs more) the read is **refused** in dev/CI with an
-  error naming the table, the conflict range the read took, and the fix
-  it can honestly name — the index that would serve the query, or, when
-  an index already leads a column you constrained, what would have
-  *bounded* the walk instead, or, when the query constrains no column at
-  all, that there is nothing to index. So you meet this while writing the
-  handler rather than as intermittent 409s later. It is a WARNING, not a
-  refusal: the read is served and the transaction is not poisoned. Act on
-  it anyway — index the read, bound it, or hoist it out of the closure —
-  because the conflict range it describes is what turns into intermittent
-  409s under concurrency.
-
-So on a table anyone else writes, **narrowing the reads a transaction
-performs is a contention fix, not a speed optimization**. It is also
-why a counter column alone may not quiet a hot path: the counter removes the
-*write* conflict, and an unindexed search in the same closure puts a
-whole-table one straight back.
-
-**The rule: give the read a filter on a column that LEADS an index.**
-Equality, `is_in`, `is_null` and a range (`gt` / `gte` / `lt` / `lte`)
-all seek — each becomes one bounded index sub-range, or a fan-out of
-them, and the fan-out is the read set. It is enough that **one** of the
-AND-filters does this; if none does, an `.or()` still seeks when *every*
-arm carries an equality on a leading index column. A filter on a column
-that appears only *later* in a composite index does not seek — it is
-applied per row afterwards, so it narrows the result but not the
-conflict range. This is the same rule that decides whether a read is
-index-served outside a `tx`; what changes inside one is the price of
-missing it.
-
-**One thing is stricter inside a `tx`.** A read whose *only* narrowing
-is its SORT — ordered, with no filter on any leading index column —
-takes the whole table unless it also skips the total. `.fetch_page(…)`,
-`.fetch_one()` and a `.limit()`ed `.fetch_all()` ask for no total; that,
-plus the page bound, is what lets such a read stop at the page and ride
-the sort index. `.fetch_all_with_total()` and a *filtered* `.count()`
-want an exact number, so they drain. Inside a tx, don't ask for a total
-you won't use.
-
-**Predicate writes follow the same rule.** `update_where` /
-`delete_where` inside a `tx` seek the same index sub-range a read does:
-give the predicate a filter on a column that **leads** an index and only
-that sub-range is in the read set, so a concurrent write elsewhere in
-the table no longer aborts you. The guarantee is unchanged — a
-concurrent insert or update that *would* have matched the predicate
-still conflicts, because its index entry lands inside the sub-range the
-sweep walked. With no such filter they still scan, and an *unfiltered*
-sweep ("update every row") reads the whole table because that is what it
-is asking about.
-
-**These reads take the whole table however you index it:**
-
-- a bare `.count()` with no filter — it reads no rows (it counts row
-  keys), but it does read the whole key range, so it conflicts with
-  **any** concurrent write to that table: an insert, a delete, and an
-  update too, since updating a row rewrites its key.
-
-**`_id` leads no index**, by construction — so `is_in` over a list of
-ids scans, and there is no index to add. Hydrate by id with `get_many`:
-point gets, which conflict only on the rows they return.
-
-**Index-served is not the same as narrow.** The read set is the
-sub-range the seek covered, so an equality matching most of the table (a
-status column where nearly every row has the same status) is
-index-served and still conflicts with nearly every writer. Seek on the
-*selective* column.
-
-**There is a ceiling.** A search inside a transaction that has to work
-through more than ~50,000 rows — matches on an index walk, rows touched
-on a scan — is refused with an error pointing you at the
-cursor/pagination API, rather than silently burning the ~5 s / 10 MB
-envelope. Read a page, not a table.
-
-## Conflicts are retried for you — and what 409 means now
-
-**A commit conflict never reaches your client.** When the store aborts a
-commit because another transaction's writes overlapped this one's
-read/write set, `tx` **re-runs the closure and commits again**. Nothing
-from an aborted attempt landed, so re-running is safe. The attempt budget
-is set by the platform (3 total by default — the original attempt plus two
-retries). There is no delay between attempts: the conflict resolved
-because some other writer *won and committed*, so the next read sees a
-settled value.
-
-**So the closure must be re-runnable — this is what `Fn` means here.**
-`tx` takes an `Fn`, not an `FnOnce`, precisely because it may run more than
-once. Everything *before* the closure — parsing, auth, guards, expensive
-computation — runs exactly once; everything *inside* it runs once per
-attempt. That is why *Sequencing discipline* above says to compute before
-opening the tx: under retry that guidance stops being about envelope
-hygiene and becomes about correctness and cost. Two consequences:
-
-- **No side effects in the closure.** Nothing that changes state outside
-  the store — no counter you bump on a captured variable, no "we already
-  charged them" flag. Attempt 2 would start from attempt 1's leftovers
-  even though the store discarded attempt 1's writes, so your code and the
-  database would disagree. (`outbound_http` and `signing` writes are denied
-  inside a tx and a job enqueue is staged, so the platform already blocks the
-  worst versions.)
-- **A closure that must consume a value clones it inside**, or computes
-  the value before the tx and borrows it.
-
-**Retries exhausted is 503, not 409.** When what a transaction touched
-stays contended for the whole attempt budget — the rows it writes, or the
-rows its reads put in the read set — you get `TooContended` → **HTTP 503
-with a retry
-hint**. That is congestion, and it belongs with the platform's other
-congestion codes (429 = you are too fast; 503 = the host is contended; 504
-= the request took too long). Persistent `TooContended` is a signal about
-the *data model* — a single row every request writes, **or** a search
-inside the closure the planner could not serve from an index, which
-conflict-ranged the whole table (see *Reads inside the tx* above). Split
-the key, declare it a counter column (`#[model(counter(name = "..."))]`), or narrow the read — filter on a
-column that leads an index, and prefer a selective one.
-
-**409 now means "your write genuinely conflicts"** — something the caller
-must resolve — and never "the store was busy". Several outcomes still share
-it, and none of them is retryable. Match the `StoreError` **variant**,
-never the status and never the message text.
-
-| Outcome | `StoreError` variant | Status | Client does |
-|---------|----------------------|--------|-------------|
-| Commit conflict (serialization abort) | `Conflict` | — | **Nothing — `tx` already retried it.** It surfaces (as 409) only if the platform has auto-retry switched off |
-| Retry attempts exhausted — a contended row it writes, or a read whose conflict range was the whole table | `TooContended` | **503** | Retry with backoff — and fix the data model if it persists (split the key, a counter column, or narrow the read — filter on a column that leads an index) |
-| Platform saturated with concurrent transactions | `ResourceExhausted` | 503 | Retry shortly |
-| Unique-index duplicate, a **not-null column left null or absent** on a row-creating write, or "already exists" | `ConstraintViolation` | **409** | **Do not retry** — deterministic, it fails identically every time. Change the input |
-| A participant service in the transaction failed | `Poisoned` | **409** | **Deliberately not retried** — re-running would re-execute the participant that already failed, once per attempt, and across a call tree once per callee per attempt. Fix the participant |
-| Commit outcome genuinely unknown | `CommitUnknown` | 409 | **Do not blindly retry** — it may have landed. Read the state back first |
-| Domain error you raised in-closure | — | 409 / 422 / 404 | Fix input. An `Err` from the closure is never retried — it is deterministic, so it rolls back and propagates unchanged |
-| Success | — | 2xx | Done |
-
-`Conflict` means exactly one thing — a serialization abort — which is why
-it is the only arm the retry loop touches. That is also why a duplicate-key
-insert is `ConstraintViolation` and not `Conflict`: keyed on the old
-overloaded meaning, the loop would have retried a duplicate insert to
-exhaustion.
-
-```rust
-// Re-roll a slug ONLY on a unique rejection — that is deterministic, so
-// nothing retries it for you and a different slug is the actual fix.
-// A serialization abort does not appear here: `tx` retried it.
-fn insert_with_free_slug(mut link: Link) -> Result<u64, ApiError> {
-    for _ in 0..5 {                     // bound it; a re-roll loop must terminate
-        match db_insert(&link) {
-            Ok(id) => return Ok(id),
-            Err(StoreError::ConstraintViolation(_)) => {
-                link.slug = fresh_slug();               // taken; try another
-                continue;
-            }
-            Err(e) => return Err(e.into()),
-        }
-    }
-    Err(ApiError::conflict("could not allocate a free slug"))
-}
-```
-
-**Never write a `_ =>` catch-all over these arms.** It silently folds
-`Poisoned` and `CommitUnknown` into whatever the fallback does — which is
-the exact failure the separate variants exist to prevent.
-
-## Cross-service consistency — open the tx at the entry handler
-
-When a mutation must stay consistent **across a `peer::fetch`**, open the
-`tx` once, at the **entry handler** (the root of the call tree) — never in
-a callee. It then spans the **entire call tree as one store transaction**,
-under the enrollment / poisoning / one-envelope semantics listed above. A
-non-success peer response you turn into `Err(…)` rolls back the whole
-tree.
-
-Two things behave differently across a tree, and the difference is the
-point: a **commit conflict** is retried, which re-runs the closure *and
-therefore re-issues every `peer::fetch` in it* — so a callee must tolerate
-being called again (and it burns the callee's rate budget faster than the
-commit rate implies). A **poisoned** transaction is **not** retried: the
-participant already failed, and re-running would fail once per attempt at
-every callee it reached.
-
-## Cross-service sketch (verified shapes)
-
-`peer_fetch` fails (`Err`) on a non-success status **by default**, so the
-plain `peer_fetch(...)?` shape already stops the closure — and therefore
-the commit — on a callee's rejection; you don't need to check
-`resp.is_success()` yourself. Reach for `peer_fetch_raw` (same signature)
-only when you want to map the callee's status to your OWN domain-specific
-error instead of the generic 502 upstream `?` would produce, as below:
-
-```rust
-use boogy_sdk::peer::PeerRequest;
-use store::{Value, Column};
-
-fn place_order(order_cols: Vec<Column>, reserve: serde_json::Value) -> Result<(), ApiError> {
-    tx::<_, _, ApiError>(|| {
-        store::insert("orders", &order_cols)?;
-        let resp = peer_fetch_raw(                       // enrolls B in this tx
-            "boogy://owner/services/inventory",
-            &PeerRequest::post("/reserve").body_json(&reserve)?,
-        )?;
-        if !resp.is_success() {                          // poisons → both roll back
-            return Err(ApiError::conflict("out of stock"));
-        }
-        Ok(())
-    })?;
-    Ok(())
-}
-```
-
-A failed peer call lifts to **502 upstream** via `?` — clients receive
-only the failure class; the full error is in your service's
-request-correlated logs — (`From<PeerError> for
-ApiError`); body construction (`body_json`/`resp.json`) lifts its
-`serde_json::Error` to **500** (`From<serde_json::Error>`). Match the variant
-first if you want a different status (e.g. treat the callee's 404 as your own).
-This also covers `PeerError::Rejected` — the variant `peer_fetch`'s checked
-default produces for a non-2xx response — the same way as any other
-dependency failure.
-
-**Probing a peer's status from inside a transaction requires the explicit
-`peer_fetch_raw` opt-in above.** The platform also enforces this
-independently at the host: a non-2xx participant response poisons the open
-ambient transaction regardless of which call a closure uses, so bypassing
-the checked default doesn't reopen a way to commit past a callee's
-rejection — it only changes whether YOUR closure notices before the host does.
-
 ## 🚩 Smells — a missing `tx` hides here
 
 Scan a handler for these. Each is a partial-write waiting to corrupt data:
@@ -696,16 +413,17 @@ Scan a handler for these. Each is a partial-write waiting to corrupt data:
 | A parent loaded / authorization-checked **outside** the tx, its counter bumped inside | Move the parent read inside the same tx — upserts insert-on-missing, so a deleted parent is resurrected as a stub. |
 | Expensive computation (hashing, key stretching, big parse) **inside** the `tx` closure | Compute first; open the tx around the store work only. |
 | A **read-modify-write upsert** (find → update-or-insert) outside a tx | Move the find + write inside one `tx` — read-your-writes, no TOCTOU. |
-| A filtered `Query` / `.count()` **inside** a `tx` where no filter is on a column that **leads** an index | Declare the access pattern so it's index-served — otherwise the read takes the whole table as its read set and every concurrent writer conflicts with you. The same declaration narrows an `update_where`/`delete_where` in that closure; without one, a predicate write scans too. |
-| `.fetch_all_with_total()` inside a `tx` where nothing reads the total | Use `.limit(n).fetch_all()` / `.fetch_page()` — the exact total forces a drain, and an unnarrowed one forces a scan. (Both `fetch_all` forms require the `.limit(n)`; without one they do not compile.) |
 | A comment that says **"atomically" / "in one tx"** but there is **no `tx(\|\|)`** in the body | The exact bug class this skill exists for — add the `tx`. |
 | Two `store::update`s that must agree (debit + credit) sitting bare | One `tx`; check sufficiency **inside**. |
+| A read, a `count` or an `update_where` inside a `tx` with no filter on a column that leads an index | It takes the whole table as its read set: `boogy:boogy-transaction-conflicts`. |
 | A multi-write mutation that fans out via `peer::fetch` with no tx at the entry | Open the `tx` at the entry handler — the call tree enrolls. |
 
 ## Red flags
 
-| Rationalization | Reality |
-|-----------------|---------|
+These thoughts mean STOP — each one precedes a mistake this platform actually produces.
+
+| Thought | Reality |
+|---|---|
 | "It's just two writes, they'll both succeed" | Until one doesn't — partial write, corrupt state. ≥ 2 dependent writes ⇒ `tx`. |
 | "It's only one write, so no `tx` needed" | Not the test. If fallible work runs after the write, a partial state is invalid — wrap it in `tx`, **or move the write after all fallible work** so nothing can strand it. |
 | "I'll write the row, then validate / call out / derive the rest" | Backwards. Do the fallible work FIRST; the irreversible write goes LAST (or in a `tx`). A write before a step that can `?` is a partial-state bug. |
@@ -713,35 +431,21 @@ Scan a handler for these. Each is a partial-write waiting to corrupt data:
 | "A counter is just read, add one, write back — the tx makes it safe" | The tx makes it *correct*, not *scalable*: every concurrent bump conflicts, and a whole-row `db_update` loses increments outright. The conflicts are retried, so you see latency and eventually a 503 rather than an error — which is exactly why this stays invisible until load. Use `upsert_increment`; declare it a counter column (`#[model(counter(name = "..."))]`) if the row is hot. |
 | "I read the counter inside the tx, so branching on it is safe" | No — a counter read takes **no conflict range**. The value may be stale and a concurrent increment will NOT trigger a retry; it is silently discarded. Express the decision as a `delete_where` / `update_where` predicate, which serializes the rows it matches. Give that predicate a filter on a column that **leads** an index or the sweep takes the whole table as its read set. |
 | "Wrap the whole handler in one tx — simpler to reason about" | It holds the ~5 s envelope open through your CPU and locks rows nothing is writing yet. Compute first, open late. |
-| "Nobody writes the rows my tx reads, so the read can't conflict" | Only if the read was index-served, and only over the sub-range it seeked. If it scanned, the whole table is in your read set and *any* concurrent write to it aborts you, matching row or not. |
-| "I added an index on that column, so the in-tx read is fine" | Only if the filtered column **leads** that index — its own, or the first column of a composite. A column appearing only *later* in a composite is a per-row filter, not a seek, so it narrows the result and not the conflict range. The same is true of an `update_where`/`delete_where` predicate. |
 | "I checked the parent exists before opening the tx" | Stale by bump time — and the upsert won't error, it inserts a stub parent. Read it inside. |
-| "The callee should open its own tx" | It must NOT — it auto-enrolls; a callee `tx` fails at commit. |
-| "Call outbound inside the tx so it's atomic" | Denied + irreversible. Enqueue a staged job instead. |
 | "Sign inside the tx so the signature and the row land together" | Denied. A retried closure would mint a fresh signature per attempt, and a signature can't be un-issued. Sign **before** the tx, then record the signature inside it. |
-| "I'll write my own retry loop around `tx` for conflicts" | Already done, one layer down, where re-running costs only the closure. Yours re-runs the whole handler — parsing, auth, guards, the expensive work you carefully moved *out* of the tx. |
 | "The closure can keep a bit of state between iterations / bump a local counter / fire a notification" | It may run more than once. Attempt 2 starts from attempt 1's leftovers while the store discarded attempt 1's writes, so your code and the database disagree. `Fn`, not `FnMut`, on purpose. |
 | "A 409 means retry" | **No 409 is retryable.** `ConstraintViolation` (duplicate key, a required column left null or absent) is deterministic, `Poisoned` would re-run a failed participant, `CommitUnknown` may double-apply. The one retryable outcome, `Conflict`, is retried *for* you and doesn't reach the client. |
-| "The 503 means the platform is broken" | It means the rows this transaction touched are contended past the retry budget (`TooContended`) — a hot row it writes, **or** a whole table an unindexed read put in its read set — or the platform is at its transaction cap (`ResourceExhausted`). Back off — then fix the data model, which is what a persistent `TooContended` is telling you. |
-
-## Integration
-
-← `boogy:boogy-data-modeling` (tables to write — including the counter
-row: `upsert_increment`, not read-modify-write). Evolving schema:
-`boogy:boogy-migrations` (separate `MigrationCtx::tx` surface; ships this
-release). Handler-side job details: `boogy:boogy-background-jobs` (next
-release).
-
-## Red Flags
-
-These thoughts mean STOP — each one precedes a mistake this platform actually produces.
-
-| Thought | Reality |
-|---|---|
 | "I'll pass the transaction handle into the helper" | `tx(\|\| ...)` takes a **no-arg** closure. Store calls inside auto-join the ambient transaction. A handle parameter means you have invented a second mechanism. |
 | "The service I'm calling should open its own transaction too" | Callees must NOT call `tx`. One transaction spans the whole call tree; a nested `tx` in a callee is a bug, not defence in depth. |
 | "I'll call the payment API inside the transaction so it's atomic" | `outbound_http` is **denied** while a transaction is open. The body is re-runnable on retry, so it may hold no irreversible external effect. Enqueue a job inside the tx and make the call from the job. |
-| "I'll sign the receipt inside the transaction" | Every `signing` **write** is denied in-tx for the same reason — a signature can neither be rolled back nor deferred to commit. `list-keys` is the only exempt op. |
-| "A 409 means the store was busy — retry the request" | A commit conflict is **not** what you are looking at: `tx` retries the closure itself (3 attempts by default), so a serialization abort never reaches your client. Exhausting that budget is `TooContended` → **503**. Every 409 that does reach a client is deterministic — `ConstraintViolation`, `Poisoned`, `CommitUnknown`, or an error you raised — and retrying it changes nothing. |
 | "One participant failed, I'll catch it and commit the rest" | Any participant failure **poisons** the transaction. Commit will refuse; rollback is the only outcome. Catching the error does not un-poison it. |
-| "Retrying inside the closure is cheaper than failing the request" | The closure is re-run by the retry loop. A retry inside a retry multiplies your own demand against the transaction-admission budget and turns contention into 503s. |
+
+## Integration
+
+↓ Its parts: `boogy:boogy-transaction-conflicts` (read sets, retries, 409
+and 503) and `boogy:boogy-cross-service-transactions` (one transaction across
+a `peer::fetch` tree). ← `boogy:boogy-data-modeling` (tables to write) and `boogy:boogy-counters`
+(the counter row: `upsert_increment`, not read-modify-write). Evolving schema:
+`boogy:boogy-migrations` (separate `MigrationCtx::tx` surface; ships this
+release). Handler-side job details: `boogy:boogy-background-jobs` (next
+release).

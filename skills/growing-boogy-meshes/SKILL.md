@@ -142,6 +142,6 @@ Plain-language first; a concise technical aside for those who know the system.
 surface, capabilities, ingress, data) once you've framed the piece.
 → `boogy:boogy-registry-and-provisioning` is discover-before-build + publish-for-
 others (the shared library + provisioning modes).
-→ `boogy:boogy-serving-frontends` for the web surface + GEO/SEO.
+→ `boogy:boogy-serving-frontends` for the web surface; `boogy:boogy-frontend-discoverability` for GEO/SEO.
 → `boogy:boogy-mesh-architecture` / `boogy:boogy-obo-delegation` for wiring
 services together. ← `boogy:using-boogy` routes you here.
