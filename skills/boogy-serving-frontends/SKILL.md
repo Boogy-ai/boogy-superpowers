@@ -737,6 +737,8 @@ csp = "default-src 'self'"   # opt-in Content-Security-Policy, emitted verbatim.
 frame_options = "same_origin" # same_origin (default → SAMEORIGIN, or a frame-ancestors grant where the console may embed you — see above) | deny (→ DENY, never overridden) | none (omit the header, for apps meant to be embedded)
 ```
 
+To let a board's background show through your app in a board pane, declare `[boards] background = "board"` — see `boogy:running-in-a-board`.
+
 `csp` is a pass-through string — you own the policy; an empty `csp`, or one that
 isn't a legal HTTP header value (e.g. contains control characters), is rejected at
 manifest parse (fail-closed at deploy). This baseline is the right hardening for a **Frontend-only** (no-wasm)

@@ -18,6 +18,7 @@ Try each in a real board pane, on every stage a person will use there:
 | Open a sub-screen (a form, a detail page) | the pane's Back and Forward appear and step through your screens | every page-like screen is a route, opened with `pane.navigate` |
 | Reload the board while on a sub-screen | the same screen comes back | the board reopens the pane at its last reported location; a cold load renders the route from the address |
 | Press the board's Smaller / Larger | the type on EVERY screen changes and the layout still fills the pane | the board's zoom arrives as `--u-zoom`; sizes come from SDK tokens or are multiplied by it |
+| Open the app from Your apps on a board with a coloured background (only if it declares `[boards] background = "board"`) | the board's colour shows through the app; its text reads | the app draws no page background and renders in the board's scheme |
 
 ## Every page-like screen is a route
 
@@ -92,6 +93,51 @@ Code that measures (fitting text to its box, a canvas) re-runs on a zoom
 change: `onZoomChange(() => refit())` from `@boogy/web`. At Smaller the
 layout must still fill the pane on both axes, not only narrow.
 
+## Showing the board's background
+
+By default an app paints its own page background. To let the board's show
+through in a pane, declare it:
+
+```toml
+[frontend]
+root = "web"
+
+[boards]
+background = "board"
+```
+
+In a Boards pane the app then draws no page background, renders in the
+board's colour scheme (Boards is dark) whatever the viewer's system setting,
+and the board paints behind it a colour and transparency the person picks for
+each pane, by default black at 33%. Outside a board nothing changes.
+The board's colour itself is never told to the app.
+
+In a board your page renders in the board's colour scheme — your text and
+controls must read in that scheme (an opaque light page background with
+default dark-scheme text will be unreadable).
+
+The CSS contract: paint your page background with `var(--ground)` from
+`@boogy/web`, or redefine your own background token under
+`:root[data-board-background]`. The SDK's own rule sits in its cascade layer,
+so an app's own (unlayered) `body` or `--ground` rule outranks it; a page that
+paints its background some other way keeps that paint.
+
+**Redefine only a token used as page paint.** A token also used as a colour
+(an ink, a solid ground) must stay opaque, or everything it colours vanishes
+with the page: a pill whose text is the page colour goes blank, a switch loses
+its thumb. Give the page a token of its own:
+
+```css
+:root { --page-paint: var(--paper); }      /* read by nothing but page paint */
+body, .screen { background: var(--page-paint); }
+:root[data-board-background] { --page-paint: transparent; }   /* never --paper */
+```
+
+Covering surfaces keep the app's own colour: an SDK sheet covers with the
+opaque `--ground-solid` unless the app sets `--sheet-ground`, and full-page
+popovers use `--ground-solid` too. An app that wants them see-through sets
+`--sheet-ground: transparent` and hides what they cover.
+
 ## Opening the app in a board
 
 1. Open `https://boards.<base>/` (`boards.boogy.app` on the production app
@@ -99,7 +145,7 @@ layout must still fill the pane on both axes, not only narrow.
 2. Split a pane (**Split into columns**) or pick an empty one. In **Choose an
    app for this pane**, open the app from **Your apps** with **Open in this
    pane**.
-3. Run the three checks.
+3. Run the checks.
 
 Pick it from **Your apps**. Pasting its address makes a plain web-page pane,
 which gets no Back/Forward, no reported location and no zoom, so every check
@@ -107,9 +153,11 @@ there is meaningless. `[frontend] frame_options = "deny"` keeps an app out of
 boards entirely.
 
 **Who runs the checks:** you run them only in a browser signed in to the
-person's own board. Otherwise the stage hands the person the three checks, in
+person's own board. Otherwise the stage hands the person the checks, in
 their words, beside its one question: "In your board: open New retro, press
-Back; reload; press Larger. Did each work?"
+Back; reload; press Larger. Did each work?" For an app that shows the board's
+background, add the fourth: "Does your board's colour show through it, with
+its text readable?"
 
 ## Red flags
 
@@ -121,4 +169,5 @@ Back; reload; press Larger. Did each work?"
 | "The New-poll form is a full-pane sheet; no route needed." | A page-like screen without an address has no Back and is lost on reload. Make it a route. |
 | "I checked back, reload and size in a browser tab." | A tab is not a pane. Only the board's own buttons are evidence. |
 | "I pasted the app's address into a pane to test it." | That is a plain page pane. Open it from **Your apps**. |
-| "The skills give no way to check in a real board." | The steps are above; if you cannot drive their board, hand the person the three checks. |
+| "The skills give no way to check in a real board." | The steps are above; if you cannot drive their board, hand the person the checks. |
+| "In a board my page is see-through, so I'll make my ground token transparent." | Only if nothing else reads it. A token that is also a colour (a pill's text, a solid ground) vanishes with it: give the page a paint token of its own. |
