@@ -15,9 +15,12 @@ it is only ever opened on its own. Board-ready from stage 0 means:
 
 - `[boards] background = "board"` in the manifest (below);
 - `connectPane({ service })` in the page, with `onNavigate` once it has routes;
-- the page scale on: `installFoundation({ scale: true })`;
+- the page scale, which is on by default (never `scale: false`);
 - every colour and size in your CSS from an `@boogy/web` token, so it reads in
   the board's scheme on the board's background and follows its size.
+
+`board-ready` is a platform rule: publish refuses an app that is neither
+board-ready nor `[frontend] frame_options = "deny"` (`boogy:boogy-serving-frontends`).
 
 ## The acceptance checks
 

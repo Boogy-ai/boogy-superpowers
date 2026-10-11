@@ -166,18 +166,18 @@ warning, so you learn to reference the output). `boogy check` reports both
 **before** you deploy. Still **load the page** to confirm *runtime* behavior —
 the gate catches missing assets, not logic bugs.
 
-### `boogy deploy --smoke` — automate the "load it in a browser" step
+### The deploy smoke — `boogy deploy` loads the page in a browser
 
 The deploy gate and `boogy check` catch *static* problems; the bugs that survive
 them (blank `#app`, an import map that 404s a vendor file, a framework that
 mounts nothing, a stale-cache breakage) only show up when a **real browser runs
-the served page**. `--smoke` does that for you, against the **actually-deployed
-URL**:
+the served page**. `boogy deploy` does that for you, by default, against the
+**actually-deployed URL**:
 
 ```bash
-boogy deploy app.boogy.toml --smoke
-# or, after a manual publish:
-boogy publish app.boogy.toml --provision --smoke
+boogy deploy app.boogy.toml
+# or, publishing by hand:
+boogy publish app.boogy.toml --provision
 ```
 
 After the deploy succeeds it loads the printed URL — the root of the service's own
@@ -193,12 +193,12 @@ one URL whose relative assets resolve no matter what. A failure prints a
 report (which assertion, the console errors, the failed request URLs) and exits
 non-zero — fix and re-ship with `boogy deploy --replace`.
 
-- **Opt-in and best-effort.** Without `--smoke` nothing changes. With it but **no
-  browser installed**, it prints a one-line note and exits cleanly (never blocks
+- **On by default, and best-effort.** `--no-smoke` skips it. With **no browser
+  installed**, it prints a one-line note and exits cleanly (never blocks
   a deploy) — point it at a binary with `BOOGY_SMOKE_BROWSER=/path/to/chrome`.
   **A skipped smoke is NOT a pass — it verified nothing.** If you see
   `Smoke: skipped — no headless browser found`, do not report the page as working:
-  install or point at a Chrome/Chromium and re-run `--smoke`, or open the printed
+  install or point at a Chrome/Chromium and deploy again, or open the printed
   deploy URL in a real browser yourself and confirm it renders. "Deploy succeeded"
   is not "the page works".
 - **Frontend deployments only** — a wasm-only service has nothing to render.
@@ -223,7 +223,7 @@ Boogy board at whatever size its person gives it, often all three. Build it on
 `@boogy/web` and let the SDK do the sizing; this is not optional polish.
 
 - **Viewport meta is mandatory:** `<meta name="viewport" content="width=device-width, initial-scale=1" />` in `<head>`. Without it, mobile browsers render at a fake ~980px and zoom out: everything tiny.
-- **The page scale on:** `installFoundation({ dev: import.meta.env.DEV, scale: true })` (or `installFoundation({ scale: true })` for a `build = "source"` page). The SDK's unit then follows the window, and in a board the pane, so every component and size token grows and shrinks with it.
+- **The page scale on:** it is on by default: `installFoundation({ dev: import.meta.env.DEV })` (or `installFoundation()` for a `build = "source"` page, which has no `import.meta.env`). The SDK's unit then follows the window, and in a board the pane, so every component and size token grows and shrinks with it. Never `scale: false` without a waiver saying why.
 - **Sizes from SDK tokens only:** `--space-*`, `--control-*`, `--icon-*`, `--fs-*`, `--radius-*`. No `px`/`rem`/`em`/`ch` sizes and no hand-picked `max-width` caps in your CSS: they ignore the scale and the board's Smaller/Larger. A size the SDK lacks is a named token you define once.
 - **No width breakpoints:** no `@media (min-width: …)`. Layout that adapts is the SDK's (`FillGrid`, `CardGrid`, `Stack`, `Sheet`) and container units multiplied by `var(--u-zoom)`.
 - **Colours from SDK tokens:** `--text-*`, `--accent`, `--edge*`, `--ground*`. A literal colour does not follow the scheme, so it vanishes on a board's background or in the other theme.
@@ -245,6 +245,55 @@ body { background: var(--page-paint); color: var(--text-1); font-family: var(--f
 A pre-built framework bundle that does not use `@boogy/web` is held to the same
 outcomes: fluid from 360px to wide, readable on a board's background, and
 `connectPane` for the board's background and size.
+
+## The platform checks the conventions
+
+The rules above are enforced, from the same code everywhere: `boogy check`
+reports a breach, `boogy deploy` and `boogy publish` stop before uploading one,
+and publish refuses it with a **422** naming the rule, the file, the line and
+the fix. Each rule's id:
+
+| Rule | Requires | Fix |
+|---|---|---|
+| `uses-sdk` | the page imports `@boogy/web` | build it on the SDK's components, tokens and `connectPane` |
+| `page-scale` | `installFoundation` is called, never with `scale: false` | `installFoundation({ dev: import.meta.env.DEV })` |
+| `board-ready` | `[boards] background = "board"` and a `connectPane` call, or `[frontend] frame_options = "deny"` for a page only ever opened on its own | declare both, or `deny` when the person said so |
+| `fixed-size` | no `px` above 1, `rem`, `em`, `ch`, `pt` or viewport unit in a style | an SDK size token, or a named token defined in `theme.css` |
+| `layout-media-query` | no `@media` on width, height, aspect ratio or orientation | the page scale, container units and the SDK's layouts |
+| `unit-multiple` | no one-off `calc(var(--u) * n)` in a rule | a size token, or a named one defined once |
+| `colour-literal` | no literal colour (`#…`, `rgb()`, `oklch()`, a named colour) in a style | an SDK colour token or a custom property |
+| `sdk-control` | in JSX, no raw `<button>`, `<textarea>` or text-like `<input>` the SDK has a component for | `Button`, `TextArea`, `TextField`, `SearchField`, `Switch`, `ChoiceGroup`, or spread the SDK's attrs (`<button {...button()}>`) |
+| `board-navigation` | no `history.pushState` / `replaceState` | `connectPane({ … }).navigate(path)` |
+
+"In a style" means a stylesheet, a `<style>` block, a `style` attribute, a JSX
+`style` object (where a bare number is pixels), or a `.style` assignment in
+script. Vendored, installed, built, minified and test files are never checked.
+
+**An exception is a waiver next to the code it excuses**, with a reason, on the
+finding's line or the line before. A rule about the whole app (`uses-sdk`,
+`board-ready`, `page-scale` with no `installFoundation` at all) is waived in the
+app's `index.html`:
+
+```css
+/* boogy-allow fixed-size: the slider's track is drawn in device pixels */
+```
+
+```tsx
+// boogy-allow sdk-control: a native colour well; the SDK has none
+```
+
+```html
+<!-- boogy-allow board-ready: this page is the board itself -->
+```
+
+A waiver with no reason, or naming no rule, is itself a finding, and every
+check lists every waiver it used.
+
+**A pre-built frontend names its source.** With `build = "dist"` the root holds
+build output, so the manifest names the authored source the check reads:
+`[frontend] source = ["index.html", "web"]`. `boogy deploy` uploads it for the
+check only; it is never served. A `dist` publish without it is refused (`422
+frontend_source_required`).
 
 ## Discoverable by default
 
@@ -438,8 +487,10 @@ bundle would mean redeploying to add one. See `boogy:boogy-file-storage`.
 | Put a big video in `root` and serve it from a handler | Large assets auto-offload to object storage via redirect; just drop the file in `root`. |
 | Size the layout with `rem` widths, `max-width` caps and `@media (min-width)` breakpoints | They ignore the SDK's page scale and the board's Smaller/Larger. Turn the scale on and size from SDK tokens; adapt with the SDK's layouts. |
 | "This app is standalone; boards are someone else's concern" | Every page is board-ready unless the person said it is only ever opened on its own: `[boards] background`, `connectPane`, the page scale, token colours and sizes. |
-| "Deploy succeeded, so the page works" / treating a skipped `--smoke` as verification | A clean deploy only published + routed. `Smoke: skipped` verified nothing. Run `--smoke` with a real browser, or load the printed URL yourself, before claiming it renders. |
+| "Deploy succeeded, so the page works" / treating a skipped smoke as verification | A clean deploy only published + routed. `Smoke: skipped` verified nothing. Make sure the deploy smoke ran with a real browser (it runs by default), or load the printed URL yourself, before claiming it renders. |
 | Fold a reusable backend into this frontend service | If the API logic is generically useful, build it as its **own** (publicly provisionable) module — see `boogy:growing-boogy-meshes` — and keep this service the app-specific shell. |
+| "I'll waive it to get the deploy through." | A waiver is for a reason you can write down beside the code. One without a reason is itself a finding, and every check lists every waiver. |
+| "It's only a test page, the rules don't apply." | They apply to every page. Waive `uses-sdk` and `board-ready` in its `index.html` with that reason. |
 | "I'll deploy my Next.js/SvelteKit/Astro build as it is" | Only a fully static build deploys, with a relative base. Read `boogy:boogy-frontend-builds` first. |
 | "SEO can wait; ship the bare SPA" | Discoverable is the default: head metadata and core copy in the served HTML. `boogy:boogy-frontend-discoverability`. |
 

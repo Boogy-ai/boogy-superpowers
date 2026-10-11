@@ -108,8 +108,9 @@ function el(tag: string, attrs: object = {}, ...kids: (Node | string)[]) {
   return node;
 }
 
-// The page scale on: every SDK size follows the window, or the pane in a board.
-installFoundation({ scale: true });
+// The page scale is on by default: every SDK size follows the window, or the
+// pane in a board.
+installFoundation();
 // In a board: its background, colour scheme and Smaller/Larger reach the page.
 connectPane({ service: "pollster" });
 const grid = el("ul", cardGrid());
@@ -126,6 +127,10 @@ Its functions return attributes for plain elements; `installFoundation()`
 adds their styles and the tokens (`--space-*`, `--font-body`) any page style
 of yours is sized from.
 
+These are the platform's rules, not advice: `boogy check` reports a breach,
+`boogy deploy` stops before uploading one, and publish refuses it with a 422
+naming the rule, the line and the fix (`boogy:boogy-serving-frontends`).
+
 **Board-ready** is those four lines working together: `[boards] background`,
 `connectPane`, the page scale, and every colour and size in your own CSS taken
 from an SDK token (never a `px`/`rem` size or a literal colour), so the page
@@ -133,7 +138,7 @@ reads on the board's background, in its scheme, at its size. A page with more
 than one screen also routes with `pane.navigate` (`boogy:running-in-a-board`).
 
 ```bash
-boogy check && boogy deploy boogy.toml --smoke
+boogy check && boogy deploy boogy.toml
 ```
 
 Open the printed `URL:` in a real browser yourself (`Smoke: skipped` is not a

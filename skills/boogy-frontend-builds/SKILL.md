@@ -101,7 +101,7 @@ unrelated application code stopped importing that same bare specifier.
 After vendoring, **load the page in a real browser** and confirm the app
 actually renders — a blank page with no console error is the signature of a
 bad vendored build (and of mount/caching bugs); curl and `boogy check` won't
-catch it. `boogy deploy --smoke` (`boogy:boogy-serving-frontends`) automates
+catch it. The deploy smoke (`boogy:boogy-serving-frontends`) automates
 exactly this check.
 
 ### Boolean attributes: prefer `checked="${…}"` over `.checked="${…}"`
@@ -160,7 +160,7 @@ runtime break.** A `curl` against the root only proves the shell HTML came back;
 it can't see that the app's own assets 404 once the browser is one level deeper.
 Load `https://notes-7k3q.boogy.app/<some-nested-path>` in a headless browser and
 confirm the app actually boots (non-empty `#app`, no console errors, no failed
-sub-resource) — not just the root. `boogy deploy --smoke` checks the root by
+sub-resource) — not just the root. The deploy smoke checks the root by
 default (`--smoke-path` checks another); if your app serves nested paths, also open one of those paths
 yourself before calling the deploy done.
 
@@ -172,6 +172,11 @@ platform serves the files verbatim instead of transpiling them. Combined with a
 Rust API under `api_prefix`, a FullStack deployment gives you the whole
 page-plus-API shape in one deploy — same origin, no CORS, the app cookie riding
 along automatically.
+
+**Name the authored source.** The root now holds build output, so the manifest
+also names the source it was built from, which the platform checks against the
+`@boogy/web` conventions: `[frontend] source = ["index.html", "web"]` (paths
+relative to `boogy.toml`). `boogy deploy` uploads it for the check only.
 
 The one thing to get right is the framework's **base** option, which decides
 what asset paths the build writes into your HTML.
@@ -203,7 +208,7 @@ Two things this does **not** get you:
   port the route handlers to your wasm Router under `api_prefix`. A build that
   needs a Node server at request time cannot deploy here — see
   `boogy:boogy-capability-limits`.
-- **`--smoke` still needs the right selector on a framework build.** Its
+- **The smoke still needs the right selector on a framework build.** Its
   default (`#app,#root,#__next`) covers arrow-js, Vite/React and Next roots,
   and a selector that matches nothing now **fails** the check rather than
   falling back to `<body>` — but a build that mounts somewhere else entirely

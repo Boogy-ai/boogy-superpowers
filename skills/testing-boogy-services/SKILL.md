@@ -56,7 +56,7 @@ in two places:
 
 **Deploy first, at every stage.** For an app with a page, stage 0 is a
 Frontend wireframe (`boogy:shipping-in-stages`); its witness is
-`boogy deploy --smoke` plus your own look at the printed URL in a real
+the deploy smoke (`boogy deploy` runs it by default) plus your own look at the printed URL in a real
 browser, and a skipped smoke is not a pass. A stage that adds a wasm deploys
 an empty router before its first route. Before any route exists the test fails
 because the crate does not compile, and a build error is **not** a red: it is a

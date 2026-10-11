@@ -138,7 +138,7 @@ as `https://<label>.<base>` — scheme fixed, port never included — for a depl
 made against the platform API. Against a production deployment that is exactly right. Against a
 stack reachable on a non-standard port (a local or self-hosted host on
 `:3000`, say) that origin does not resolve, and three things fail for the
-same reason rather than three: the printed URL is unreachable, `--smoke`
+same reason rather than three: the printed URL is unreachable, the deploy smoke
 loads that same URL and cannot reach the page either, and anything that
 frames or fetches the printed URL gets nothing. **It is not a deploy
 failure** — substitute the origin you actually serve on
@@ -160,8 +160,8 @@ redeploy if it differs.
 A non-error deploy means the artifact published and routing was swapped — **not**
 that the page renders or the endpoint behaves. Before you claim it works:
 
-1. **Frontend / full-stack:** run `boogy deploy boogy.toml --smoke` (loads the real
-   deployed URL in a headless browser and asserts it renders). Three ways it can
+1. **Frontend / full-stack:** `boogy deploy boogy.toml` smokes the page by default
+   (loads the real deployed URL in a headless browser and asserts it renders). Three ways it can
    look like a pass without being one:
    - **`Smoke: skipped — no headless browser found`** — you have verified nothing.
      Install a browser or point at one with `BOOGY_SMOKE_BROWSER=/path/to/browser`,
