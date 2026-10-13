@@ -426,6 +426,10 @@ the bare `fetch("./api/…")` shown above is usually all you write:
   gets a 401, call `POST /boogy/renew` first (the SDK's `fetch` does); if the
   person is signed out, sign them in again (`boogy.signIn()`) — don't reach for
   a `credentials` option. See `boogy:boogy-account-auth`.
+- `GET /boogy/update` on your app's own address tells the app's owner whether a
+  newer version is available (`{service_id, current, update}`); everyone else
+  gets nulls. In `@boogy/web`, use `checkForUpdate` (see
+  `boogy:running-in-a-board`).
 - Set `credentials: "include"` **only** for a *cross-origin* API (a different
   origin) — which also requires `[ingress.cors]` with `allow_credentials = true`
   (`boogy:boogy-frontend-security`).

@@ -151,6 +151,41 @@ opaque `--ground-solid` unless the app sets `--sheet-ground`, and full-page
 popovers use `--ground-solid` too. An app that wants them see-through sets
 `--sheet-ground: transparent` and hides what they cover.
 
+## Updates
+
+When a newer version of the app is available, the board shows it as an
+indicator in the pane's header and the owner updates through the platform's
+confirmation page. You write nothing for that. An app that also shows its own
+Update control uses `checkForUpdate` and `installUpdate`:
+
+```ts
+import { connectPane, checkForUpdate, installUpdate } from "@boogy/web";
+
+const pane = connectPane({ service: "retro", onNavigate: render });
+const button = document.querySelector<HTMLButtonElement>("#update")!;
+
+const update = await checkForUpdate({ pane });
+if (update) {
+  button.hidden = false;
+  button.textContent = `Update to ${update.version}`;
+  // From a click: framed by a board, this asks the board to open its update
+  // dialog; alone, it opens the platform confirmation and reloads on success.
+  button.onclick = () =>
+    installUpdate(update, { pane }).catch((e) => {
+      if (e.code === "popup_blocked") button.textContent = "Allow pop-ups to update";
+      else if (e.code !== "upgrade_aborted") throw e; // closed unanswered: a "no"
+    });
+}
+```
+
+- `checkForUpdate({ pane })` is `null` for anyone who does not own the app,
+  when nothing newer exists, and inside a board that shows updates itself.
+  Show no control of your own when it is `null`. In a frame it waits briefly
+  for the board to connect, so call it right after `connectPane`.
+- `update.notes` is text from the author; render it as text, never markup.
+- `installUpdate` must run from a click, or the browser blocks the window
+  (`popup_blocked`); `upgrade_aborted` means the window was closed unanswered.
+
 ## Opening the app in a board
 
 1. Open `https://boards.<base>/` (`boards.boogy.app` on the production app
@@ -182,5 +217,6 @@ text readable? Did each work?"
 | "The New-poll form is a full-pane sheet; no route needed." | A page-like screen without an address has no Back and is lost on reload. Make it a route. |
 | "I checked back, reload and size in a browser tab." | A tab is not a pane. Only the board's own buttons are evidence. |
 | "I pasted the app's address into a pane to test it." | That is a plain page pane. Open it from **Your apps**. |
+| "I'll add my own Update button in the pane." | Pass `pane` to `checkForUpdate`: a board that shows updates answers `null`, so there is one indicator, not two. |
 | "The skills give no way to check in a real board." | The steps are above; if you cannot drive their board, hand the person the checks. |
 | "In a board my page is see-through, so I'll make my ground token transparent." | Only if nothing else reads it. A token that is also a colour (a pill's text, a solid ground) vanishes with it: give the page a paint token of its own. |

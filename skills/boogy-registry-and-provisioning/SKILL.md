@@ -130,6 +130,24 @@ Provision is a CREATE — re-running for an existing `service_id` is a 409;
 use `upgrade` to change the pinned version. See
 `boogy:deploying-boogy-services` for the build/deploy loop.
 
+### Versions and updates
+
+- `[service] version` must be semver, `MAJOR.MINOR.PATCH` (for example
+  `0.1.0`); publish refuses anything else (`invalid_version`).
+- Optional `[service] release_notes` (plain text, at most 2,000 characters) is
+  shown to owners when they are offered that version. Say what changed in
+  words an owner understands.
+- An **update** for an instance is the highest release (no prerelease, such as
+  `1.2.0-beta`) of the same module that is newer than the instance's version
+  and that its owner may provision. Publishing never moves anyone; an owner
+  chooses to update.
+- An owner agrees to an update on the platform's own confirmation page, which
+  shows current to new version, your notes, and what changes (new permissions,
+  setup needed, wider exposure, price changes). An app or board opens it for
+  them (`boogy:running-in-a-board`).
+- `boogy upgrade <id> --to <version>` prints the same changes and asks
+  first. `--yes` skips the question and is required without a terminal.
+
 ### Each instance has its own address
 
 Every instance is served at the root of an address of its own,

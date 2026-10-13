@@ -288,6 +288,18 @@ To ship a new version: edit code, **bump `[service] version`** (stored
 per deployment for readable history — the replace happens on owner+id
 regardless), rebuild, and `boogy deploy boogy.toml` again.
 
+`[service] version` must be semver: `MAJOR.MINOR.PATCH`, for example `0.1.0`.
+Publish refuses anything else with a 400:
+
+```json
+{"error":"invalid_version","message":"service.version \"v1\" must be semver, MAJOR.MINOR.PATCH (for example 0.1.0)"}
+```
+
+Fix: set `version = "0.1.1"` (or the next number) and deploy again. Owners of
+other instances of your module are offered the new version as an update, with
+your optional `[service] release_notes` (plain text, at most 2,000 characters).
+See `boogy:boogy-registry-and-provisioning`.
+
 **Your data survives a redeploy** — a deploy swaps routing and records a
 new deployment row; it does not touch the service's stored data.
 
@@ -336,6 +348,7 @@ boogy provision <module-ref> <service-id>
 | **`outbound_http` with empty `allowed_hosts`** | Add an `[outbound]` block with non-empty `allowed_hosts`. |
 | **`allowlist`/`internal`/`mixed` ingress with empty lists** | Populate `allowed_agents` / `allowed_origins` for that mode. |
 | **Path-traversal / bad id** | `service.id` and `owner.user_id`: ASCII alphanumeric + `-`/`_`, ≤64 chars, no leading `-`, no `/ \ . :`; reserved names rejected. |
+| **`400 invalid_version`** | `[service] version` is not `MAJOR.MINOR.PATCH`. Use for example `0.1.0`. |
 | **`cpu_deadline_ms` out of range** | Keep it in `1..=600000`. |
 | **Missing token** ("set --token or BOOGY_TOKEN") | Export `BOOGY_TOKEN` or pass `--token`. |
 | **wasm not found** | `service.wasm` resolves relative to the manifest; build first and point at the real output path. |
