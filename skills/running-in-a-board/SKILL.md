@@ -31,7 +31,7 @@ Try each in a real board pane, on every stage a person will use there:
 | Open a sub-screen (a form, a detail page) | the pane's Back and Forward appear and step through your screens | every page-like screen is a route, opened with `pane.navigate` |
 | Reload the board while on a sub-screen | the same screen comes back | the board reopens the pane at its last reported location; a cold load renders the route from the address |
 | Press the board's Smaller / Larger | the type on EVERY screen changes and the layout still fills the pane | the board's zoom arrives as `--u-zoom`; sizes come from SDK tokens or are multiplied by it |
-| Open the app from Your apps on a board with a coloured background | the board's colour shows through the app; its text reads | `[boards] background = "board"`: the app draws no page background and renders in the board's scheme |
+| Open the app from Your apps on a board with a coloured background | the board's colour shows through the app; its text reads; its fields, surfaces and accent take the board's colour | `[boards] background = "board"`: the app draws no page background, renders in the board's scheme and takes its palette from the board's colour |
 
 ## Every page-like screen is a route
 
@@ -123,7 +123,14 @@ In a Boards pane the app then draws no page background, renders in the
 board's colour scheme (Boards is dark) whatever the viewer's system setting,
 and the board paints behind it a colour and transparency the person picks for
 each pane, by default black at 33%. Outside a board nothing changes.
-The board's colour itself is never told to the app.
+
+The board also tells the app the colour it paints behind the pane, and keeps
+telling it as the person changes it. The SDK takes its palette from that
+colour with no code of yours: text leans to the board's hue, form fields are a
+translucent wash, raised and covering surfaces sit on the board's colour, and
+the accent follows its hue. Your own components read `--board-ground`,
+`--board-surface`, `--board-accent` and `--board-field`. Deciding your screens
+around that (chrome, density, surfaces, colour) is `boogy:designing-pane-apps`.
 
 In a board your page renders in the board's colour scheme — your text and
 controls must read in that scheme (an opaque light page background with

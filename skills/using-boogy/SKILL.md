@@ -123,6 +123,7 @@ compete.
 | `boogy-frontend-discoverability` | a page must be found by search engines or AI crawlers, or previewed when shared: title, description, OpenGraph, JSON-LD, robots.txt, sitemap, prerendered routes |
 | `boogy-frontend-security` | a page is framed, opens OAuth or payment pages, needs camera/microphone/geolocation, sets a CSP or frame options, is called from another website (CORS), or uses browser storage |
 | `running-in-a-board` | building or changing any app with a page (every page is board-ready unless standalone-only) — the board's Back/Forward, reload, Smaller/Larger and background, and checking them in a real pane |
+| `designing-pane-apps` | designing the screens of an app used in board panes — built-for-panels vs also-works-in-a-pane, navigation chrome (none, TopBar on every screen, or tabs), one scroll region, density, translucent fields and board-coloured surfaces, colours from the board's `--board-*` tokens |
 | `boogy-custom-domains` | serving a service on a tenant's own domain as well as its own platform address — registration, DNS records, verification, root-serve semantics |
 | `boogy-rest-apis` | building HTTP/REST or JSON-RPC endpoints — routing, guards, request parsing/validation, response types, error wire format — protobuf is the next row, not this one |
 | `boogy-protobuf-rpc` | serving protobuf — gRPC, Connect, or gRPC-Web — from a `.proto` contract, or choosing between protobuf and REST/JSON-RPC for an endpoint |

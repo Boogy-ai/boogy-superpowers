@@ -227,8 +227,8 @@ Boogy board at whatever size its person gives it, often all three. Build it on
 - **Sizes from SDK tokens only:** `--space-*`, `--control-*`, `--icon-*`, `--fs-*`, `--radius-*`. No `px`/`rem`/`em`/`ch` sizes and no hand-picked `max-width` caps in your CSS: they ignore the scale and the board's Smaller/Larger. A size the SDK lacks is a named token you define once.
 - **No width breakpoints:** no `@media (min-width: …)`. Layout that adapts is the SDK's (`FillGrid`, `CardGrid`, `Stack`, `Sheet`) and container units multiplied by `var(--u-zoom)`.
 - **Colours from SDK tokens:** `--text-*`, `--accent`, `--edge*`, `--ground*`. A literal colour does not follow the scheme, so it vanishes on a board's background or in the other theme.
-- **Board-ready:** `[boards] background = "board"` in the manifest, `connectPane({ service: "<your service id>" })` in the page, and a page background painted with `var(--ground)` or a paint token of your own that gives way in a board. Unless the person has said the page is only ever opened on its own (`boogy:running-in-a-board`).
-- **Reuse the SDK's looks, never copy them:** a section label is `Section`, a field label is `TextField`'s. A hand-copied rule drifts the first time the SDK changes.
+- **Board-ready:** `[boards] background = "board"` in the manifest, `connectPane({ service: "<your service id>" })` in the page, and a page background painted with `var(--ground)` or a paint token of your own that gives way in a board. Unless the person has said the page is only ever opened on its own (`boogy:running-in-a-board`). Its screens' chrome, density, surfaces and colours: `boogy:designing-pane-apps`.
+- **Reuse the SDK's looks, never copy them:** a section label is `Section`, a field label is `TextField`'s, settings that open beside the page are a `SidePanel` (its head, body and foot are `Sheet`'s). A hand-copied rule drifts the first time the SDK changes.
 - **Verify at the extremes, not the middle:** ~**360px**, a **wide** ≥1920px window, and a board pane at Smaller and Larger. The layout holds, nothing scrolls sideways, and every control is reachable. "Looks fine on my screen" is not the test.
 
 A page's own stylesheet holds layout only:
@@ -443,12 +443,27 @@ fetch("./api/notes", { headers: { Authorization: `Bearer ${token}` } });
 See `boogy:boogy-account-auth` for how a user gets that session and which login
 method delivers which transport.
 
-## Large assets
+## Asset sizes: keep every code file under 256 KiB
 
-Small assets (HTML/JS/CSS, usually KB) are served by the platform directly. Assets
-over an operator-configured size limit are stored in object storage and served via a
-redirect — so a large image or video doesn't run through your service at all. This is
-automatic; you just put the file in your `root`.
+The platform sorts your files into two kinds:
+
+- **Code**: scripts, styles, HTML, JSON, wasm, SVG, web manifests, caption
+  tracks and fonts. Always served by the platform from your app's own origin,
+  whatever its size, because a page cannot load code redirected to another
+  origin under a self-only CSP.
+- **Static assets**: images, video, audio, source maps, anything else. Up to an
+  operator-configured threshold (256 KiB by default) they are served directly;
+  past it they are stored in object storage and served by a redirect, so a
+  large image or video never runs through your service. This is automatic: put
+  the file in your `root`.
+
+**Target: every code file under 256 KiB**, the same threshold. A page waits
+for its scripts before it shows anything, a smaller chunk caches separately,
+and a change re-downloads only the chunk it touched. Split a bigger bundle by
+route or feature with dynamic `import()` (`boogy:boogy-frontend-builds` shows
+the Vite setup). Past the target the file still serves; past the hard ceiling
+it does not deploy: **publish refuses a code file over 8 MiB** (a `.wasm`
+module over 32 MiB) by default, naming the file.
 
 ## Deploy — no JavaScript toolchain
 
@@ -489,6 +504,7 @@ bundle would mean redeploying to add one. See `boogy:boogy-file-storage`.
 | "An inline `<script type="module">` is simplest" | Refused at deploy when it is the page's only module script. Put the code in `web/app.ts` and load `./app.js`. |
 | `[routing] path = "/notes"` so the URL says notes | The name is already in the hostname, and the declared base never appears in a URL — it only makes every route repeat it. Declare `path = "/"`. |
 | Put a big video in `root` and serve it from a handler | Large assets auto-offload to object storage via redirect; just drop the file in `root`. |
+| Ship the app as one big `index.js` because "it's only one request" | Every code file should stay under 256 KiB: split by route or feature with dynamic `import()`. Publish refuses one over 8 MiB. |
 | Size the layout with `rem` widths, `max-width` caps and `@media (min-width)` breakpoints | They ignore the SDK's page scale and the board's Smaller/Larger. Turn the scale on and size from SDK tokens; adapt with the SDK's layouts. |
 | "This app is standalone; boards are someone else's concern" | Every page is board-ready unless the person said it is only ever opened on its own: `[boards] background`, `connectPane`, the page scale, token colours and sizes. |
 | "Deploy succeeded, so the page works" / treating a skipped smoke as verification | A clean deploy only published + routed. `Smoke: skipped` verified nothing. Make sure the deploy smoke ran with a real browser (it runs by default), or load the printed URL yourself, before claiming it renders. |

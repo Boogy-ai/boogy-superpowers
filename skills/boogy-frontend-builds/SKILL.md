@@ -215,6 +215,31 @@ Two things this does **not** get you:
   needs its own `--smoke-selector`, or the smoke fails even on a correctly
   rendered page.
 
+### Keep each chunk under 256 KiB
+
+Every script and stylesheet the build emits should stay under 256 KiB (the
+platform's asset threshold; `boogy:boogy-serving-frontends` §"Asset sizes"
+says why, and where the hard ceiling is). Make the build warn at the target,
+and split where it does:
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  build: { chunkSizeWarningLimit: 256 }, // kB: warn at the target, not at Vite's 500
+  plugins: [preact(), ...boogyVite(dev)],
+});
+```
+
+- **Split by route or feature** with dynamic `import()`: a screen, an editor,
+  a chart library, a large data table load when first needed, each its own
+  chunk.
+- **Big static data** (a catalogue, a word list, a set of presets) goes in its
+  own module, imported where it is used, never in the entry.
+- **A vendor chunk** (`build.rollupOptions.output.manualChunks`) when the
+  libraries together push the entry over the target.
+
+Check the sizes in the build's output before deploying.
+
 ### Where the app is served from
 
 Always at the root of its own address, `https://<name>-<suffix>.boogy.app/` —
@@ -237,6 +262,7 @@ With a relative base none of this needs anything from you.
 | `import "@arrow-js/core"` will just work from anywhere | Bare imports resolve via the import map — vendor the file under `web/vendor/` or set `allow_cdn = true`. `@boogy/web` is the one exception: it always resolves. |
 | Use a root-absolute asset path (`src="/app.js"`) because "the base tag handles it" | `<base>` only affects **relative** URLs. A root-absolute path skips the injected base, so a `build = "dist"` bundle loses its per-deployment prefix for that file. Write `./app.js`. |
 | "I'll deploy my Next.js/SvelteKit app" without checking which mode it builds in | Only the **fully-static** build deploys (`output: 'export'`, `adapter-static`, `nuxi generate`). There is no JS runtime, so SSR/RSC/server actions/middleware/`route.ts` handlers never run — port those to the wasm under `api_prefix`. |
+| "The bundle is 600 KB but it's one request, so it's fine" | Keep every chunk under 256 KiB: split by route or feature with dynamic `import()`, and set `chunkSizeWarningLimit: 256` so the build tells you. |
 | Point the framework's base option at the service name (`vite build --base=/todos/`) | Rejected at deploy, and correctly so — no URL carries the service's name as a path, so a baked-in prefix points nowhere. Use a **relative** base (`base: './'`); the host supplies the base via the injected `<base href>`. |
 
 ## Integration
