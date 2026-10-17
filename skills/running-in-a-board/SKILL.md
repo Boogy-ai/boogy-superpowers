@@ -73,8 +73,9 @@ render(location.pathname);   // a cold load or reload starts on its own route
   leaving the board, and the pane gets no Back/Forward of its own.
 - **`onNavigate` turns the pane's buttons on.** The board offers Back and
   Forward only to an app that passes it.
-- **`service` is the app's `service.id`.** A board ignores a pane that reports
-  another.
+- **`service` is optional.** The pane names the service its own address
+  serves, as the platform says, so an instance provisioned under another id
+  than the one you wrote still connects; the id you pass is only a fallback.
 - **`navigate` only changes the address**, so render after calling it.
   `pane.navigate("/", { reset: true })` after a sign-out, so Back cannot
   return into the old session.
@@ -202,10 +203,31 @@ if (update) {
    pane**.
 3. Run the checks.
 
-Pick it from **Your apps**. Pasting its address makes a plain web-page pane,
-which gets no Back/Forward, no reported location and no zoom, so every check
-there is meaningless. `[frontend] frame_options = "deny"` keeps an app out of
-boards entirely.
+Pick it from **Your apps**, or paste its address into the picker's search:
+a Boogy app's address, yours or anyone's, becomes a connected pane, with
+Back/Forward, its location, the zoom and the background. A page that is not a
+Boogy app (any other website) stays a plain web-page pane, which gets none of
+that, so every check there is meaningless. `[frontend] frame_options = "deny"`
+keeps an app out of boards entirely.
+
+## Opened by other people
+
+Anyone can put your app in their own board: they paste its address (or a link
+into one of its pages), and the board connects it like one of their own apps.
+What changes for you:
+
+- **Their board names you as the owner** in the pane's header ("Chat · alice"),
+  and asks the platform, not your app, whose app it is.
+- **They are asked to consent the first time they sign in to it**, on a sign-in
+  for your app alone; after that the board signs it in with their other panes.
+- **Updates stay yours.** Their pane never shows an update control.
+- **A link into one of your pages opens their pane on that page**, so an invite
+  ("join this room") must be a route, like every page-like screen above, and
+  must still make sense to someone who is not you (their own data, their own
+  sign-in).
+- **Usage is billed to you, the instance's owner**, whoever's board it runs in.
+  To have each person pay for what they use, price the routes they call with
+  `payer = "principal"` (`boogy:boogy-route-pricing`).
 
 **Who runs the checks:** you run them only in a browser signed in to the
 person's own board. Otherwise the stage hands the person the checks, in
@@ -223,7 +245,7 @@ text readable? Did each work?"
 | "`clamp(…vw)` makes it scale with the screen." | Viewport and container units ignore the board's zoom. Multiply by `var(--u-zoom)`. |
 | "The New-poll form is a full-pane sheet; no route needed." | A page-like screen without an address has no Back and is lost on reload. Make it a route. |
 | "I checked back, reload and size in a browser tab." | A tab is not a pane. Only the board's own buttons are evidence. |
-| "I pasted the app's address into a pane to test it." | That is a plain page pane. Open it from **Your apps**. |
+| "I embedded the app's page some other way to test it." | Only a pane opened from **Your apps**, or from the app's own address pasted into the picker, is connected. Anything else is a plain page pane. |
 | "I'll add my own Update button in the pane." | Pass `pane` to `checkForUpdate`: a board that shows updates answers `null`, so there is one indicator, not two. |
 | "The skills give no way to check in a real board." | The steps are above; if you cannot drive their board, hand the person the checks. |
 | "In a board my page is see-through, so I'll make my ground token transparent." | Only if nothing else reads it. A token that is also a colour (a pill's text, a solid ground) vanishes with it: give the page a paint token of its own. |

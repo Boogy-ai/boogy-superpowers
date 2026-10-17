@@ -180,8 +180,9 @@ ungoverned scaffold.
      `pw_…` pairwise mask, but the host resolves the real account behind it
      rather than parsing the mask — the owner is not masked out of their own
      admin surface.
-   - **The owner's own backend** — a workload, or an OBO hop carrying a user —
-     is not an agent-token caller at all and never meets that boundary.
+   - **No service is the owner** — not the owner's own backend, and not an
+     OBO hop through it: `caller_is_service_owner()` is false for every
+     workload, because every module the owner installs runs as one.
    - **An `sk_*` key your service issues** is app-plane too, but it reaches the
      host anonymously (your own `api_keys` guard resolves it), so it only gets
      through on a route whose mode is `public` — and there the key IS the gate;
@@ -393,8 +394,8 @@ fabrication happens.
 | "It compiles into the wasm, so the library's fine." | Not until you've checked. Crates with native/C deps or `getrandom` may not build for `wasm32-wasip2` — spike the compat on day one, before the design depends on it. |
 | "The public API is the service; admin can come later." | A service you can't inspect or intervene in across principals is half-built. Design the owner-gated `/admin/*` surface (list-all, revoke/cancel/block, force-retry, audit) alongside the public one — retrofitting cross-principal reads later is the expensive path. |
 | "I'll gate the main sensitive path; the lighter path is fine." | Every path that performs the irreversible action (sign, value-moving outbound, broadcast) shares ONE gate. A skipped path is a bypass — design the choke point now (step 4). |
-| "`caller is owner` is the admin gate." | That can admit any owner-*workload*, not just the owner's agent. Admin is agent-only; assert the invariant with a test and distrust "mirrors X" comments. |
-| "The owner can curl `/admin` with the token they deploy with." | A non-public route refuses a bare platform/deploy credential at the edge — **403 `app_plane_requires_app_credential`** — before any handler runs. Name the app-plane credential in the design: an app session for this service, the owner's own backend, or a `public` route gated by an `sk_*` key (step 3). |
+| "My backend is mine, so it can use the admin routes." | No service is the owner: `caller_is_service_owner()` is false for every workload, because every module the owner installs, a third-party one included, runs as one. Admin is the owner in person; a backend that needs some of it gets an explicit, revocable `sk_*` key on a `public` route (`boogy:boogy-auth`). |
+| "The owner can curl `/admin` with the token they deploy with." | A non-public route refuses a bare platform/deploy credential at the edge — **403 `app_plane_requires_app_credential`** — before any handler runs. Name the app-plane credential in the design: an app session for this service, or a `public` route gated by an `sk_*` key (step 3). |
 | "The RPC/node told me the fee / that it's a contract." | External inputs are adversarial. Never let a node value drive an allow/deny or an unbounded spend — clamp + fail closed; allowlists come from trusted config, not node signals. |
 
 ## Integration

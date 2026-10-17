@@ -99,7 +99,18 @@ fn start_avatar_upload(req: &mut Req<'_>) -> Result<Json<Ticket>, ApiError> {
 }
 ```
 
-The client then sends the bytes to `t.url` with `t.method`.
+The client then sends the bytes to `t.url` with `t.method`. From a page built
+on `@boogy/web` that is one call, which also turns a refusal (too large, a
+type not accepted, no room left) into words a person can act on:
+
+```ts ignore-snippet: a page fragment; the app's own ticket route is not in scope
+import { uploadFile } from "@boogy/web";
+
+const ticket = await (await fetch("api/logo/upload", { method: "POST", body: JSON.stringify({ size: file.size }) })).json();
+await uploadFile(ticket, file);   // then tell your service the ticket's `key`
+```
+
+In Preact, an `ImageField` picks and checks the image and hands you the file.
 
 **`t.url` is opaque.** The platform picks the transport by size — its own
 route for small files, direct-to-storage for large ones — and your code
@@ -142,10 +153,11 @@ struct Profile {
 }
 ```
 
-Then mint the URL at render time, always fresh:
+Then mint the URL at render time, always fresh (a `FileRef` is only its
+`collection` and `key`, public fields; `files_url` mints from them):
 
 ```rust ignore-snippet: a render fragment — the row it reads and the handler's error type are not in scope in this block
-let src = profile.avatar.as_ref().map(|f| f.url(None)).transpose()?;
+let src = profile.avatar.as_ref().map(|f| files_url(&f.collection, &f.key, None)).transpose()?;
 ```
 
 ## Listing, metadata, deletion

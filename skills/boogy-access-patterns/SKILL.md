@@ -73,7 +73,7 @@ index that backs the query:
 
 | Model declaration | Backs this read |
 |-------------------|-----------------|
-| `#[lookup_by]` on a field | point lookup: `db_find_by::<M>(M::COL, val)` — rows where `col == v`. It returns `Vec<M>`, not `Option<M>`, even here: uniqueness is YOUR invariant, not the store's, so take `.into_iter().next()` and say in a comment what keeps it unique |
+| `#[lookup_by]` on a field | point lookup: `db_find_by::<M>(M::COL, val)` — rows where `col == v`. It returns `Vec<M>`, not `Option<M>`, even here — the `Vec` is only the call's shape. The store enforces the uniqueness: `#[lookup_by]` derives a UNIQUE index, and a second row with the same value is refused with `ConstraintViolation` (409). Take `.into_iter().next()` |
 | `#[model(list_by(filter = "peer", newest = "created_at"))]` | filtered newest-first list. **Default (client-facing) → paged:** `Query::on(M::TABLE).filter(M::peer.eq(v)).order(M::created_at.desc()).cursor(c).limit(n).fetch_page(…)`. A small bounded "last N" internal read may drop `.cursor(..)` and use `.limit(n).fetch_all()` — the `.limit(n)` is required either way. |
 | `#[model(ranked_by(highest = "score"))]` | global ranked feed. **Default → paged:** `Query::on(M::TABLE).order(M::score.desc()).cursor(c).limit(n).fetch_page(…)`. Bounded top-N → same ordering, `.limit(n).fetch_all()`. |
 | `#[model(tagged_by(tag, refs))]` | junction page: seek the tag, expose `refs` to hydrate parents |

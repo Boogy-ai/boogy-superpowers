@@ -216,10 +216,10 @@ hardcode an identity (`@alice`, `boogy://alice/services/*`) in the manifest — 
 literal owner is wrong for every other provisioner, and ingress allowlist strings
 are **not** substituted at deploy time. Ingress has no "same owner as me" matcher.
 
-Use the ungated **`caller_is_service_owner()`** capability — the host attests
-whether the caller is THIS service's owner (their agent token, resolved host-side
-against the agents registry, OR one of their own workloads). No per-route ingress,
-no hardcoded identity:
+Use the ungated **`caller_is_service_owner()`** capability. The host attests
+whether the caller is THIS service's owner **as a person**: their sign-in to
+this service (or their own agent token), resolved host-side to their account.
+No per-route ingress, no hardcoded identity:
 
 ```toml
 [ingress]
@@ -229,37 +229,49 @@ mode = "authenticated"          # all routes; the handler gates /admin itself
 ```rust
 // require_operator(): host-attested, nothing hardcoded.
 fn require_operator() -> Result<(), ApiError> {
-    if caller_is_service_owner() { return Ok(()); }   // the owner: their agent OR own workload
-    // OBO: the owner's backend acting for a user — the ATTESTED actor is the workload.
-    // `current_identity()` is NOT an SDK free function — it's the full binding path.
-    // `actor` is `Option<String>`, set only on delegated calls.
-    let identity = bindings::boogy::platform::auth::current_identity();
-    let actor_owner = identity
-        .as_ref()
-        .and_then(|i| i.actor.as_deref())
-        .and_then(workload_owner);                    // workload_owner: a small helper YOU write —
-                                                      // parse <owner> out of "boogy://<owner>/services/<id>"
-    if actor_owner == Some(self_identity().owner) { return Ok(()); }
+    if caller_is_service_owner() { return Ok(()); }   // the owner, signed in
     Err(ApiError::forbidden("operator only"))
 }
 ```
 
-Why this is the right primitive: the **human owner can curl `/admin` directly**
-with their own token (the wasm can't resolve an agent's handle, but the host can —
-that's what the capability does), AND the owner's backend works as a workload.
-Fail-closed: anonymous, a different owner, or an unresolvable caller → `false`.
-(See the `resend-base` catalog module.)
+Why this is the right primitive: the owner signs in to the service and uses
+`/admin` like any page of it. The wasm only sees the owner's `pw_…` pairwise
+pseudonym and cannot tell it is the owner; the host can, and that is what the
+capability does. Fail-closed: anonymous, a different owner, or an unresolvable
+caller → `false`. (See the `resend-base` catalog module.)
 
-**It is also `false` for any call carrying an `actor`** — i.e. any
-delegated (on-behalf-of) hop — refused before the caller is even
-resolved, so no lookup can talk it back open. That is what makes it the
-right gate on a service whose `[ingress.delegation]` grant is
-necessarily wide: a delegated hop cannot borrow the owner's identity
-however it arrives, while the owner's own SSO session still passes. A
-module that means to admit the owner's *own* backend checks `actor`
-itself, as the snippet above does. The earlier "`internal` + same-owner
-workload" pattern also works but EXCLUDES direct human curl — prefer
-`caller_is_service_owner` for owner-only surfaces.
+**No service is the owner, not even one under the owner's account.** Every
+module the owner provisions runs as one of the owner's workloads
+(`boogy://<owner>/services/<id>`), a third-party one included, so "same owner
+as me" says nothing about who wrote the code. `caller_is_service_owner()` is
+`false` for every workload, and **it is also `false` for any call carrying an
+`actor`**, i.e. any delegated (on-behalf-of) hop, refused before the caller is
+even resolved. A delegated hop therefore cannot borrow the owner's identity
+however it arrives, while the owner's own sign-in still passes. That is what
+makes it the right gate on a service whose `[ingress.delegation]` grant is
+necessarily wide.
+
+So do not parse `identity.actor` to admit "the owner's own backend": every
+module the owner installed is one. When other code needs owner-only work done:
+
+- **Do the work in the service itself.** Its own background job runs inside
+  it and passes no owner check, so a nightly cleanup of its own data needs no
+  grant at all.
+- **Otherwise the owner grants one caller, explicitly.** The owner, signed in,
+  issues an `sk_*` key with just the scopes it needs (*API keys for
+  programmatic callers*, below), and the calling service keeps it as a secret.
+  It names one caller, carries only the scopes the owner chose, and the owner
+  can revoke it. Three things make it work, and missing any one fails with a
+  401 or 403:
+  - **The caller sends it with `outbound_http`** to the service's own address,
+    as `Authorization: Bearer sk_…`. Not over `peer::fetch`, which strips
+    `Authorization` on every hop.
+  - **The route's ingress is `public`.** The platform passes an `sk_*` key
+    through as anonymous for your own guard to resolve, so a non-public route
+    answers 401 before your code runs.
+  - **The route is gated by `api_key_routes::guard` plus
+    `auth::require_scope(...)`**, not by `caller_is_service_owner()`, which is
+    false for a key caller.
 
 ## Guard & helper quick-reference (verified)
 

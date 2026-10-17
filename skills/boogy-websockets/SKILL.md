@@ -279,7 +279,10 @@ a Socket.IO client never does by itself — re-subscribing, `JSON.parse`, the
 typed-envelope check and the `seq` dedupe.
 Your service mints a ticket from one of its own routes: the grant, plus where to
 subscribe, taken from the service's own identity (`self_identity()`), never from
-the hostname.
+the hostname. For a **principal** channel the ticket also carries `principal`,
+the recipient you minted the grant for with `ws_mint_principal_subscribe_grant`
+(an opaque, path-safe key of yours, never a pairwise), and `openStream` names it
+in the subscribe; without it a principal subscribe is refused.
 
 ```rust ignore-snippet: a handler shown for its ticket shape; the channel and DTO belong to the reader's service
 fn live_grant(_req: &mut Req<'_>) -> Result<Json<json::Value>, ApiError> {

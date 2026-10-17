@@ -160,7 +160,9 @@ reached you ultimately fails server-side.
 ## Who pays
 
 `payer = "principal"` charges the signed-in user who sent the request. Use it
-for a service people call directly.
+for a service people call directly, including one instance a whole group uses
+from their own boards: without a price, its usage is billed to whoever runs the
+instance, and `principal` is how each member pays for their own.
 
 `payer = "caller_service"` charges the owner of the service that called yours,
 and refuses a direct call from outside. Use it when you are a building block

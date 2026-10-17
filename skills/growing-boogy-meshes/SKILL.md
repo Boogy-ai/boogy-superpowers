@@ -119,6 +119,13 @@ Plain-language first; a concise technical aside for those who know the system.
   behind chat, contacts, a shared calendar) → the callers are owners you cannot
   enumerate, so the ingress grant goes wide and the gate moves into the handler:
   `boogy:boogy-peer-to-peer-apps`. Name this as a Tier-2 choice when you report;
+- the person wants **a group to share one thing** (a team chat, a household
+  list, a club's polls) → usually NOT a copy each: one instance holds the
+  group's data, rooms or lists are rows in it, and members open it in their own
+  boards by pasting its address or an invite link into one of its pages
+  (`boogy:running-in-a-board`, "Opened by other people"). Its usage is billed to
+  whoever runs the instance; price routes with `payer = "principal"` if each
+  member should pay for their own (`boogy:boogy-route-pricing`);
 - a service that's grown **several responsibilities** → propose a split.
 
 ## Red flags

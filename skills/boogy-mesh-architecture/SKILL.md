@@ -160,12 +160,18 @@ fn admit_same_owner_only(req: &mut Req<'_>) -> Result<(), ApiError> {
 }
 ```
 
-> **Simpler when you only need the boolean:** if the rule is just "is the caller
-> one of *my* owner's apps (or the owner themselves)?", use the host-attested
-> **`caller_is_service_owner()`** helper instead of the parse above — no string
-> handling, and it also admits the owner's own agent token. Hand-roll the parse
-> only when you need the *specific* caller workload (e.g. to partition rows per
-> calling app). See `boogy:boogy-auth`.
+> **Same owner is not same author.** Every module the owner provisions runs as
+> one of the owner's workloads, a third-party one included. So "the caller is
+> one of my owner's apps" says only that the owner installed it. Admit
+> same-owner apps only for what any app the owner installs may do (here: call
+> at all). For anything more, name the calling service itself
+> (`allowed_origins = ["boogy://<owner>/services/billing"]`), or give it an
+> explicit, revocable key (`boogy:boogy-auth`).
+>
+> **`caller_is_service_owner()` is not this check.** It is true only for the
+> owner as a person, signed in, and false for every service, the owner's own
+> included. Use it to gate what the owner does by hand (`/admin`), never to
+> recognise the owner's apps.
 
 **Two ways to express "only my owner's apps", pick by where the rule
 belongs:**

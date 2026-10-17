@@ -223,12 +223,12 @@ Boogy board at whatever size its person gives it, often all three. Build it on
 `@boogy/web` and let the SDK do the sizing; this is not optional polish.
 
 - **Viewport meta is mandatory:** `<meta name="viewport" content="width=device-width, initial-scale=1" />` in `<head>`. Without it, mobile browsers render at a fake ~980px and zoom out: everything tiny.
-- **The page scale on:** it is on by default: `installFoundation({ dev: import.meta.env.DEV })` (or `installFoundation()` for a `build = "source"` page, which has no `import.meta.env`). The SDK's unit then follows the window, and in a board the pane, so every component and size token grows and shrinks with it. Never `scale: false` without a waiver saying why.
+- **The page scale on:** it is on by default: `installFoundation({ dev: import.meta.env.DEV })` (or `installFoundation()` for a `build = "source"` page, which has no `import.meta.env`). The SDK's unit then follows the window's shorter side, and in a board the pane's, both ways: above a floor and with no ceiling, about 17px at 1080p and twice that at 2160p. Every component and size token grows and shrinks with it. Never `scale: false` without a waiver saying why, and never a `clamped` scale on a page: a cap stops a wall screen's pane from growing.
 - **Sizes from SDK tokens only:** `--space-*`, `--control-*`, `--icon-*`, `--fs-*`, `--radius-*`. No `px`/`rem`/`em`/`ch` sizes and no hand-picked `max-width` caps in your CSS: they ignore the scale and the board's Smaller/Larger. A size the SDK lacks is a named token you define once.
 - **No width breakpoints:** no `@media (min-width: …)`. Layout that adapts is the SDK's (`FillGrid`, `CardGrid`, `Stack`, `Sheet`) and container units multiplied by `var(--u-zoom)`.
 - **Colours from SDK tokens:** `--text-*`, `--accent`, `--edge*`, `--ground*`. A literal colour does not follow the scheme, so it vanishes on a board's background or in the other theme.
 - **Board-ready:** `[boards] background = "board"` in the manifest, `connectPane({ service: "<your service id>" })` in the page, and a page background painted with `var(--ground)` or a paint token of your own that gives way in a board. Unless the person has said the page is only ever opened on its own (`boogy:running-in-a-board`). Its screens' chrome, density, surfaces and colours: `boogy:designing-pane-apps`.
-- **Reuse the SDK's looks, never copy them:** a section label is `Section`, a field label is `TextField`'s, settings that open beside the page are a `SidePanel` (its head, body and foot are `Sheet`'s). A hand-copied rule drifts the first time the SDK changes.
+- **Reuse the SDK's looks, never copy them:** a section label is `Section`, a field label is `TextField`'s, settings that open beside the page are a `SidePanel` (its head, body and foot are `Sheet`'s). A hand-copied rule drifts the first time the SDK changes. These components come from `@boogy/web/preact`, and they work with `build = "source"`: the platform serves them for the app's pinned SDK version, as long as the app vendors Preact (`web/vendor/preact.js` and `web/vendor/preact/{hooks,compat,jsx-runtime}.js`, which the source template includes; a deploy without them is refused, naming what is missing). In an app without Preact, the core attribute functions (`section()`, `field()`, `sheet()`, `sidePanel()`) give the same looks on plain elements.
 - **Verify at the extremes, not the middle:** ~**360px**, a **wide** ≥1920px window, and a board pane at Smaller and Larger. The layout holds, nothing scrolls sideways, and every control is reachable. "Looks fine on my screen" is not the test.
 
 A page's own stylesheet holds layout only:
@@ -251,7 +251,8 @@ outcomes: fluid from 360px to wide, readable on a board's background, and
 The rules above are enforced, from the same code everywhere: `boogy check`
 reports a breach, `boogy deploy` and `boogy publish` stop before uploading one,
 and publish refuses it with a **422** naming the rule, the file, the line and
-the fix. Each rule's id:
+the fix. A CLI that still accepts `boogy check --layout` predates these rules
+and passes what publish refuses: update it. Each rule's id:
 
 | Rule | Requires | Fix |
 |---|---|---|
@@ -262,7 +263,7 @@ the fix. Each rule's id:
 | `layout-media-query` | no `@media` on width, height, aspect ratio or orientation | the page scale, container units and the SDK's layouts |
 | `unit-multiple` | no one-off `calc(var(--u) * n)` in a rule | a size token, or a named one defined once |
 | `colour-literal` | no literal colour (`#…`, `rgb()`, `oklch()`, a named colour) in a style | an SDK colour token or a custom property |
-| `sdk-control` | in JSX, no raw `<button>`, `<textarea>` or text-like `<input>` the SDK has a component for | `Button`, `TextArea`, `TextField`, `SearchField`, `Switch`, `ChoiceGroup`, or spread the SDK's attrs (`<button {...button()}>`) |
+| `sdk-control` | in JSX, no raw `<button>`, `<textarea>` or text-like `<input>` the SDK has a component for | `Button`, `TextArea`, `TextField`, `SearchField`, `Switch`, `ChoiceGroup` (from `@boogy/web/preact`, in source mode too), or the SDK's shape: `<button {...button()}>`, or a text control with `data-slot="control"` inside `<div {...field()}>` (directly or in its `data-slot="group"`) |
 | `board-navigation` | no `history.pushState` / `replaceState` | `connectPane({ … }).navigate(path)` |
 
 "In a style" means a stylesheet, a `<style>` block, a `style` attribute, a JSX
@@ -426,6 +427,18 @@ the bare `fetch("./api/…")` shown above is usually all you write:
   gets a 401, call `POST /boogy/renew` first (the SDK's `fetch` does); if the
   person is signed out, sign them in again (`boogy.signIn()`) — don't reach for
   a `credentials` option. See `boogy:boogy-account-auth`.
+- `GET /boogy/preview?url=<https link>` on your app's own address answers that
+  page's card, `{url, siteName, title, description, image}` (each text or
+  `null`), or `204` when it has none. `image` is the platform's own path for
+  the picture (`/boogy/preview/image?url=…`): the platform fetched the page
+  and serves its image, so a reader's browser never contacts the linked site.
+  Only `https` links on the web's own port to a named public host are
+  previewed (`400` otherwise); a busy platform answers `429` or `503` with a
+  `Retry-After`. A card is kept 6 hours, so a page changed since shows its old
+  card until then. In
+  `@boogy/web` it is `readPreview`, and in Preact `<LinkPreview>` (which
+  `FencedText` shows for a message's first two links;
+  `boogy:designing-pane-apps`).
 - `GET /boogy/update` on your app's own address tells the app's owner whether a
   newer version is available (`{service_id, current, update}`); everyone else
   gets nulls. In `@boogy/web`, use `checkForUpdate` (see
@@ -442,6 +455,55 @@ fetch("./api/notes", { headers: { Authorization: `Bearer ${token}` } });
 
 See `boogy:boogy-account-auth` for how a user gets that session and which login
 method delivers which transport.
+
+## Every list pages; every count is stored
+
+Design each screen for the size its data will reach, not the size it has on
+the first day. A household's members are a dozen and a community's are ten
+thousand, and the code that shows them is the same code. So from the first
+screen, with no exceptions:
+
+- **A list a person scrolls loads one page at a time.** A route that lists
+  returns one page and a `next_cursor` (`boogy:boogy-access-patterns`). Render
+  the page, and load the next as the reader nears its end, passing the cursor
+  back. Keep going while a cursor comes back; stop when none does. In Preact,
+  `usePagedList(fetchPage, deps)` from `@boogy/web/preact` does exactly this,
+  and `<PagedListEnd>` at the list's foot asks for the next page as it comes
+  into view (with a "Load more" button for keyboards); framework-free, it is
+  `pagedList` from `@boogy/web`.
+- **A conversation, or any feed read newest first, is a `ThreadView` over
+  `useThread(load, order, deps)`** (from `@boogy/web/preact`; framework-free,
+  `threadPages` in `@boogy/web`). It opens at the newest page, reads the page
+  before as the reader nears the top and keeps their place, follows new
+  messages only at the end, and however far back they read keeps only a
+  window of pages in the page, reading a page again by its own cursor when
+  they come back to it. A room of a hundred thousand messages costs the same
+  as one of fifty. A live signal calls `thread.refreshNewest()` (merged in,
+  or started over when more was missed than a page); the reader's own message
+  is `thread.add(message, { reveal: true })`; a deleted one is
+  `thread.remove(id)`. Never keep a conversation's messages in an array of
+  your own that only grows.
+- **A growing list scrolls in a place of its own**: a `Panel` (from
+  `@boogy/web/preact`), whose head holds its title, count, filter and search
+  and stays put while only its body scrolls. Never in the page's flow, where
+  each row it gains pushes everything under it. A choice from a set that
+  grows is a `SearchSelect` over the same paged route, never a radio per row
+  (`boogy:designing-pane-apps`, §3).
+- **A page is never the whole set.** Never show `items.length` as a total,
+  never decide "that is everyone" from a short page, and never sort, filter or
+  search the rows you happen to have loaded as if they were all of them: ask
+  the service, which does it through an index.
+- **A total is a count the service stores**, kept up to date in the same write
+  that changes it (`boogy:boogy-counters`) and returned beside the page. Show
+  it with `NumericValue` (4.2K).
+- **No mechanism loads everything**: not a refresh, not a "select all", not an
+  export, not a live update. A live event says what changed, and the page
+  re-reads the one page it shows (`boogy:boogy-websockets`). Many pages hear
+  the same signal at once, so wrap the re-read in `coalesce(fn, { jitterMs })`
+  from `@boogy/web`: a burst becomes one call, after a random wait that keeps
+  every page from calling in the same instant. A signal sent while something
+  keeps changing (typing) goes through `throttle(fn, ms)`: at most one per
+  interval, none after it stops.
 
 ## Asset sizes: keep every code file under 256 KiB
 
@@ -497,6 +559,7 @@ bundle would mean redeploying to add one. See `boogy:boogy-file-storage`.
 
 | Reach / claim | Reality |
 |---|---|
+| "There are only a few; I'll load them all." | The few become thousands and the code does not change. Page every list from the first screen, and show totals from a stored count. |
 | Serve the page from a wasm handler (`include_str!` + return HTML bytes) | Don't. Declare `[frontend]`; the host serves your assets decoupled from the wasm. |
 | "I'll run `vite`/`esbuild`/a Node build first" | Not for a hand-authored frontend — write `.ts`/`.js` and the platform transpiles + bundles at deploy. (Shipping a **pre-built framework bundle** is a separate, supported case: `build = "dist"` and serve the output verbatim.) |
 | "TypeScript can't run in the browser, so I'll write plain JS" | Write TS — `build = "source"` transpiles it server-side. (Plain JS works too.) |

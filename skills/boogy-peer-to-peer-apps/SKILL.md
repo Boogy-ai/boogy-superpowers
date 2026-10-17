@@ -13,6 +13,12 @@ instance holds only their data, and instances call each other as equals.
 Chat, contacts, a shared calendar, a federated feed: anything where "my
 copy" and "your copy" are the same code and neither is the hub.
 
+**Not this shape: people sharing ONE instance.** A team chat, a household list,
+a group's polls usually want one instance holding the group's data, which each
+member opens in their own board (pasting its address connects it; see
+`boogy:running-in-a-board`, "Opened by other people"). Reach for peer-to-peer
+only when each person must hold their own data in their own instance.
+
 It gets its own skill because the platform's cross-service allowlists are
 written **per owner**, and in this shape you do not know the owners: the
 next person to provision your module has not signed up yet. That one fact
@@ -115,9 +121,10 @@ it, and two properties are what make it the right primitive here:
 - **It is false for any call carrying an `actor`** — refused before the
   caller is even resolved. A delegated hop therefore cannot borrow the
   owner's identity, no matter which workload made it.
-- **It is still true for the owner signed in through SSO**, and for the
-  owner's own workloads. The host resolves the real account behind the
-  `pw_…` pairwise, which your wasm cannot do.
+- **It is true only for the owner as a person**, signed in to the service.
+  The host resolves the real account behind the `pw_…` pairwise, which your
+  wasm cannot do. No service is the owner, not even one under the owner's
+  account: every module the owner installs runs as one.
 
 ```rust
 // Owner-only surface on a service whose ingress must admit the whole mesh.

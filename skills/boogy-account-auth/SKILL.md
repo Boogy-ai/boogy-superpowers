@@ -205,10 +205,17 @@ call in full, the cookies, the hand-driven flow and what a `400` at
 
 ### Profile-share consent: handle, name & photo
 
-The consent screen at sign-in offers one pre-checked toggle bundling three
-things: the user's **handle**, display name, and photo. If it stays checked
-(default) — or the user re-enables it later from their connected-apps
-settings — your app gets two different channels for it:
+The consent screen at sign-in offers every person one pre-checked toggle to
+share their Boogy identity with your app: their **handle** always, plus a display
+name and photo when they signed up through Google or GitHub. An account made with
+a password, a passkey or an agent key has no profile name or photo: share it and
+`/boogy/me` reports `displayName` as the handle and `avatarUrl` as `null`. The
+choice is made at that first consent, and the person can change it any time
+with the app's **Shares your identity** switch under **Connected apps** in their
+Boogy account. The name and photo follow the switch at once (`/boogy/me`
+reads it on every request); the handle, which rides the app's sign-in token,
+changes from their next sign-in to your app. If the toggle stays checked (the
+default), your app gets two different channels for it:
 
 - **The handle — trusted, server-side.** Read it in your wasm via
   `auth::current_handle() -> Option<String>` (see `boogy:boogy-auth`). It
