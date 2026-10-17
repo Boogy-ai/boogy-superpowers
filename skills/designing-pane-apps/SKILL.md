@@ -232,6 +232,8 @@ In a board an app that shows the board's background (`[boards] background =
   its glyph, what it says while it runs ("Deleting…") and its place in a foot
   (a destructive one first, the rest at the end). Give it words of your own
   only to say more (`<ActionButton kind="delete">Delete room</ActionButton>`).
+  In a short row (a compact list in a drawer) `iconOnly` shows the kind's
+  glyph alone, named by its words: Accept is a check, Decline a cross.
   Never a `Button` with a hand-set variant and label for one of these.
 - **A field with a limit shows it**: `maxLength` on a `TextField` or a
   `TextArea` counts under it ("62 / 200"). **One image** (a logo, a picture)
