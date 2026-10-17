@@ -162,6 +162,23 @@ for the context, or has no value bound returns the same error class —
 `unknown-secret(<name>)` — deliberately not distinguishing "unknown" from
 "unbound" to your code.
 
+## Seeing what is set
+
+`GET /v1/services/<service>/secrets` (your own session) lists a service's
+secrets **by name**, merging what the running version declares with what has
+a value:
+
+| `status` | Meaning |
+|---|---|
+| `set` | Declared and bound: references resolve. |
+| `missing` | Declared, no value: every reference fails closed until you bind it. |
+| `undeclared` | Bound, but the running version no longer declares it: nothing can use it. |
+
+Each row carries the declared `usages`, and for a bound name `bound_at_ms` and
+`bound_by`. No field can carry a value: listing is metadata by construction.
+Check it after a deploy that adds a secret, before you rely on the new code
+path. A `missing` name is the usual cause of an `unknown-secret` error.
+
 ## Rotation
 
 No redeploy. Re-PUT the new value to the same binding endpoint; the

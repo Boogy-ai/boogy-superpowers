@@ -224,6 +224,11 @@ plaintext body is rejected). Your wasm never does this — it only ever
 *generates*. Imported keys are a documented weaker-provenance path (the key
 existed outside the boundary once).
 
+The owner can see a service's keys with
+`GET /v1/services/{service}/signing-keys`: each key's `label`, `alg` (spelled
+as the import accepts it, e.g. `ecdsa-secp256k1`) and `public_key_hex`. A
+service without the `signing` capability lists none.
+
 ## Error model: deny-by-existence-mask, fail closed
 
 `SignError` (in `boogy_sdk::signing`) has four variants; the inner strings are
