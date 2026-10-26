@@ -50,12 +50,16 @@ code, calling the API, or improvising. Do NOT summarize, paraphrase, or
    <!-- boogy-superpowers-directive -->
    ## Boogy
 
-   All Boogy work goes through the `boogy-superpowers` skills — **invoke** them
-   with the Skill tool; never summarize, paraphrase, or work from memory of
-   them. Entry point: `using-boogy`, which routes to the rest.
+   **Whenever you build or change a Boogy module** (a service you deploy on
+   Boogy: its manifest, its code, its deploy), **invoke** the
+   `boogy-superpowers` skills with the Skill tool, every time, before the work;
+   never summarize, paraphrase, or work from memory of them. Entry point:
+   `using-boogy`, which routes to the rest. Work that builds or changes no
+   module does not invoke them.
 
-   Repeat this instruction in **every subagent dispatch**. A subagent inherits
-   no hook and no conversation; unless you tell it, it builds from guesswork.
+   Repeat this instruction in **every subagent dispatch that builds or changes
+   a module**. A subagent inherits no hook and no conversation; unless you tell
+   it, it builds from guesswork.
 
    Skills not installed? Install the plugin from its GitHub repo —
    `claude plugin marketplace add Boogy-ai/boogy-superpowers`, then

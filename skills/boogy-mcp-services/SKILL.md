@@ -93,9 +93,10 @@ fn create_task_tool(args: CreateTaskArgs) -> Result<TaskOut, ApiError> {
 }
 ```
 
-`schemars` is a **direct dependency** — add `schemars = "0.8"` (the SDK
+`schemars` is a **direct dependency** — add `schemars = "1"` (the SDK
 workspace pin) to your `Cargo.toml`, because `#[derive(JsonSchema)]`
-emits `::schemars::*` paths.
+emits `::schemars::*` paths. A 0.x pin does not compile against the SDK
+(its derive implements a different trait); `boogy check` names the line.
 
 Reach for the raw **`tool(descriptor, |Value| -> Result<ToolResult,
 RpcError>)`** form only when you need full `ToolResult` control —

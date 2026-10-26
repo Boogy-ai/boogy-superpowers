@@ -18,8 +18,15 @@ cargo install --locked --git https://github.com/Boogy-ai/boogy-sdk boogy-cli
 
 | What | Flag | Env | Default |
 |------|------|-----|---------|
-| Host URL | `--host` | `BOOGY_HOST_URL` | `http://localhost:3000` |
+| Host URL | `--host` | `BOOGY_HOST_URL` | `https://api.boogy.ai` (the hosted platform) |
 | Bearer token | `--token` | `BOOGY_TOKEN` | none (required) |
+
+**With neither `--host` nor `BOOGY_HOST_URL`, every command goes to the hosted
+platform**, whatever host your token came from. Against your own host (a local
+or self-hosted one), pass `--host http://localhost:3000` (or its URL) on every
+command, or export `BOOGY_HOST_URL` once; a token minted by your own host sent
+to the hosted platform is refused there with a 401, which looks like a bad
+token rather than the wrong host.
 
 Get a token by signing in — MCP-first: call the `login` tool then
 `login_status` (see `boogy:using-boogy` for the full flow), or run
@@ -48,7 +55,7 @@ before every deploy. Full detail in `boogy:testing-boogy-services`.
 | `boogy publish <manifest> [--provision]` | upload an immutable, versioned module artifact; `--provision` also runs your own service from it |
 | `boogy provision <module-ref> <service-id> [--overrides <toml>]` | run a service instance from a published module |
 | `boogy upgrade <service-id> --to <version>` | move a provisioned service to another module version |
-| `boogy list [--all]` | list your deployed services; `--all` lists every owner's (admin scope) |
+| `boogy list [--all]` | list your deployed services (follows every page, prints `{"items": [...]}`); `--all` lists every owner's (admin scope) |
 | `boogy remove <service-id> [--owner <owner>]` | start deleting your deployment; `--owner` deletes another owner's (admin scope). **Accepted, not finished** — see below |
 
 Module ref shape: `boogy://<owner>/modules/<id>@<version>`.
@@ -246,7 +253,7 @@ To tell the difference, check which deployment actually answered:
    `deployment_id` your `deploy`/`upgrade`/`provision` call returned, and compare it against
    the header on the response you're verifying — a mismatch means a different deployment
    served it than the one you just shipped.
-2. **`boogy list` (or `GET /v1/services`)** shows the service's current active
+2. **`boogy list` (or `GET /v1/services`, which is paged: `{items, next_cursor}`, filter with `?q=<id prefix>`)** shows the service's current active
    `module_version` — confirm it matches what you just deployed, not what you replaced.
 3. **`GET /v1/audit`** (works with your own token, no admin scope needed) records a
    `deploy.rolled_back_on_migration_failure` entry when this happens.
@@ -274,7 +281,12 @@ Once a version leaves the window it is reclaimed for you — the deployment
 history is pruned and the module version and its wasm are collected. **You do
 not have to clean up after a redeploy.** `GET /v1/modules` reports
 `reclaimable` per version, computed from the same predicate the delete uses, so
-you can see what a delete would accept without attempting it.
+you can see what a delete would accept without attempting it. It fails closed:
+if the check cannot be answered, every item on that page reports
+`reclaimable: false`. The listing is
+paged: it answers `{items, next_cursor}` in (name, version) order, `limit`
+(default 100, max 500) sets the page size, and you pass `next_cursor` back as
+`cursor` until it is `null`.
 
 `?force=true` is the "gone now" escape. It only ever drops `retained`
 blockers — an `active` deployment refuses it, because deleting a version a

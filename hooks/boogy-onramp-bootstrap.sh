@@ -70,4 +70,4 @@ if [ -n "${HOME:-}" ]; then
 fi
 
 # Absent. Say it once, conditionally, and say how to make it stop.
-printf '%s\n' "The \`boogy-superpowers\` skills are installed in this session. If any of this work touches Boogy (boogy.ai), invoke them with the Skill tool starting at \`using-boogy\` — never work from memory of them — and persist the standing directive into \`CLAUDE.md\` as \`boogy-onramp\` step 5 describes, which also stops this line appearing again. If the work is unrelated to Boogy, ignore this line."
+printf '%s\n' "The \`boogy-superpowers\` skills are installed in this session. If this work builds or changes a Boogy module (a service you deploy on boogy.ai), invoke them with the Skill tool starting at \`using-boogy\` — never work from memory of them — and persist the standing directive into \`CLAUDE.md\` as \`boogy-onramp\` step 5 describes, which also stops this line appearing again. If it builds no module, ignore this line."

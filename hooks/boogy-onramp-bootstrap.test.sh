@@ -96,15 +96,15 @@ expect_silent "directive in .claude/CLAUDE.md"
 
 # 9. The emitted line carries the three things that make it actionable AND
 #    self-extinguishing: the entry-point skill, the persistence instruction,
-#    and the escape clause for an unrelated project. Without the last one this
+#    and the escape clause for work that builds no module. Without the last one this
 #    hook is noise in every non-Boogy session it fires in.
 run "$ROOT/bare"
 printf '%s' "$out" | grep -q 'using-boogy' \
   || { echo "FAIL: emitted line does not name the entry-point skill"; fail=1; }
 printf '%s' "$out" | grep -q 'CLAUDE.md' \
   || { echo "FAIL: emitted line does not tell the agent to persist the directive"; fail=1; }
-printf '%s' "$out" | grep -q 'unrelated to Boogy' \
-  || { echo "FAIL: emitted line has no escape clause for an unrelated project"; fail=1; }
+printf '%s' "$out" | grep -q 'builds no module, ignore this line' \
+  || { echo "FAIL: emitted line has no escape clause for work that builds no module"; fail=1; }
 # It must be ONE line: this fires in every session of every project.
 [ "$(printf '%s' "$out" | wc -l)" -eq 0 ] \
   || { echo "FAIL: emitted output is more than one line"; fail=1; }

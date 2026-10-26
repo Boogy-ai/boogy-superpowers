@@ -115,12 +115,12 @@ latency.
 Denying `clock` freezes the wall clock a guest observes at the Unix epoch —
 `std::time::SystemTime::now()` returns it, not just the SDK's
 `now_millis()` wrapper. Denying `entropy` returns an all-zero deterministic
-stream from `wasi:random/random` — `getrandom`, `rand`, `rand_core::OsRng`,
-and `uuid::Uuid::new_v4()` all get it, not just `random_bytes()`. There is no way
+stream from `wasi:random/random` — `getrandom`, `rand` and
+`uuid::Uuid::new_v4()` all get it, not just `random_bytes()`. There is no way
 to get real calendar time or real secure randomness into a service without
 granting the matching capability, regardless of which API (Boogy's wrapper
 or a raw crate) the code calls. `api_keys_glue!` needs *both*: key
-generation uses `OsRng` directly and expiry checks use the raw wall clock,
+generation uses `getrandom` directly and expiry checks use the raw wall clock,
 so a service issuing API keys without `clock = true` / `entropy = true`
 gets keys generated from a constant stream and expiry that never advances.
 (Relative timing — `std::time::Instant` / `wasi:clocks/monotonic-clock` —
@@ -141,12 +141,39 @@ compiled component depends on it structurally.)
 | File collections per service | 32 | `[[files.collections]]` blocks |
 | Inline file read/write | a few MiB | `files_put_bytes` / `files_read_bytes`; above it, `TooLarge` |
 | Deployed wasm artifact | 8 MiB free / 32 MiB hard max | uncompressed `.wasm`; >8 MiB needs a paid plan, >32 MiB rejected for all |
+| Stored data, free | 1 GB per **account** | tables and files of every service you own, one budget; above it storage is charged hourly from your balance |
+| Stored data, ceiling | 25 GB per account | refused at once at the ceiling, paid or not; your operator can raise it |
+| Stored-data growth | 10 MB/s per service, 10 s burst | faster growing writes get 429 `storage_growth_rate` |
 
 Inside an open transaction, `outbound_http` and `background_jobs` are
 refused. Per-request store-op rate/count limits are
 operator-configured (off by default). Request bodies and responses ride
 the per-request memory cap — don't route large payloads through the
 service.
+
+### Storage is per account
+
+No manifest sets storage capacity (`[limits] storage_mb` is refused). Every
+service you own shares one budget, and `GET /v1/storage` shows it: used bytes,
+the free allowance, the ceiling, your own cap (`max_storage_gb` on
+`PUT /v1/ledger/limits`), the account's state and this month's charges.
+`GET /v1/quota` lists each service's share.
+
+- **507 Insufficient Storage** (`StoreError::QuotaExceeded`): the account
+  refuses growing writes. Either it went over its free allowance, an hour
+  went unpaid and the 72-hour grace window ended (`refusing`), or it reached
+  its ceiling (`ceiling`). Reads and deletes always pass, and deleting data
+  is how you get back under. Topping up your balance or raising your cap
+  clears `refusing` at the next check.
+- **429 with `cause: "storage_growth_rate"` and `Retry-After`**: the service's
+  stored data is growing faster than its growth rate. Too fast, not out of
+  space: wait and retry. A bulk import should pace itself under 10 MB/s per
+  service.
+- **How fast a limit applies.** An account is checked every minute, and every
+  few seconds once it is within 10% of its limit. An account whose services
+  no host has open (writes only from background jobs, say) is checked at
+  least hourly. In between, the growth rate is what bounds how far past a
+  limit an account can go: at most a few seconds of growth plus the burst.
 
 ### Who sets what: defaults vs deployment config
 

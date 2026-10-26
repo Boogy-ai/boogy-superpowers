@@ -321,7 +321,8 @@ Do **not** reach for `inner(...)` here — `#[garde(inner(...))]` is for the ele
 of a **collection** (`Vec<String>`), not for `Option`. (Confirmed against garde
 0.22: every rule has an `impl … for Option<T>` that no-ops on `None`.)
 
-**`schemars = "0.8"` is required for spec generation.** Add it as a
+**`schemars = "1"` is required for spec generation** (a 0.x pin does not
+compile against the SDK; `boogy check` names it). Add it as a
 direct dep and derive `schemars::JsonSchema` on every DTO that appears
 in a typed extractor or response. Omitting it is not a runtime error —
 the type simply has no schema to publish. The derive is a

@@ -28,7 +28,13 @@ deployed service) can query it; results are scoped to what you may see
 ```
 GET /v1/registry/search?q=thumbnail            # { "results": [...] }
 GET /v1/registry/modules/{owner}/{name}        # full detail (404 if not visible)
+GET /v1/registry/modules/{owner}/{name}/versions?limit=20&cursor=…   # its versions, newest first
 ```
+
+`versions` pages (`limit` 20 by default, 100 at most; pass back `next_cursor`,
+`null` on the last page). Describe lists every version unless you pass
+`versions_limit=N`: then it holds the newest `N` and a `versions_next_cursor`
+that the versions route continues.
 
 Filters: `q`, `category`, `mode`, `owner`, `since` (RFC3339), `limit`, `shape` (`frontend`/`fullstack`/`service`).
 A deployed service can query it cross-service:

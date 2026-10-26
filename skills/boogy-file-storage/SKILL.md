@@ -214,12 +214,20 @@ reach for.
 |---|---|---|
 | `TooLarge(n)` | over the collection's `max_bytes` or the inline cap | 413 |
 | `UnsupportedContentType` | not in the collection's `content_types` | 415 |
-| `QuotaExceeded` | the service is at its storage limit | 507 |
+| `QuotaExceeded` | your account refuses growing writes: its storage grace window ended unpaid, or it reached its ceiling | 507 |
+| `RateLimited` | the service's stored data is growing faster than its growth rate | 429 |
 | `NotFound` | missing, or not yours — the two are indistinguishable | 404 |
 | `NotReady` | the bytes have not arrived yet | 409 |
 | `DeniedInTransaction` | move the call outside `tx()` | 409 |
 
 `FilesError` converts into `ApiError`, so a bare `?` works in a handler.
+
+**An upload refused for growth carries no `Retry-After`.** An upload's
+declared size is charged to the service's growth rate (10 MB/s unless your
+operator set another, with a burst of 10 s of it) when its ticket is issued.
+A client that gets 429 waits about the upload's size over that rate, doubling
+the wait on each further 429, then mints a new ticket. A large import paces
+itself rather than retrying in a loop.
 
 ## What files cost
 
@@ -228,7 +236,7 @@ have:
 
 | Dimension | What files contribute |
 |---|---|
-| Storage | stored bytes, per GB-month, shared with your database rows |
+| Storage | stored bytes, per GB-month, in your account's one budget with your database rows: free up to the allowance, charged hourly above it |
 | Egress | bytes served to clients |
 | Requests | each file request |
 
@@ -236,7 +244,8 @@ have:
 
 Storage is the one dimension that keeps charging when your traffic is
 zero, so delete what you no longer need. Uploads that are started and
-never completed hold quota until the platform expires them.
+never completed count against your storage until the platform expires
+them.
 
 ## Common mistakes
 

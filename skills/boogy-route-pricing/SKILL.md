@@ -112,7 +112,9 @@ Price from a measurement, not from a guess. Before you pick numbers, deploy the
 route unpriced and drive realistic traffic through it, then read what it
 actually consumed from your own usage:
 
-- `GET /v1/usage/summary` — totals per dimension.
+- `GET /v1/usage/summary?month=YYYY-MM` — each service's measured quantities for
+  the month, one page at a time (follow `next_cursor` until it is null), with the
+  month's `totals` per dimension on the first page. Quantities, not charges.
 - `GET /v1/usage/events` — per-request rows, including `fuel_consumed`, request
   and response bytes, and (once priced) `cost_micros` per charge.
 - `GET /v1/usage` — latency percentiles, p50/p95/p99.

@@ -220,8 +220,9 @@ Generate-in-place is the default and the strongest path (the key is born inside
 the boundary, non-exportable). An operator can also **import** an existing
 private key out-of-band — `PUT /v1/services/{service}/signing-keys/{label}`
 with a **sealed** body (the first-party clients seal it client-side; a raw
-plaintext body is rejected). Your wasm never does this — it only ever
-*generates*. Imported keys are a documented weaker-provenance path (the key
+plaintext body is rejected). The service's running version must declare
+`signing = true`; otherwise the import answers `409` and nothing is stored.
+Your wasm never does this — it only ever *generates*. Imported keys are a documented weaker-provenance path (the key
 existed outside the boundary once).
 
 The owner can see a service's keys with

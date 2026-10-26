@@ -247,7 +247,7 @@ want, and it is the only supported way to change a column's type. What you must
 not assume is that the old data comes back with the name.
 
 Those retained bytes are not free and are not hidden: they keep counting against
-the service's storage quota, and `GET /v1/services/{id}/schema` lists every
+your account's storage, and `GET /v1/services/{id}/schema` lists every
 dropped column with when it was dropped and an estimate of what it still costs
 (see `boogy:boogy-observability`). Check it before assuming a removal reclaimed
 anything.

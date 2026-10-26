@@ -237,7 +237,7 @@ side by side, why a type bound can't catch it) is the Iron Law in
 Add the deps that make it work (external project):
 
 ```toml
-schemars = "0.8"   # JsonSchema derive — direct dep (emits ::schemars paths)
+schemars = "1"     # JsonSchema derive — direct dep (emits ::schemars paths)
 serde    = { version = "1", features = ["derive"] }
 ```
 
@@ -261,10 +261,10 @@ crate-type = ["cdylib"]
 
 [dependencies]
 boogy-sdk   = { git = "https://github.com/Boogy-ai/boogy-sdk", rev = "<pin-rev>" }
-wit-bindgen = "0.46"
+wit-bindgen = "0.63"
 serde       = { version = "1", features = ["derive"] }
 serde_json  = "1"   # REQUIRED: wit_glue! emits ::serde_json absolute paths
-schemars    = { version = "0.8", features = ["derive"] }
+schemars    = "1"
 garde       = { version = "0.22", default-features = false, features = ["derive"] }
 
 [build-dependencies]

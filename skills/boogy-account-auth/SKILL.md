@@ -203,6 +203,37 @@ call in full, the cookies, the hand-driven flow and what a `400` at
 `/authorize` means: `boogy:boogy-sign-in-sessions`.
 
 
+### The sign-in pages lead with your app: `[branding]`
+
+The sign-in, consent and handle pages your app sends a person to are the
+platform's, but they lead with your app: its logo and name (your
+`[service].name`) at the top, a heading that names it ("Sign in to Pollster"),
+and one strip at the bottom, "Sign-in by Boogy" with the page's own address.
+Three optional values dress them; with none, they use the platform's calm blue
+in the viewer's own light or dark preference.
+
+```toml
+[frontend]
+root = "web"
+
+[branding]
+theme  = "system"            # "light" | "dark" | "system"
+logo   = "assets/logo.png"   # PNG/WebP/JPEG/AVIF inside [frontend].root, at most 1 MiB
+accent = "#1d5fd6"           # one hex colour
+```
+
+- **The accent is adjusted, not trusted:** the platform derives a value per
+  theme that keeps button labels and links at 4.5:1, so a pale yellow comes out
+  darker. Pick the colour, not the contrast.
+- **No logo** shows your app's initials on a plain square.
+- **What you cannot change**, by design, so a page cannot pass itself off as
+  another app's or as the platform's own: the strip and the address in it, the
+  "by <owner>" line, the fields and their wording, error colours, fonts and
+  shapes. No HTML, CSS or script of yours ever reaches these pages.
+- A bad `theme`, a malformed `accent`, or a `logo` that is missing, too large or
+  not an image refuses the publish, naming the key. The keys in full:
+  the manifest reference, `[branding]`.
+
 ### Profile-share consent: handle, name & photo
 
 The consent screen at sign-in offers every person one pre-checked toggle to

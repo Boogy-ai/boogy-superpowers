@@ -63,6 +63,13 @@ Router::new()
 
 Omitting `info` produces a generic title and version `0.0.0`.
 
+**The served `info.version` is the deployed version**, `[service] version` in
+`boogy.toml`, whatever your code passes: the platform writes it into both
+`openapi.json` and `openrpc.json`, so a client always reads the version that
+is actually running. When your code's value differs it is kept beside it as
+`info.x-boogy-code-version`. Bump `Cargo.toml` and `boogy.toml` together and
+the two agree; `boogy check` warns when they do not.
+
 ## Two-tier visibility
 
 The spec documents respect authentication state:
@@ -156,8 +163,12 @@ emits `::schemars::*` absolute paths:
 In a standalone project's `Cargo.toml`:
 
 ```toml
-schemars = "0.8"
+schemars = "1"
 ```
+
+A 0.x `schemars` does not work: its derive implements a different
+`JsonSchema` trait than the SDK's, so the crate fails to compile.
+`boogy check` names the line to change.
 
 Inside a workspace that already pins it:
 

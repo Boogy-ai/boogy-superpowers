@@ -1,13 +1,13 @@
 ---
 name: boogy-observability
-description: Use when an owner wants to see their own service usage, billing dimensions, raw events, a single request trace, audit tail, storage quota, or guest logs — via the /v1 REST API, MCP tools, or the live log stream — or when adding guest logging to a service so its logs become retrievable
+description: Use when an owner wants to see their own service usage (including live, as traffic lands), billing dimensions, raw events, a single request trace, audit tail, storage, or guest logs — via the /v1 REST API, MCP tools, or the live log and usage streams — or when building a live usage dashboard, or adding guest logging to a service so its logs become retrievable
 ---
 
 # Boogy Observability
 
 The platform exposes an **owner-scoped** observability surface: as the
 owner of one or more deployed services you can pull usage metrics,
-billing summaries, raw events, a full trace of a single request, your
+monthly usage summaries, raw events, a full trace of a single request, your
 audit tail, storage-quota status, and your services' recent guest logs —
 over REST, MCP tools, or a live stream. There is no setup; these
 endpoints exist for every owner.
@@ -34,15 +34,17 @@ takes the token in its handshake; see below).
 | Endpoint | Returns |
 |---|---|
 | `GET /v1/usage` | Hourly usage series. Fields per bucket include fuel consumed, store ops, cold starts, peak memory, and request-latency percentiles (p50/p95/p99). Filters: `service_id`, `kind`, `since`, `until` (RFC 3339). Default window: last 24h. |
-| `GET /v1/usage/summary?month=YYYY-MM` | Billing summary for the month across the 7 billing dimensions. |
-| `GET /v1/usage/events` | Raw usage events. Filters: `kind`, `outcome`, `since`, `until`. Keyset paginated via `cursor`; `limit` ≤ 500. |
+| `GET /v1/usage/summary?month=YYYY-MM` | One month's metered usage per service, across the 7 billing dimensions, **one page of services at a time**, plus the month's `totals` on the first page. A usage view, not an invoice: see [The monthly usage summary](#the-monthly-usage-summary). |
+| `GET /v1/usage/events` | Raw usage events, newest first. Filters: `service_id`, `kind`, `outcome`, `class`, `caller`, `path_prefix`, `min_wall_ms`, `since`, `until` (see "Filtering the request log" below). Keyset paginated via `cursor`; `limit` ≤ 500. Each call inspects a bounded number of events, so a page can be short with a `next_cursor` still set. A JSON-RPC call's `inbound_http` event names the method that answered in `rpc_method` (a `Router::rpc` mount's method; `null` for any other request, and for a method the service does not have). |
 | `GET /v1/usage/requests/{request_id}` | The full trace of one request across every hop it touched — inbound, cross-service, MCP, and outbound. |
 | `GET /v1/services/{id}/pricing` | What that service is actually charging, as compiled at deploy: every priced route with its payer, price, rate and `max`, plus whether the owner account resolved (if it did not, priced routes refuse). |
-| `GET /v1/audit` | Your audit tail (owner-scoped). Filters: `action_prefix`, `since`. |
-| `GET /v1/quota` | Storage-quota status across your services. |
-| `GET /v1/services/{id}/quota` | Storage-quota status for one service (404 if not yours / not found). |
+| `GET /v1/services` | Your active services (including any being deleted, with `deleting: true`), one page at a time in service-id byte order: `limit` (default 100, ≤ 500) and `cursor`; the response is `{items, next_cursor}`, `next_cursor` null on the last page. `module` keeps the instances of modules with that **name** — by name only, so two publishers' modules that share a name both match; `q` keeps ids that start with that text (literal, case-sensitive). A `cursor` resumes only with the `module` and `q` it was returned under; sent with any other values it is a 400. |
+| `GET /v1/audit` | Your audit tail (owner-scoped), newest first. Filters: `service_id` (only events whose resource is exactly `<owner>/<service_id>` or under `<owner>/<service_id>/`; `notes` does not match `notes2`), `action_prefix`, `outcome` (`success`/`failure`), `since`, `class` (`changes`: anything but a sign-in; `deploys`: provisions and upgrades that succeeded; `refused`: refused provisions, upgrades and module uploads; `failures`: anything that did not succeed; `signins`: every sign-in to your account, whatever its outcome; any other `class` is a 400), and `q` (keeps the events of your instances whose id starts with this text, matched literally; an event on something inside an instance, such as one of its secrets, counts as the instance's. A sign-in's target is your account, so no `q` returns one. `q` never returns a module upload's event either, refused uploads included, whatever target the event names: `q=m` or `q=modules` finds an instance whose id starts so, never an upload. And `q` leaves out what you did to another owner's resources), and `module` (one of your modules' events: the module's own and every version's, `<owner>/modules/<module>` and `…@<version>`; `notes` does not match `notes2`; `module_owner` names the publisher, you when absent, and alone it is a 400). Keyset paginated: `limit` (default 100, ≤ 500) and `cursor`; the response is `{owner, count, items, next_cursor}`, `next_cursor` null on the last page. A `cursor` resumes only with the filters it was returned under; sent with other `service_id`, `action_prefix`, `outcome`, `since`, `class`, `q`, `module` or `module_owner` values it is a 400, so page with the same query string and only the `cursor` changing. |
+| `GET /v1/storage` | Your account's storage, one budget for every service's tables and files: `used_bytes`, `allowance_bytes` (free), `ceiling_bytes`, `max_storage_bytes` (your own cap), `state` (`ok`, `nearing`, `paid`, `grace`, `refusing`, `ceiling`), `grace_ends_at`, the rate, `charged_this_month_usd`, `owed_usd` (every storage hour still owed, any month: a top-up pays these first, oldest first, before the current hour). Add `?per_service=1` for each service's bytes (`per_service`); without it the list is left out. In `refusing` or `ceiling` growing writes get 507; see `boogy:boogy-capability-limits`. |
+| `GET /v1/quota` | Each of your services' stored bytes (`size_bytes` tables, `files_bytes`; `null` until first measured, with `sampled_at`), your **account's** ceiling (`quota_bytes`), `percent_used`, and whether the account refuses growing writes (`over_quota`, with `refusal`: `refusing` or `ceiling`). |
+| `GET /v1/services/{id}/quota` | That row for one service: 200 for any service you own, measured or not; 404 if not yours / not found. |
 | `GET /v1/services/{id}/logs?limit=N` | Snapshot of that service's recent guest logs, newest-first, up to 1000 lines. |
-| `GET /v1/services/{id}/schema` | That service's tables and columns, including columns you **removed from your model**. A removed column is soft-dropped — its bytes stay so the removal is reversible, and they keep counting against your storage quota until the platform reclaims them **on its own** (see `boogy:boogy-migrations`). Each one reports `dropped_at`, an `estimated_bytes` figure, and a `reclamation` object: `state` (`retained_for_rollback` / `sweeping` / `done`), and while retained, a real `eligible_after` date it clears on by itself (`retained_by` is always `"age"`, naming that bound). Waiting is the only thing that brings the date forward — deploying again does not, since each deployment becomes a rollback target of its own. |
+| `GET /v1/services/{id}/schema` | That service's tables and columns, including columns you **removed from your model**. A removed column is soft-dropped — its bytes stay so the removal is reversible, and they keep counting against your account's storage until the platform reclaims them **on its own** (see `boogy:boogy-migrations`). Each one reports `dropped_at`, an `estimated_bytes` figure, and a `reclamation` object: `state` (`retained_for_rollback` / `sweeping` / `done`), and while retained, a real `eligible_after` date it clears on by itself (`retained_by` is always `"age"`, naming that bound). Waiting is the only thing that brings the date forward — deploying again does not, since each deployment becomes a rollback target of its own. |
 
 `estimated_bytes` is an **estimate**, and the payload says so
 (`bytes_are_estimated`, `estimate_basis`): it divides the table's sampled size
@@ -64,21 +66,102 @@ curl -H "Authorization: Bearer $TOKEN" \
 curl -H "Authorization: Bearer $TOKEN" \
   "https://<host>/v1/usage?since=2026-06-01T00:00:00Z&until=2026-06-02T00:00:00Z"
 
-# This month's billing summary
-curl -H "Authorization: Bearer $TOKEN" \
-  "https://<host>/v1/usage/summary?month=2026-06"
-
 # Raw events, only failed ones, paginated
 curl -H "Authorization: Bearer $TOKEN" \
-  "https://<host>/v1/usage/events?outcome=error&limit=100"
+  "https://<host>/v1/usage/events?class=failed&limit=100"
 # next page: pass the returned cursor
 curl -H "Authorization: Bearer $TOKEN" \
-  "https://<host>/v1/usage/events?outcome=error&limit=100&cursor=$CURSOR"
+  "https://<host>/v1/usage/events?class=failed&limit=100&cursor=$CURSOR"
 
 # Most recent guest logs for a service
 curl -H "Authorization: Bearer $TOKEN" \
   "https://<host>/v1/services/notes/logs?limit=200"
 ```
+
+### The monthly usage summary
+
+`GET /v1/usage/summary` reports one calendar month in UTC (`month=YYYY-MM`;
+the current month if you leave it out). Each item is one of your services
+that had usage or stored data that month, deleted services included, with
+seven measures: `requests`, `compute_seconds`, `occupancy_gb_seconds`,
+`egress_gb`, `data_op_units`, `conflicts` and `storage_gb_month`.
+
+- **It pages.** `limit` is 100 by default and at most 500, and items come in
+  service-id byte order. Follow `next_cursor` until it is `null`, sending the
+  same `month` with every page: a cursor resumes only the month it came from,
+  and sent with another month it is a 400. One page is not the month.
+- **`totals` is on the first page only.** It holds the seven measures over
+  every service of the month. Every later page carries `totals: null`, so take
+  the month's totals from the first page rather than adding pages up.
+- **It is current to `as_of`.** Usage after that instant is not counted yet.
+  While `backfill_pending` is `true`, older history is still being rolled up,
+  and an older month can undercount until it finishes.
+- **Storage is month-to-date.** `storage_gb_month` covers the days so far,
+  current to `storage_as_of`, spread over the whole month, so during the month
+  it reads below where the month will end.
+
+**It is not your bill.** It reports quantities, never charges, and there is
+no invoice endpoint. Money that actually moves (charges for priced routes,
+credits, earnings) is in your ledger: `GET /v1/ledger/balance` and
+`GET /v1/ledger/entries`.
+
+```bash
+# One month's usage, every page: follow next_cursor until it is null.
+MONTH=2026-06
+PAGE=$(curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://<host>/v1/usage/summary?month=$MONTH&limit=500")
+echo "$PAGE" | jq '.totals'          # the month's totals: first page only
+while :; do
+  echo "$PAGE" | jq -c '.items[]'    # this page's services
+  CURSOR=$(echo "$PAGE" | jq -r '.next_cursor // empty')
+  [ -z "$CURSOR" ] && break
+  PAGE=$(curl -s -G -H "Authorization: Bearer $TOKEN" "https://<host>/v1/usage/summary" \
+    --data-urlencode "month=$MONTH" --data-urlencode "limit=500" \
+    --data-urlencode "cursor=$CURSOR")
+done
+```
+
+### Filtering the request log
+
+`GET /v1/usage/events` filters on the server, so ask for what you want
+instead of paging through everything and filtering yourself. Filters
+combine (all must match); an unknown value is a **400** that names it.
+
+| Parameter | Matches |
+|---|---|
+| `kind` | One event kind, e.g. `inbound_http` (a request to your service). |
+| `outcome` | A comma list of outcomes: `success`, `client_error`, `unauthorized`, `policy_denied`, `rate_limited`, `server_error`, `trap`, `oom`, `deadline`. |
+| `class` | A comma list of `served` (`success`), `rejected` (`client_error`, `unauthorized`, `policy_denied`: the caller's side), `refused` (`rate_limited`) or `failed` (`server_error`, `trap`, `oom`, `deadline`). With `outcome` too, only events in both. |
+| `caller` | Exactly this `caller_principal`. |
+| `path_prefix` | Paths that start with this text, literally: `%`, `_` and `\` are ordinary characters, not wildcards. At most 512 bytes. |
+| `min_wall_ms` | Requests that took at least this many milliseconds; a non-negative integer. |
+| `since`, `until` | RFC 3339 bounds, `since` inclusive, `until` exclusive. |
+
+```bash
+# Slow failures from one caller on one route family
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://<host>/v1/usage/events?service_id=notes&kind=inbound_http&class=failed&caller=$PRINCIPAL&path_prefix=/notes/&min_wall_ms=100"
+```
+
+**Each call reads a bounded window.** A call inspects at most 20,000
+events, newest first, from the cursor, applies the filters to those, and
+returns up to `limit` matches. So a rare filter never makes one call scan
+months of events, and the answer says how far it looked:
+
+- `searched_until` is the timestamp of the oldest event inspected (`null`
+  when none was).
+- `next_cursor` is set when the page is full, **and** when the call used its
+  whole budget. The second case is a **short page, even an empty one, with a
+  cursor**: nothing matched in what was inspected, and older events are
+  unread. Pass the cursor back to continue exactly where the call stopped;
+  no event is read twice or skipped.
+- `next_cursor` is `null` only when nothing further can match.
+
+To find a rare event, follow the cursor until you have the rows you want
+or it is `null`, and tell the person how far back you have looked
+(`searched_until`). Don't read an empty page with a cursor as "none":
+say "none since <`searched_until`>" and offer to search further. Send the
+same filters back with the cursor.
 
 ### Tracing one request end-to-end
 
@@ -114,6 +197,39 @@ amount, so the same two endpoints answer "what am I actually earning per call?"
 and "which calls hit the `max`?" — the second being the signal that your ceiling
 is truncating real charges rather than catching runaways.
 
+## Fleet views (`GET /v1/fleet/*`)
+
+The owner's whole fleet in four reads, the ones a console draws. Per-owner
+numbers come from a snapshot kept for about a minute (`computed_at`), so
+two reads in that minute agree; latency is in milliseconds. All four take
+`window`: `24h` (default; the 24 hours ending now), `7d` or `30d` (whole
+UTC days including today). Any other value is a 400.
+
+| Endpoint | Parameters beyond `window` | Returns |
+|---|---|---|
+| `GET /v1/fleet/summary` | none | Headline numbers, the hourly series, your five busiest modules and the rest, attention items, deploy markers, per-day counts, the health list, what you publish. |
+| `GET /v1/fleet/instances` | `sort` (`name`, `requests` (default), `failed`, `refused`, `p95`, `size`, `deployed`, `behind`), `dir` (`asc` or `desc`; `asc` for `name`, else `desc`), `module`, `module_owner`, `q` (service ids starting with this, literal, case-sensitive), `limit` (default 50, max 200), `cursor` | One page of your active instances with `total` (rows matching `module`, `module_owner` and `q`) and `next_cursor`. |
+| `GET /v1/fleet/modules` | `limit` (default 50, max 200), `cursor` | One page of the modules you run, or ran in the window, by requests descending. |
+| `GET /v1/fleet/series` | `services` (**required**: 1 to 10 comma-separated service ids), `shape` (`points`, the default, or `columns`), with `shape=columns`: `group` (hours per count column: 1, 6 or 24) and `p95_first` (how many of the ids carry their hourly p95) | Each named instance's hours with traffic, the points a chart draws; `columns` returns arrays on the window's hours instead, a fraction of the size. |
+
+- **A row's id.** An instance row is keyed by its `service_id`, the value
+  `series` takes in `services` and a live `fleet_live` socket takes in
+  `instances`. A module row has no single id field: it is the pair
+  `module_owner` + `module_name` (two publishers can share a name), and a
+  module with exactly one active instance names it in `only_instance`
+  (`service_id`, `deployment_shape`).
+- **Paging.** Follow `next_cursor` until it is `null`, sending the same
+  `window`, `sort`, `dir` and filters with it; a cursor reused with other
+  ones, or on another route, is a 400. A row's sort value can change
+  between two pages while the snapshot is recomputed, so a row can move past
+  the cursor or back behind it.
+- **Isolation.** Owner-only, like every read here. In `series`, an id with no
+  traffic, unknown, or not yours has no points; nothing tells them apart.
+- **Meta.** Responses say `as_of` (what the usage rollups are current to)
+  and `backfill_pending` (older history still being rolled up): numbers
+  before `as_of` are final, later ones are still landing. The platform's
+  `/openapi.json` has every field.
+
 ## MCP tools
 
 The same data is reachable as MCP tools for LLM clients — same identity,
@@ -121,7 +237,8 @@ same owner-scoping:
 
 | Tool | Maps to |
 |---|---|
-| `query_my_usage` | usage series / summary |
+| `list_my_services` | your active services, a page at a time (`limit` default 100, ≤ 500; pass the returned `next_cursor` back as `cursor`) |
+| `query_my_usage` | one service's usage series over a time window |
 | `tail_my_audit_events` | your audit tail |
 | `get_service_logs` | a service's recent guest logs |
 
@@ -149,25 +266,110 @@ socket.on("connect", () => {
   });
 });
 
-// One snapshot of recent lines, oldest-first, on subscribe:
+// A snapshot of recent lines, oldest-first, on subscribe. It can come
+// again later (your connection fell behind, or the stream was reopened):
+// each one REPLACES what you show, so keep a list and swap it.
+let shown = [];
 socket.on("logs:snapshot", (lines) => {
-  for (const line of lines) console.log(line.ts_ms, line.level, line.msg);
+  shown = lines;
 });
 
-// Then live lines as they're emitted:
+// Then live lines as they're emitted, appended after the snapshot:
 socket.on("logs", (line) => {
   // { ts_ms, level, msg, request_id? }
-  console.log(line.ts_ms, line.level, line.msg, line.request_id);
+  shown.push(line);
 });
 
 // Stop receiving:
 socket.emit("unsubscribe", { kind: "logs", service_id: "notes" });
 ```
 
-The subscribe envelope is `{ kind, ... }`. Today `kind: "logs"` is
-supported (it takes a `service_id`); additional channel kinds use the
-same `subscribe`/`unsubscribe` envelope with new `kind` values, so write
-clients to switch on `kind` rather than assuming logs are the only stream.
+The subscribe envelope is `{ kind, ... }`. The kinds are `logs` (above),
+`service_live` and `fleet_live` (your usage, live: next section) and
+`service` (a service's own channels: below). They share the one
+`subscribe`/`unsubscribe` envelope, so write clients to switch on `kind`
+rather than assuming logs are the only stream. Every ack is `{ ok: true, ... }`
+or `{ ok: false, error }`; read `error` rather than retrying blindly.
+
+## Live usage (`service_live`, `fleet_live`)
+
+The same `/v1/stream` connection streams **your usage as it lands**. Every
+host serving your services flushes its usage about every 10 s, and the
+totals reach your socket within a couple of seconds of that (a very large
+fleet's busiest rows can take a flush or two longer), so a live dashboard
+needs no polling. Both kinds are yours only: the owner is always
+your token's, never anything in the payload.
+
+| Subscribe with | Event | What it carries |
+|---|---|---|
+| `{ kind: "service_live", service_id }` | `service_live` | One service's hourly rows for the current hour and the two before, in `GET /v1/usage`'s row shape, as **absolute totals**. |
+| `{ kind: "fleet_live", window }`, `window` = `"24h"`, `"7d"` or `"30d"` | `fleet_live` | Your fleet over that window, in the shapes of the fleet views (`GET /v1/fleet/summary`, `/v1/fleet/instances`, `/v1/fleet/modules`, `/v1/fleet/series`, all in the platform's `/openapi.json`): the headline numbers, the current hour's point, attention items, two rankings, and the rows **your socket declares** it shows. |
+
+Every event also carries `status` (`"live"`, or `"paused"` with a `reason`)
+and `updated_at`.
+
+```js
+// One service, live. Rows are totals: keep the larger value per
+// (hour_bucket, kind). Never add them.
+socket.emit("subscribe", { kind: "service_live", service_id: "notes" }, (ack) => {
+  if (!ack.ok) console.warn(ack.error);
+});
+socket.on("service_live", (e) => {
+  // { service_id, status, reason, updated_at, rows: [{ hour_bucket, kind, event_count, ... }] }
+  for (const row of e.rows) {
+    const key = `${row.hour_bucket}|${row.kind}`;
+    const had = rows.get(key);
+    if (!had || row.event_count >= had.event_count) rows.set(key, row);
+  }
+});
+
+// The fleet, live: name the instance and module rows on screen.
+socket.emit("subscribe", {
+  kind: "fleet_live",
+  window: "24h",
+  instances: ["notes", "billing"],
+  modules: [{ module_owner: "alice", module_name: "notes" }],
+}, (ack) => { /* { ok: true, room } */ });
+socket.on("fleet_live", (e) => {
+  // The same for every socket: e.headline, e.series_point, e.attention,
+  // e.busiest (service ids), e.top_modules ({ module_owner, module_name }).
+  // Yours alone: e.instances, e.modules (whole rows: replace by id),
+  // e.instance_points, e.module_points (the current hour's points).
+});
+
+// The page changed: declare its rows. Your new scope's rows arrive at once.
+socket.emit("fleet_live_interest", { window: "24h", instances: nextPageIds, modules: [] }, (ack) => {});
+```
+
+- **A `fleet_live` event holds your scope, not your whole fleet.** Your
+  scope is the rows you declared (at most 200 instances and 200 modules, on
+  the subscribe or with `fleet_live_interest`) plus the platform's rankings:
+  `busiest`, up to 10 of your busiest services by requests, and
+  `top_modules`, up to 5 modules. A row in scope is sent when it changed
+  since your socket's last event, and whole, whatever it equals, when it
+  newly entered your scope: your first event and the answer to each
+  `fleet_live_interest` carry every row and point of your scope. An event
+  is therefore small whatever your fleet's size; declare what you show, or
+  you get nothing for it.
+- **When events come.** A `fleet_live` socket's first event follows its
+  ack (for a window nobody was watching, it comes with the first push). A
+  `service_live` socket gets the service's rows on joining, or nothing if
+  the service is idle. After that, an event whenever values in scope change,
+  on average at most one every 2 s per window.
+- **Events carry changes, not state.** Read the REST view first, then patch
+  it; after a reconnect, read it again and resubscribe (the subscribe can
+  carry your rows again).
+- **`"paused"` is late, not wrong.** `backend_down`, `rollups_behind`,
+  `host_capacity` or `disabled`: keep showing what you have, and the REST
+  views still answer. Show the pause; don't hide it.
+- **Isolation.** An anonymous socket is refused `not found`. A
+  `service_live` id you do not have is accepted and never fires, exactly
+  like an idle service of yours, so it reveals nothing about which exist.
+- **Refusals to handle:** `too many ids` (over 200 in a list; nothing
+  changed), `bad window`, `subscribe rate exceeded` (a `fleet_live_interest`
+  counts against the same budget as a subscribe, so debounce it),
+  `channel at capacity` (too many of your sockets on one window at once),
+  `live rooms at capacity`.
 
 ### Service channels (subscribing to a service's real-time messages)
 
@@ -242,5 +444,10 @@ have. There is no separate files dimension, and a file read costs no compute.
 | "My `log::info!` calls will show up in the logs endpoint." | Only if the manifest grants `[capabilities] logging = true`. Without it the macros are inert. |
 | "I'll log inside a tight loop to trace everything." | Emission is rate-limited (~50/s, burst ~200); excess is dropped. Log decisions/events, not every iteration. |
 | "I need to build a request-tracing system to follow a call across services." | Grab `x-boogy-request-id` from the response and `GET /v1/usage/requests/{id}` — the platform already correlates every hop. |
+| "To find failures or slow requests, I'll page through `/v1/usage/events` and filter them myself." | Ask the server: `class`, `outcome`, `caller`, `path_prefix`, `min_wall_ms`. A call reads a bounded window, so a short page with a `next_cursor` means "keep going", not "no more", and `searched_until` says how far back it looked. |
+| "An empty events page means there are none." | With a `next_cursor` it means none in the events inspected (back to `searched_until`). Follow the cursor, or report the time you searched to. |
 | "Streaming logs needs a custom WebSocket endpoint in my service." | The `/v1/stream` Socket.IO gateway streams owner logs already — connect a client, no service code. |
-| "I'll only handle a `logs` event from the stream." | Also handle `logs:snapshot` (the oldest-first initial batch) and switch on `kind` — more channel kinds use the same envelope. |
+| "I'll only handle a `logs` event from the stream." | Also handle `logs:snapshot` (the oldest-first batch, which replaces what you show each time it comes) and switch on `kind` — more channel kinds use the same envelope. |
+| "I'll poll `/v1/usage` every few seconds for a live dashboard." | Subscribe to `service_live` or `fleet_live` on `/v1/stream`: about every 10 s, no polling. |
+| "I'll add each pushed row to my running total." | Pushed rows are absolute totals. Keep the larger value per hour and kind; adding double counts. |
+| "A `fleet_live` event lists every instance that changed." | Only the rows your socket declared, plus the `busiest` and `top_modules` rankings. Declare your page with `fleet_live_interest`. |
