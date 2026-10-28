@@ -1,6 +1,6 @@
 ---
 name: boogy-observability
-description: Use when an owner wants to see their own service usage (including live, as traffic lands), billing dimensions, raw events, a single request trace, audit tail, storage, or guest logs — via the /v1 REST API, MCP tools, or the live log and usage streams — or when building a live usage dashboard, or adding guest logging to a service so its logs become retrievable
+description: Use when an owner wants to see their own service usage (including live, as traffic lands), billing dimensions, what their usage costs (notional and billed, the daily credit, why their services are paused), raw events, a single request trace, audit tail, storage, or guest logs — via the /v1 REST API, MCP tools, or the live log and usage streams — or when building a live usage dashboard, or adding guest logging to a service so its logs become retrievable
 ---
 
 # Boogy Observability
@@ -35,11 +35,13 @@ takes the token in its handshake; see below).
 |---|---|
 | `GET /v1/usage` | Hourly usage series. Fields per bucket include fuel consumed, store ops, cold starts, peak memory, and request-latency percentiles (p50/p95/p99). Filters: `service_id`, `kind`, `since`, `until` (RFC 3339). Default window: last 24h. |
 | `GET /v1/usage/summary?month=YYYY-MM` | One month's metered usage per service, across the 7 billing dimensions, **one page of services at a time**, plus the month's `totals` on the first page. A usage view, not an invoice: see [The monthly usage summary](#the-monthly-usage-summary). |
+| `GET /v1/account` | Your money: the prepaid balance, and `daily_credit` (today's credit: `amount`, `spent`, `available`, `exhausted`, `paused`, `resets_at`). See [What your usage costs](#what-your-usage-costs). |
+| `GET /v1/pricing` | The platform's price list, anonymous: each meter's free daily allowance and price past it, and the daily credit. |
 | `GET /v1/usage/events` | Raw usage events, newest first. Filters: `service_id`, `kind`, `outcome`, `class`, `caller`, `path_prefix`, `min_wall_ms`, `since`, `until` (see "Filtering the request log" below). Keyset paginated via `cursor`; `limit` ≤ 500. Each call inspects a bounded number of events, so a page can be short with a `next_cursor` still set. A JSON-RPC call's `inbound_http` event names the method that answered in `rpc_method` (a `Router::rpc` mount's method; `null` for any other request, and for a method the service does not have). |
 | `GET /v1/usage/requests/{request_id}` | The full trace of one request across every hop it touched — inbound, cross-service, MCP, and outbound. |
 | `GET /v1/services/{id}/pricing` | What that service is actually charging, as compiled at deploy: every priced route with its payer, price, rate and `max`, plus whether the owner account resolved (if it did not, priced routes refuse). |
 | `GET /v1/services` | Your active services (including any being deleted, with `deleting: true`), one page at a time in service-id byte order: `limit` (default 100, ≤ 500) and `cursor`; the response is `{items, next_cursor}`, `next_cursor` null on the last page. `module` keeps the instances of modules with that **name** — by name only, so two publishers' modules that share a name both match; `q` keeps ids that start with that text (literal, case-sensitive). A `cursor` resumes only with the `module` and `q` it was returned under; sent with any other values it is a 400. |
-| `GET /v1/audit` | Your audit tail (owner-scoped), newest first. Filters: `service_id` (only events whose resource is exactly `<owner>/<service_id>` or under `<owner>/<service_id>/`; `notes` does not match `notes2`), `action_prefix`, `outcome` (`success`/`failure`), `since`, `class` (`changes`: anything but a sign-in; `deploys`: provisions and upgrades that succeeded; `refused`: refused provisions, upgrades and module uploads; `failures`: anything that did not succeed; `signins`: every sign-in to your account, whatever its outcome; any other `class` is a 400), and `q` (keeps the events of your instances whose id starts with this text, matched literally; an event on something inside an instance, such as one of its secrets, counts as the instance's. A sign-in's target is your account, so no `q` returns one. `q` never returns a module upload's event either, refused uploads included, whatever target the event names: `q=m` or `q=modules` finds an instance whose id starts so, never an upload. And `q` leaves out what you did to another owner's resources), and `module` (one of your modules' events: the module's own and every version's, `<owner>/modules/<module>` and `…@<version>`; `notes` does not match `notes2`; `module_owner` names the publisher, you when absent, and alone it is a 400). Keyset paginated: `limit` (default 100, ≤ 500) and `cursor`; the response is `{owner, count, items, next_cursor}`, `next_cursor` null on the last page. A `cursor` resumes only with the filters it was returned under; sent with other `service_id`, `action_prefix`, `outcome`, `since`, `class`, `q`, `module` or `module_owner` values it is a 400, so page with the same query string and only the `cursor` changing. |
+| `GET /v1/audit` | Your audit tail (owner-scoped), newest first: events you made, events on your resources, and your account's own billing events (`usage.credit_exhausted`, `usage.rates_overridden`). Filters: `service_id` (only events whose resource is exactly `<owner>/<service_id>` or under `<owner>/<service_id>/`; `notes` does not match `notes2`), `action_prefix`, `outcome` (`success`/`failure`), `since`, `class` (`changes`: anything but a sign-in; `deploys`: provisions and upgrades that succeeded; `refused`: refused provisions, upgrades and module uploads; `failures`: anything that did not succeed; `signins`: every sign-in to your account, whatever its outcome; any other `class` is a 400), and `q` (keeps the events of your instances whose id starts with this text, matched literally; an event on something inside an instance, such as one of its secrets, counts as the instance's. A sign-in's target is your account, so no `q` returns one. `q` never returns a module upload's event either, refused uploads included, whatever target the event names: `q=m` or `q=modules` finds an instance whose id starts so, never an upload. And `q` leaves out what you did to another owner's resources), and `module` (one of your modules' events: the module's own and every version's, `<owner>/modules/<module>` and `…@<version>`; `notes` does not match `notes2`; `module_owner` names the publisher, you when absent, and alone it is a 400). Keyset paginated: `limit` (default 100, ≤ 500) and `cursor`; the response is `{owner, count, items, next_cursor}`, `next_cursor` null on the last page. A `cursor` resumes only with the filters it was returned under; sent with other `service_id`, `action_prefix`, `outcome`, `since`, `class`, `q`, `module` or `module_owner` values it is a 400, so page with the same query string and only the `cursor` changing. |
 | `GET /v1/storage` | Your account's storage, one budget for every service's tables and files: `used_bytes`, `allowance_bytes` (free), `ceiling_bytes`, `max_storage_bytes` (your own cap), `state` (`ok`, `nearing`, `paid`, `grace`, `refusing`, `ceiling`), `grace_ends_at`, the rate, `charged_this_month_usd`, `owed_usd` (every storage hour still owed, any month: a top-up pays these first, oldest first, before the current hour). Add `?per_service=1` for each service's bytes (`per_service`); without it the list is left out. In `refusing` or `ceiling` growing writes get 507; see `boogy:boogy-capability-limits`. |
 | `GET /v1/quota` | Each of your services' stored bytes (`size_bytes` tables, `files_bytes`; `null` until first measured, with `sampled_at`), your **account's** ceiling (`quota_bytes`), `percent_used`, and whether the account refuses growing writes (`over_quota`, with `refusal`: `refusing` or `ceiling`). |
 | `GET /v1/services/{id}/quota` | That row for one service: 200 for any service you own, measured or not; 404 if not yours / not found. |
@@ -100,8 +102,10 @@ seven measures: `requests`, `compute_seconds`, `occupancy_gb_seconds`,
   current to `storage_as_of`, spread over the whole month, so during the month
   it reads below where the month will end.
 
-**It is not your bill.** It reports quantities, never charges, and there is
-no invoice endpoint. Money that actually moves (charges for priced routes,
+**The items are quantities, not charges.** What they cost is the `cost`
+object, on the **first page of the current month only** (`null` on later
+pages and for past months): see [What your usage costs](#what-your-usage-costs).
+There is no invoice endpoint. Money that moves for priced routes (charges,
 credits, earnings) is in your ledger: `GET /v1/ledger/balance` and
 `GET /v1/ledger/entries`.
 
@@ -178,6 +182,84 @@ RID=$(curl -sD - -o /dev/null -H "Authorization: Bearer $TOKEN" \
 curl -H "Authorization: Bearer $TOKEN" \
   "https://<host>/v1/usage/requests/$RID"
 ```
+
+## What your usage costs
+
+Usage is priced per meter per UTC day: requests, compute, occupancy and
+egress each have a **free daily allowance**, and past it a price; storage has
+a free amount held and a monthly price, charged by the hour. The list is
+public: `GET /v1/pricing` (no token) returns each meter's `free` allowance,
+its `price_usd` per `per`, its `window` (`day`, or `held` for storage) and
+`daily_credit_usd`.
+
+**The daily credit.** Every account gets a credit each UTC day (currently
+$10 during the preview), resetting at 00:00 UTC. A charge is paid from the
+day's credit first, then from your prepaid balance, and what neither covers
+is recorded as owed. The credit pays only platform usage and storage: a
+priced route of another service is always paid from your balance, never
+from the credit. Read it on `GET /v1/account`:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" https://<host>/v1/account | jq '.daily_credit'
+# { "amount": "10.00", "spent": "0.42", "available": "9.58",
+#   "exhausted": false, "paused": false, "resets_at": "2026-10-29T00:00:00Z" }
+```
+
+`exhausted` says today's credit and your balance ran out; `paused` says your
+services are actually paused for it. The two differ only while the platform
+is not enforcing pauses: then an exhausted day is recorded as owed and
+nothing is paused. `daily_credit` is `null` when it could not be read; that
+is not a zero credit.
+
+**Notional and billed.** The first page of the current month of
+`GET /v1/usage/summary` carries `cost`, with `today` and `month_to_date`:
+
+| Field | Means |
+|---|---|
+| `notional_usd` | What the usage is worth at list price, ignoring the free allowances. |
+| `billed_usd` | What was actually charged: the usage past each day's allowance, at your rate. For storage, the hours charged in the period. |
+| `meters[]` | Per meter: `quantity` and `allowance` (today; in the meter's unit from `/v1/pricing`), `rate_usd` (list price), `billed_rate_usd` (the rate you are billed at), and both amounts. |
+| `as_of` | What billed is current to. Charges trail usage by a minute or so; usage after `as_of` is not charged yet. |
+
+The gap between notional and billed is what the free allowances saved you.
+Billed only ever rises during a day: usage that arrives late (up to two days)
+is added to the day it happened, against that day's credit.
+
+**What the platform refuses is not billed as requests.** Requests the
+platform turns away before your code runs (rate limited, refused by your
+ingress policy, unauthenticated, or shed because a host is busy) are not
+counted on the requests meter, so a flood your rate limit stops does not
+spend your credit on requests.
+
+### When your services are paused
+
+When today's charges pass the day's credit **and** your balance cannot cover
+the rest, your account is **paused until 00:00 UTC**:
+
+- Requests that reach your code, on every one of your services, and calls
+  into them from other services, get the answer a busy host gives: **503**
+  with a short `Retry-After`. Your users see an ordinary temporary outage.
+  Nothing in the response mentions billing, credit or your account, to them
+  or to another service calling you.
+- What a busy host answers without running your code is answered the same
+  way while you are paused: your frontend's static assets are still served,
+  and sign-in and authentication answers (a `401` for a missing token, a CORS
+  preflight) come back as usual.
+- Your background jobs wait and run after the reset; none is dropped.
+- Your services' websocket publishes fail as if the real-time backend were
+  unavailable.
+- Sign-in on your services still works, and so does everything you do as the
+  owner: the console, deploys and every `/v1` read.
+
+Only you are told why: `daily_credit.paused` is `true` on
+`GET /v1/account`, the console shows a banner on every page, and your audit
+tail (`GET /v1/audit`) holds a `usage.credit_exhausted` event. At 00:00 UTC the credit resets and the pause
+ends on its own; there is nothing to call. To keep serving past the credit,
+keep a prepaid balance: charges past the credit are paid from it before
+anything is paused. If you believe a pause is a mistake, ask Boogy support:
+the platform can lift it for the rest of the day, after which
+`daily_credit` reads `exhausted: true, paused: false` and your services
+serve again (usage that day is still charged).
 
 ## Measuring a route before you price it
 
@@ -440,6 +522,9 @@ have. There is no separate files dimension, and a file read costs no compute.
 | Thought | Reality |
 |---------|---------|
 | "I can see usage across all services on the host." | Owner-scoped only. You see your own services; others' are invisible (404, same as not-found). |
+| "The usage summary is only quantities; I'll multiply by the prices myself." | Read `cost` on the summary's first page for the current month: `billed_usd` is what was actually charged, after allowances and your rate. Your own arithmetic is notional at best. |
+| "My service returns 503 to everyone; the platform is down." | Check `daily_credit.paused` on `GET /v1/account` first. A paused account looks exactly like a busy host to callers, on purpose, and ends at 00:00 UTC. |
+| "I'll pay for priced routes with the daily credit." | The credit pays platform usage and storage only. A priced route is paid from your prepaid balance. |
 | "Logs are a permanent record I can query for last month." | Recent-tail only — ~1000 most-recent lines per service, capped at 2 KiB each. For durable history ship to an external sink via `outbound_http`. |
 | "My `log::info!` calls will show up in the logs endpoint." | Only if the manifest grants `[capabilities] logging = true`. Without it the macros are inert. |
 | "I'll log inside a tight loop to trace everything." | Emission is rate-limited (~50/s, burst ~200); excess is dropped. Log decisions/events, not every iteration. |
