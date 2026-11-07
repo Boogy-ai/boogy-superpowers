@@ -217,13 +217,48 @@ code handles, and the tx can still commit. See `boogy:boogy-transactions`.
 ## Importing an existing key (operator, out-of-band)
 
 Generate-in-place is the default and the strongest path (the key is born inside
-the boundary, non-exportable). An operator can also **import** an existing
-private key out-of-band — `PUT /v1/services/{service}/signing-keys/{label}`
-with a **sealed** body (the first-party clients seal it client-side; a raw
-plaintext body is rejected). The service's running version must declare
-`signing = true`; otherwise the import answers `409` and nothing is stored.
-Your wasm never does this — it only ever *generates*. Imported keys are a documented weaker-provenance path (the key
-existed outside the boundary once).
+the boundary, non-exportable). When a third party issues the key pair itself,
+generating in place is useless: an Apple App Store Connect or APNs key is a
+`.p8` file Apple made, and only that key's signatures count. So an owner can
+also **import** an existing private key, of any of the three algorithms:
+
+```text
+boogy signing import <service> <label> --alg ecdsa-p256 --key-file AuthKey_ABC123.p8
+boogy signing list <service>
+```
+
+The CLI seals the key on your machine (to the platform's seal key, pinned on
+first use) and calls `PUT /v1/services/{service}/signing-keys/{label}`; a raw
+plaintext body is rejected. Accepted: `ecdsa-p256` as PKCS#8 (a `.p8` as
+downloaded), SEC1 or the 32-byte scalar; `ed25519` as PKCS#8 or the 32-byte
+seed; `ecdsa-secp256k1` as the 32-byte scalar. A key for another curve is
+refused (`400`). The service's running version must declare `signing = true`;
+otherwise the import answers `409` and nothing is stored. A `503` "not enabled
+on this platform yet" for a P-256 or Ed25519 import means the platform is
+mid-upgrade: retry later.
+
+Your wasm never imports; it signs with the label like any other key
+(`sign-digest` for ECDSA, `sign-message` for Ed25519), and the signature has
+the same shape as a generated key's. Imported keys are a documented
+weaker-provenance path: the key existed outside the boundary once, and the
+platform holds it wrapped under its own key and unwraps it to sign, where a
+generated P-256 or Ed25519 key never leaves the vault it was born in.
+
+**Signing your own bearer token (ES256 JWT, e.g. App Store Connect):**
+
+1. Import the `.p8` as above, under a label such as `asc`.
+2. Build the signing input: `base64url(header) + "." + base64url(claims)`,
+   with header `{"alg":"ES256","kid":"<key id>","typ":"JWT"}` and the claims
+   the API wants (`iss`, `iat`, `exp`, `aud`).
+3. `sign-digest` the SHA-256 of that input with `EcdsaP256`. The signature
+   is already JWS form: 64 bytes `r‖s`. Append `"." + base64url(signature)`.
+4. Send it in `headers` as `Authorization: Bearer <jwt>` on the outbound
+   request (not in `secret_headers`: you made it, nothing is stored). It goes
+   out as written, unless the same request also asks the platform to inject
+   an `Authorization`, which is refused. See `boogy:boogy-outbound-http`.
+
+Mint it outside any transaction (`sign-digest` is refused inside one), and
+reuse it until shortly before its `exp` rather than signing per request.
 
 The owner can see a service's keys with
 `GET /v1/services/{service}/signing-keys`: each key's `label`, `alg` (spelled

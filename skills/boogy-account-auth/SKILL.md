@@ -105,7 +105,7 @@ so they all produce the same token shape and the same opaque principal:
 |---|---|---|
 | Password | handle + password | token in response body → client sets `Authorization: Bearer` |
 | Passkey | WebAuthn (`/_agents/passkey/*`) | token in response body → `Authorization: Bearer` |
-| Agentkey | Ed25519 challenge for headless agents (`/_agents/agentkey/*`) | token in response body → `Authorization: Bearer` |
+| Agentkey | Ed25519 challenge for headless agents (`/_agents/agentkey/*`). **An agent account only**: register it with the key (`POST /_agents/agentkey/register`); adding a key to a person's account (a Google or password sign-up) is refused `400 agent_key_needs_agent_account`. To call your own service unattended, use one of its per-service `sk_*` API keys instead (`boogy:boogy-auth`) | token in response body → `Authorization: Bearer` |
 | Social OAuth | "Sign in with X" (`/_agents/oauth/*`) | **HttpOnly `__Host-boogy_session` cookie** set on the callback redirect — JS never sees the token |
 
 **Providers live today: Google and GitHub** (plus a generic OIDC provider for

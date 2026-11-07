@@ -81,12 +81,13 @@ An unindexed equality read is not a slow query — it is a full table scan whose
 cost grows with the tenant's data, and it will pass every test you write against
 a small fixture.
 
-### 4. No task may say "write a failing test" for the service crate
+### 4. No task may say "write a failing test" for a handler
 
-The service crate is a `cdylib` with generated bindings. **It has no
-`cargo test` target** — the generated symbols do not host-link, so a test binary
-fails to build. A plan that instructs it wastes an hour before the engineer
-discovers why.
+The service crate's own `#[cfg(test)]` tests build and run on the host, but
+every platform call (`store::*`, `auth::*`, …) is a stub there that panics,
+and requests are built only by the platform. So a test of a pure function in
+the crate works, and a test of a handler or guard can never pass. A plan that
+asks for one wastes an hour before the engineer discovers why.
 
 RED/GREEN lives in two places instead:
 
@@ -165,7 +166,7 @@ is a point lookup without reading the code.
 | Thought | Reality |
 |---|---|
 | "I'll write the manifest once I know what I need." | You already know: the design said so. A manifest written last is a manifest that documents whatever you happened to build. |
-| "I'll add a unit test for the handler." | The service crate has no test target. Extract the logic or exercise it deployed. |
+| "I'll add a unit test for the handler." | A handler cannot run off wasm: its platform calls panic and no request is constructible. Extract the logic or exercise it deployed. |
 | "The query is fine, it's fast locally." | Locally you have twelve rows. State the access pattern or state that it is a scan. |
 | "I'll check conventions before I ship." | `boogy check` is seconds. Running it once at the end means finding ten things at once, in code you have stopped thinking about. |
 | "It builds, so the task is done." | A build proves it compiles. Only exercising the deployed URL proves it serves. |

@@ -60,7 +60,7 @@ background_jobs = true       # needed to ENQUEUE; processing-only services may o
 
 [background_jobs.handlers.send_nightly_digest]
 schedule = "0 0 2 * * *"     # 6-field cron: sec min hour day month dow → 02:00 UTC
-# deadline_ms = 30000              # max wall-clock per invocation
+# deadline_ms = 30000              # max wall-clock per invocation; the platform caps it at 300000 (5 min)
 # max_attempts = 3                 # retry limit (>= 1)
 # backoff_ms = 1000                # delay between retries
 # max_concurrent_per_tenant = null # per-tenant in-flight cap (null = unlimited)
@@ -70,6 +70,14 @@ schedule = "0 0 2 * * *"     # 6-field cron: sec min hour day month dow → 02:0
 A handler with a `schedule` fires on that cadence automatically — do NOT
 build your own cron loop or background timer. A service has no async runtime
 and no threads: a handler runs, returns, and the instance goes away.
+
+**A job runs with the same capabilities a request does**, as granted in the
+manifest: the store, `files` (write an export, read it back, hand out its
+`url()`; a private collection's link needs the platform's file-grant key,
+and without it that one call is `capability-denied`), `outbound_http`,
+`signing`, `peer`, and logging (`log::info!` lines from a job reach your logs
+from SDK 0.3.0; earlier SDKs dropped them). A `deadline_ms` above 5 minutes
+runs to 5 minutes: split longer work into smaller jobs.
 
 ## Which version runs a job
 
@@ -184,6 +192,26 @@ committed) and it is usually worth paying. But it means:
 - **It lengthens the transaction window**, so a row already under write
   contention gets more contended. If you are seeing conflict retries on a
   hot row, staging a job on that path makes them worse.
+- **The window is about 5 seconds, for the whole transaction**, staged jobs
+  included. A transaction open longer than that cannot commit: keep the
+  slow work (outbound calls, big reads) out of it and stage the job last.
+
+## When jobs stop running
+
+A job you enqueued that never completes shows in your failure audit
+(`GET /v1/audit?class=failures`) as one of:
+
+- **`lease_expired`**: an attempt started and its worker stopped reporting
+  (the worker restarted, or could not reach its queue). The job is put back
+  and runs again: at-least-once is why handlers must be idempotent.
+- **`lease_expired_max_attempts`**: that happened on its last allowed attempt,
+  so it is dead-lettered. Enqueue it again once the cause is gone.
+
+A few of these around a platform deploy are normal. A run of them across
+your jobs with no error of your own, or jobs staying `pending` (check with
+`jobs_status(job_id)` outside a transaction), means the platform
+is not running jobs: report it with a `job_id` and the time; there is nothing
+to change in your code.
 
 ## At-least-once — the Iron Law
 

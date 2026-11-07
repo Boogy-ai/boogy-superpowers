@@ -40,9 +40,12 @@ Ordinary TDD says: write the failing test, watch it fail, make it pass. That
 works here in exactly one place, and instructing it anywhere else wastes an hour
 before you find out why.
 
-**The service crate has no `cargo test` target.** It is a `cdylib` with generated
-bindings; a test binary does not link the generated symbols. So RED/GREEN lives
-in two places:
+**A handler cannot be unit-tested.** The service crate's `#[cfg(test)]` tests
+do build and run on your machine (`cargo test -p <crate> --lib`), but every
+call into the platform (`store::*`, `auth::*`, `outbound_http`, …) is a stub
+there that panics, and requests and params are built by the platform, so no
+test can construct one. A pure function in the crate can be tested where it
+is; a handler cannot. So RED/GREEN lives in two places:
 
 - **Pure logic → a sibling library crate.** Ranking, parsing, validation, money
   math, bucketing. Write the failing test, run it, watch it FAIL, implement the
@@ -98,15 +101,15 @@ decoder and assert `Err`, never a panic** (malformed/oversized/wrong-type
 input). For any guardrail, cap, or validation logic, ambiguous or
 unparseable input must **fail closed** (reject), never silently allow.
 
-**Layer 2 — the wasm crate is glue. Keep it thin; do NOT unit-test it.**
+**Layer 2 — the wasm crate is glue. Keep it thin; do NOT unit-test its handlers.**
 The service crate is `[lib] crate-type = ["cdylib"]` with WIT bindings.
-It has **no `cargo test` target** — the generated WIT symbols don't
-host-link, so building a test variant fails at link time. There is no
-local host to call into, and request/param types are host-constructed:
-**any "test constructor" you reach for (e.g. building a request or
-params object yourself) does not exist and will not compile.** Don't
-write `#[cfg(test)]` integration tests inside this crate. Move logic
-down to Layer 1; verify everything else at Layer 3.
+Its `#[cfg(test)]` tests compile and run on the host, but off wasm every
+platform import is a stub that panics when called, and request/param types
+are host-constructed: **any "test constructor" you reach for (e.g. building
+a request or params object yourself) does not exist and will not compile.**
+A test of a pure helper in this crate is fine; a test that reaches a
+handler, a guard or any platform call cannot pass. Move logic down to
+Layer 1 (or keep it pure here); verify everything else at Layer 3.
 
 **Layer 3 — the deployed service → real requests.** Build, deploy, and
 hit the running service with `curl` or an API client. This IS the
@@ -193,7 +196,7 @@ the right answers.
 | Thought | Reality |
 |---------|---------|
 | "Build is green, so the wiring works." | A green build proves it compiles, not that it routes, stores, or authorizes. Only a real request proves that. |
-| "I'll write a local integration harness for the handler." | There isn't one. The cdylib + WIT crate has no test target and no constructible request type. Deploy-and-exercise IS the integration layer. |
+| "I'll write a local integration harness for the handler." | There isn't one. Platform calls are panicking stubs off wasm and no request type is constructible. Deploy-and-exercise IS the integration layer. |
 | "Unit tests pass, ship it." | Which tests? The store write and the authz boundary are untested until a real request hits the deployed service. |
 | "It's read-only, auth doesn't matter." | The existence-mask (404 not 403) is a behavior you must verify, not assume. |
 | "It's a mundane CRUD app — adversarial testing is overkill." | The boring-looking service is exactly where the un-tested forgery/limit hole ships. Test identity-from-body, limit-bypass, and hostile upstream responses regardless of domain. |

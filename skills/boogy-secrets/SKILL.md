@@ -63,8 +63,9 @@ fn charge(form_bytes: Vec<u8>) -> Result<(), outbound_http::FetchError> {
 }
 ```
 
-Injected secret headers are highest precedence (they overwrite any
-same-named header you set) and are stripped on cross-origin redirects.
+Injected secret headers are stripped on cross-origin redirects. Set the same
+header yourself in `headers` as well and the request is refused, nothing
+sent: the platform never silently replaces your value, nor yours its.
 
 ## Usage-scoping
 

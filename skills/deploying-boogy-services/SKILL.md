@@ -216,6 +216,7 @@ curl -sS -D- -o /dev/null https://notes-7k3q.boogy.app/health
 | 404 (or anything) **without** that header | Something other than the platform answered — the edge has no route for this hostname | **Operator-side. Not your code.** |
 | `SSL: no alternative certificate subject name matches target hostname`, or a certificate issued to something other than your domain | No certificate for this host yet | **Operator-side. Not your code.** |
 | Connection refused / DNS failure | The host does not resolve or route | **Operator-side. Not your code.** |
+| Requests work, but enqueued jobs never finish (`lease_expired` in `GET /v1/audit?class=failures`, or jobs stuck `pending`) | The job runner is not running them | `boogy:boogy-background-jobs` "When jobs stop running" |
 
 **Why this table exists.** A 404 from the edge's default backend is
 byte-identical to the 404 a router that disagrees with its declared base

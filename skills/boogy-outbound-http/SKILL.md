@@ -68,11 +68,25 @@ fn charge(payload_bytes: Vec<u8>) {
 }
 ```
 
-**Credentials go in `secret_headers`, never `headers`** — each tuple is
-`(header-name, secret-ref)` where the ref is a name declared in
+**Stored credentials go in `secret_headers`, never `headers`** — each tuple
+is `(header-name, secret-ref)` where the ref is a name declared in
 `[secrets]`. The host injects the value at the wire edge; your wasm never
-sees it. See `boogy:boogy-secrets`. Reserved headers (`authorization`,
-`cookie`, `x-boogy-*`, `host`) supplied in plain `headers` are stripped.
+sees it. See `boogy:boogy-secrets`.
+
+**A token your code makes itself goes in `headers`.** An `Authorization:
+Bearer <jwt>` you signed with `boogy:boogy-signing` (an ES256 JWT for Apple's
+App Store Connect, say) is sent exactly as you wrote it. What is refused,
+with nothing sent:
+
+- `cookie`, `host` and any `x-boogy-*` header: the platform's.
+- A header the platform fills on the same request: your own `Authorization`
+  beside a `secret_headers` entry named `Authorization` or a
+  `connection_auth`, or any header a `secret_headers` entry also names. Pick
+  one source; the platform never silently replaces either.
+
+A refusal is `Err(FetchError::RequestTooLarge(msg))` with `msg` =
+`"header-refused: <header>: <reason>"`; `boogy_sdk::outbound::header_refused(&msg)`
+turns it into a `HeaderRefused { header, reason }` to match on.
 
 **To call an API as one of your users**, set `connection_auth` instead: it
 names a `[connections.<name>]` block and a subject, and the host injects a
@@ -89,8 +103,8 @@ transport-level only: `host-not-allowed`, `blocked-address`,
 `resp.status` for application-level HTTP results.
 
 Redirects are followed with per-hop re-validation; cross-origin hops
-strip Authorization and injected secret headers, so a credential bound
-for one origin can't leak to another.
+strip `Authorization` (yours or the platform's) and injected secret headers,
+so a credential bound for one origin can't leak to another.
 
 ## Limits
 
@@ -121,6 +135,6 @@ to external object storage — see `boogy:boogy-capability-limits`.)
 | "I'll add `reqwest` / open a socket." | No network primitive — only `outbound_http::fetch`. |
 | "Grant the capability, set hosts later." | Empty `allowed_hosts` fails at deploy. List real hosts. |
 | "`allowed_hosts = ["*"]`." | Bare `*` is refused. Enumerate hosts or `*.domain`. |
-| "Put the API key in `headers`." | Use `secret_headers` (host-injected); plain auth headers are stripped. |
+| "Put the API key in `headers`." | A stored key goes in `secret_headers` (host-injected; your wasm never holds it). `headers` is for what your code made itself, like a JWT you signed. |
 | "A 404 came back as an error." | 4xx/5xx are `Ok(resp)` with `resp.status`. `Err` is transport-only. |
 | "Call the payment API inside the tx so it's atomic." | Outbound is denied in-tx. Stage a commit-gated job instead. |

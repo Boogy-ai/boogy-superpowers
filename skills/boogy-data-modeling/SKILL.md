@@ -146,6 +146,21 @@ expectation, and a plain integer column counting minor units is just as valid
 as `Decimal`. Choosing between them, its range, parsing and rounding:
 `boogy:boogy-money-and-decimals`.
 
+A `Decimal` column is stored as an integer of minor units and declared with
+the format `decimal(6)`, so the console's rows view and
+`GET /v1/services/{id}/schema` show `65.200000`, not `65200000` (from SDK
+0.3.0; a service built with an earlier SDK shows minor units until it is
+rebuilt and redeployed). The format is part of the column:
+
+- **`Decimal` → `i64`** on a deployed field is refused with a 409: the stored
+  values are minor units, and an `i64` would read every one a million times
+  too large.
+- **`i64` → `Decimal` in place deploys, and rescales every stored value**:
+  `65` becomes `0.000065`. The platform cannot tell it from a `Decimal` built
+  before formats existed, so it cannot refuse it. Do it as a migration
+  instead: add a NEW `Decimal` field, deploy, copy the values across (times
+  `Decimal::SCALE`), then remove the old field with `dropped("old")`.
+
 ### What a column accepts
 
 **The column type binds the stored value, not just the declaration.** A whole

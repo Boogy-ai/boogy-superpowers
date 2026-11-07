@@ -225,6 +225,10 @@ The gap between notional and billed is what the free allowances saved you.
 Billed only ever rises during a day: usage that arrives late (up to two days)
 is added to the day it happened, against that day's credit.
 
+**Looking at your data costs nothing.** Each page of the console's table
+rows view is recorded as a `console_read` event (so it shows in your usage
+events), and is never billed: it is not a request and carries no compute.
+
 **What the platform refuses is not billed as requests.** Requests the
 platform turns away before your code runs (rate limited, refused by your
 ingress policy, unauthenticated, or shed because a host is busy) are not
@@ -490,6 +494,10 @@ fn create_widget(req: &mut Req<'_>) -> Result<NoContent, ApiError> {
     Ok(NoContent)
 }
 ```
+
+The same macros work in a background job handler: its lines land in the
+same per-service buffer as your requests' (from SDK 0.3.0; a service built
+with an earlier SDK drops a job's lines until it is rebuilt).
 
 ### Logging behavior (platform-enforced)
 

@@ -195,6 +195,13 @@ effect — the same rule that denies outbound HTTP and signing writes
 there. Move the call outside `tx()`. Minting an upload ticket *is*
 allowed in a transaction: it moves no bytes.
 
+**This is the export pattern for a background job too.** A job has the same
+`files` capability as a request: generate the report in the job,
+`files_put_bytes` it, and `files_url` it into the email or notification it
+sends. The bytes count toward the same service's storage, and a private
+collection's link expires as it does from a request. See
+`boogy:boogy-background-jobs`.
+
 ## Content types are a security control
 
 An uploaded file is served from **your own origin**. If a user can upload

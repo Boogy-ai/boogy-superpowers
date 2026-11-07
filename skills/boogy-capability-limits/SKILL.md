@@ -131,7 +131,7 @@ compiled component depends on it structurally.)
 
 | Limit | Default | Note |
 |-------|---------|------|
-| Per-request memory | 32 MiB | `[limits] memory_mb`; per-request linear-memory cap |
+| Per-request memory | 32 MiB | `[limits] memory_mb`; per-request linear-memory cap. **Maximum 64 MiB** on the hosted platform (the operator's pool setting); a higher value is refused at deploy with a 400 naming the cap |
 | Request wall-clock budget | 30000 ms | `[limits] cpu_deadline_ms`; range 1–600000 |
 | Store transaction envelope | ~5s / 10MB | spans the whole `peer::fetch` call tree; one tx |
 | Outbound request body | 1 MiB | `[outbound] max_request_bytes` |
@@ -145,8 +145,13 @@ compiled component depends on it structurally.)
 | Stored data, ceiling | 25 GB per account | refused at once at the ceiling, paid or not; your operator can raise it |
 | Stored-data growth | 10 MB/s per service, 10 s burst | faster growing writes get 429 `storage_growth_rate` |
 
-Inside an open transaction, `outbound_http` and `background_jobs` are
-refused. Per-request store-op rate/count limits are
+Inside an open transaction, anything that cannot be undone is refused, and
+the transaction stays usable (the refusal does not poison it): `outbound_http`,
+every `signing` write (`create-key`, `sign-digest`, `sign-message`,
+`remove-key`), `connections::begin` / `revoke`, and files writes
+(`files_put_bytes`, delete). A `background_jobs` enqueue is **not** refused:
+it is staged and commits with the transaction, or not at all; `cancel` and
+`status` are refused there (a staged job is not queued until commit). Per-request store-op rate/count limits are
 operator-configured (off by default). Request bodies and responses ride
 the per-request memory cap — don't route large payloads through the
 service.
