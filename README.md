@@ -74,7 +74,13 @@ The repo ships `.claude-plugin/plugin.json` (Claude Code) and
 namespaced as `/boogy:<name>` (plugin skills are discovered via the manifest, so no
 flat-layout requirement applies).
 
-Install by name from the marketplace:
+Install by name from the marketplace, in one step (Claude Code 2.1.275 or later):
+
+```
+/plugin install boogy-superpowers --marketplace Boogy-ai/boogy-superpowers
+```
+
+or in two, on any version:
 
 ```bash
 claude plugin marketplace add Boogy-ai/boogy-superpowers
@@ -88,6 +94,20 @@ host-truth validation in one step.
 > **Local dev / own host:** the MCP URL in `.claude-plugin/plugin.json` is
 > hardcoded to `https://api.boogy.ai/mcp`. If you run your own host, edit the
 > `mcpServers.boogy.url` value in that file to point at your instance.
+
+### Privacy and data
+
+The plugin's skills and hooks run on your machine. The hooks only read
+`CLAUDE.md` files to see whether the Boogy directive is already there, and
+write one empty marker file under your temp directory so the onramp note shows
+once per session; they run no other command and change no setting.
+
+The bundled MCP server is Boogy's, at `https://api.boogy.ai/mcp`. What reaches
+it is what you or your agent pass to its tools: a `boogy.toml` to validate
+(`validate_manifest`), service source to lint (`check_service`), a skill name
+(`get_skill`), and the device sign-in exchange (`login`, `login_status`), whose
+result is your Boogy session token. Privacy policy: https://boogy.ai/privacy.
+Terms: https://boogy.ai/terms. Support: https://github.com/Boogy-ai/boogy-superpowers/issues.
 
 ### (c) Make it stick — a `CLAUDE.md` directive
 
