@@ -16,7 +16,7 @@ export HOME
 mkdir -p "$HOME/.claude"
 fail=0
 
-MARKER='<!-- boogy-superpowers-directive -->'
+MARKER='<!-- boogy-directive -->'
 
 # Run the hook with a given cwd; capture stdout and status separately.
 run() {
@@ -50,6 +50,14 @@ printf '## Boogy\n\nAll Boogy work goes through the `boogy-superpowers` skills.\
   > "$ROOT/has-legacy/CLAUDE.md"
 run "$ROOT/has-legacy"
 expect_silent "directive present (pre-marker wording)"
+
+# 2b. Directive present under the marker the plugin used while it was named
+#     `boogy-superpowers` -> still silent; the rename must not re-prompt anyone.
+mkdir -p "$ROOT/has-old-marker"
+printf '# Project\n\n<!-- boogy-superpowers-directive -->\n## Boogy\n\nblah\n' \
+  > "$ROOT/has-old-marker/CLAUDE.md"
+run "$ROOT/has-old-marker"
+expect_silent "directive present (pre-rename marker)"
 
 # 3. Directive absent -> emits, exit 0.
 mkdir -p "$ROOT/absent"
@@ -103,6 +111,9 @@ printf '%s' "$out" | grep -q 'using-boogy' \
   || { echo "FAIL: emitted line does not name the entry-point skill"; fail=1; }
 printf '%s' "$out" | grep -q 'CLAUDE.md' \
   || { echo "FAIL: emitted line does not tell the agent to persist the directive"; fail=1; }
+# The directive is written with the human's consent, never announced over it.
+printf '%s' "$out" | grep -q 'ask the human first' \
+  || { echo "FAIL: bootstrap line does not ask before writing CLAUDE.md"; fail=1; }
 printf '%s' "$out" | grep -q 'builds no module, ignore this line' \
   || { echo "FAIL: emitted line has no escape clause for work that builds no module"; fail=1; }
 # It must be ONE line: this fires in every session of every project.

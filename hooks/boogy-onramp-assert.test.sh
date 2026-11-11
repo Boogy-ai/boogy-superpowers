@@ -32,4 +32,13 @@ printf '%s' "$out" | grep -q "CLAUDE.md" \
 printf '%s' "$out" | grep -q "subagent dispatch" \
   || { echo "FAIL: injected text does not carry the instruction into subagents"; fail=1; }
 
+# 6. Sign-in is the CLI, which keeps the token in its own file; the agent never
+#    holds it. And the CLAUDE.md directive is written only after asking.
+printf '%s' "$out" | grep -q "boogy login" \
+  || { echo "FAIL: injected text does not sign in with boogy login"; fail=1; }
+printf '%s' "$out" | grep -q "login_status" \
+  && { echo "FAIL: injected text still points at the retired login_status tool"; fail=1; }
+printf '%s' "$out" | grep -q "ask the human before writing it" \
+  || { echo "FAIL: injected text does not ask before writing CLAUDE.md"; fail=1; }
+
 [ "$fail" -eq 0 ] && echo "boogy-onramp-assert: OK" || { echo "boogy-onramp-assert: FAILED"; exit 1; }

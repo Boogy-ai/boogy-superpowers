@@ -19,7 +19,7 @@ cargo install --locked --git https://github.com/Boogy-ai/boogy-sdk boogy-cli
 | What | Flag | Env | Default |
 |------|------|-----|---------|
 | Host URL | `--host` | `BOOGY_HOST_URL` | `https://api.boogy.ai` (the hosted platform) |
-| Bearer token | `--token` | `BOOGY_TOKEN` | none (required) |
+| Bearer token | `--token` | `BOOGY_TOKEN` | the token `boogy login` saved |
 
 **With neither `--host` nor `BOOGY_HOST_URL`, every command goes to the hosted
 platform**, whatever host your token came from. Against your own host (a local
@@ -28,9 +28,9 @@ command, or export `BOOGY_HOST_URL` once; a token minted by your own host sent
 to the hosted platform is refused there with a 401, which looks like a bad
 token rather than the wrong host.
 
-Get a token by signing in — MCP-first: call the `login` tool then
-`login_status` (see `boogy:using-boogy` for the full flow), or run
-`boogy login` from the CLI (saves to `~/.config/boogy/credentials.toml`).
+Get a token by signing in with `boogy login` (see `boogy:using-boogy` for the
+flow). It saves the token to `~/.config/boogy/credentials.toml`, and every
+later command reads it from there, so you never handle the token yourself.
 Most commands need a valid token; `list`/`remove` need **admin scope**.
 
 ## Before you deploy — `boogy check`
@@ -369,7 +369,7 @@ boogy provision <module-ref> <service-id>
 
 ## Calling your own deployed service (control-plane/app-plane boundary)
 
-**Deploy, provision, and login via CLI or MCP are unaffected** — your global
+**Deploy, provision, and login via the CLI are unaffected** — your global
 operator token works for all of those.
 
 However, if you try to `curl` or script-test your OWN deployed service's

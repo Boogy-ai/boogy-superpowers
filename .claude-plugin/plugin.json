@@ -1,7 +1,7 @@
 {
-  "name": "boogy-superpowers",
+  "name": "boogy",
   "description": "Skills for building Boogy services: design, scaffolding, data modeling, auth, transactions, background jobs, mesh composition, MCP/REST surfaces, and platform limits",
-  "version": "0.2.416",
+  "version": "0.2.417",
   "author": {
     "name": "Boogy"
   },

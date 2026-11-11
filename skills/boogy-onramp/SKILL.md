@@ -13,11 +13,15 @@ code, calling the API, or improvising. Do NOT summarize, paraphrase, or
    re-install and do not build from a summary — you will invoke them. If the
    plugin was just installed this session, tell the human to run
    **`/reload-plugins`** first (or restart Claude Code) — otherwise the bundled
-   skills, the `login` MCP tool (step 2), and the gate are not active yet.
-2. **Authenticate the user now.** Call the `login` tool (from the bundled Boogy
-   MCP server); show the human the URL + one-time code; poll `login_status`
-   until it returns a token. (No CLI needed just to authenticate. CLI path:
-   `boogy login`.) Do this early — only the human can do the browser step.
+   skills, the Boogy MCP and the gate are not active yet.
+2. **Authenticate the user now, with the CLI.** Install it once if `boogy` is
+   missing: `cargo install --locked --git https://github.com/Boogy-ai/boogy-sdk boogy-cli`.
+   Then run `boogy login`: it prints a URL + one-time code and waits; show the
+   human both, and they open the URL, confirm the code matches, and sign in.
+   The CLI saves the token to its credentials file and every later `boogy`
+   command uses it — the token never passes through you, so never ask for it
+   or print it. (In Claude Code the human can also run it themselves by typing
+   `! boogy login`.) Do this early — only the human can do the browser step.
    **A first-time user picks a handle in that browser step, and you NEVER pick
    it for them.** It is their account's username, not the name of the app you
    are building — chosen once, hard to change, and the account every service
@@ -29,13 +33,14 @@ code, calling the API, or improvising. Do NOT summarize, paraphrase, or
 3. **Work strictly from the installed skills — start by invoking `using-boogy`**
    (the router; it sends every Boogy task to the right skill). Never build from
    memory, from the platform API, or from a summary.
-4. **Deploy needs the CLI** (`boogy deploy`) or the `/v1` API — the MCP cannot
-   deploy. Install it once: `cargo install --locked --git https://github.com/Boogy-ai/boogy-sdk boogy-cli`.
-5. **Make it stick — persist the directive.** A hook fires on a keyword and
-   once per session; a line in `CLAUDE.md` is in context always, in every
-   session and after any compaction. Append the block below to the project's
-   `CLAUDE.md` (create the file if absent). It is small, additive and trivially
-   reversible — **announce it in one line, do not ask permission**. If
+4. **Deploy with the same CLI** (`boogy deploy`) or the `/v1` API — the MCP
+   cannot deploy.
+5. **Make it stick — offer to persist the directive.** A hook fires on a
+   keyword and once per session; a line in `CLAUDE.md` is in context always, in
+   every session and after any compaction. **Ask the human before writing it**:
+   say in one or two lines what the block does and where it goes, and append it
+   to the project's `CLAUDE.md` (creating the file if absent) only once they
+   agree. If they decline, change nothing and do not ask again this session. If
    `CLAUDE.md` already carries such a directive, say so and change nothing. If
    the human builds on Boogy across projects, offer their global
    `~/.claude/CLAUDE.md` as the alternative.
@@ -47,12 +52,12 @@ code, calling the API, or improvising. Do NOT summarize, paraphrase, or
    already there.
 
    ```markdown
-   <!-- boogy-superpowers-directive -->
+   <!-- boogy-directive -->
    ## Boogy
 
    **Whenever you build or change a Boogy module** (a service you deploy on
    Boogy: its manifest, its code, its deploy), **invoke** the
-   `boogy-superpowers` skills with the Skill tool, every time, before the work;
+   Boogy skills with the Skill tool, every time, before the work;
    never summarize, paraphrase, or work from memory of them. Entry point:
    `using-boogy`, which routes to the rest. Work that builds or changes no
    module does not invoke them.
@@ -63,14 +68,14 @@ code, calling the API, or improvising. Do NOT summarize, paraphrase, or
 
    Skills not installed? Install the plugin from its GitHub repo —
    `claude plugin marketplace add Boogy-ai/boogy-superpowers`, then
-   `claude plugin install boogy-superpowers`, then ask the human to run
+   `claude plugin install boogy@boogy`, then ask the human to run
    `/reload-plugins` — or vendor them with
    `npx degit Boogy-ai/boogy-superpowers/skills .claude/skills`. Flat, one
    level: a wrapper directory makes every skill silently undiscoverable.
    ```
 
 6. **If you get stuck, STOP — do not work around it.** If a step is blocked
-   (login won't complete, a tool is missing, you lack a permission), do not skip
+   (`boogy login` won't complete, a tool is missing, you lack a permission), do not skip
    it, do not improvise an alternative, do not build without it. Tell the user
    exactly what is blocking you and the choice or action you need, then wait.
 

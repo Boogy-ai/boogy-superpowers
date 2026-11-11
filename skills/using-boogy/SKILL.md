@@ -158,7 +158,7 @@ BYO-config: you provision your own instance and bind your own keys.
 
 ## Sign in (get a deploy token)
 
-Deploying requires a token. Two paths — the MCP path requires no install.
+Deploying requires a token, and `boogy login` gets it (below).
 
 A first-time sign-in picks a **handle**. Read the next section before you let
 that step go past you.
@@ -219,22 +219,20 @@ and `boogy list` / `GET /v1/services` report it as `service_url`. Read it from
 there; treat anything you assembled by hand as a guess until the deploy
 confirms it. See `boogy:boogy-custom-domains` to serve on your own domain too.
 
-**MCP (primary — zero install):** If you are connected to Boogy's MCP server,
-call the `login` tool. It returns a `user_code`, a verification URL, and a
-`device_code`. Show the human the URL + `user_code` and ask them to open it,
-sign in, and confirm the code **matches** (anti-phishing). Then poll
-`login_status` with the `device_code` every few seconds until it returns
-`{status: "complete", token: "v4.public.…"}`. Pass that token as
-`BOOGY_TOKEN` or `--token`. A first-time user picks their handle inside that
-browser step — that is the path that already does the right thing, so prefer it
-and let them choose there rather than collecting a handle in chat.
-
-**CLI (alternative):** `boogy login` — same device flow, auto-opens the
-browser, saves the token to `~/.config/boogy/credentials.toml` so later CLI
-commands pick it up automatically.
+**Sign in with the CLI:** `boogy login`. It prints a verification URL and a
+one-time code, opens the browser best-effort, and waits. Show the human the URL
+and code and ask them to open it, sign in, and confirm the code **matches**
+(anti-phishing). When they approve, the CLI saves the token to
+`~/.config/boogy/credentials.toml` (0600) and every later `boogy` command reads
+it from there. The token never passes through you: never ask the human for it,
+print it, or paste it into a command. (In Claude Code the human can run it
+themselves by typing `! boogy login`.) A first-time user picks their handle
+inside that browser step — that is the path that already does the right thing,
+so let them choose there rather than collecting a handle in chat. The Boogy MCP
+has no sign-in tool.
 
 **This token is a control-plane credential.** It works for deploy, provision,
-`/_admin`, and the CLI/MCP. It is **NOT accepted at a deployed app's non-public
+`/_admin`, and the CLI. It is **NOT accepted at a deployed app's non-public
 routes** (403 — control-plane/app-plane boundary). See `boogy:boogy-account-auth`
 for the end-user SSO flow, and `boogy:deploying-boogy-services` for what to do
 when smoke-testing your own service.

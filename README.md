@@ -1,4 +1,4 @@
-# Boogy Superpowers
+# Boogy skills
 
 Skills that teach coding agents to build [Boogy](https://boogy.ai) services
 well. Each skill is a structured markdown file that gives an agent the platform
@@ -17,12 +17,12 @@ calls, and REST/JSON-RPC/MCP/protobuf surfaces.
 
 If you are a coding agent (or you're pointing one at Boogy), follow these steps IN ORDER before anything else. Do NOT write code, do NOT call the platform API by hand, do NOT improvise your own approach, and do NOT summarize, paraphrase, or "distill" the skills into your own words — you must INSTALL the skills and INVOKE them. Shortcutting this is the single biggest cause of broken, insecure, and wrong Boogy services.
 
-1. **Get the skills + tools in place.** On **Claude Code**, the preferred path is: install the plugin — one step that bundles the build skills (auto-discovered), wires the Boogy MCP (sign-in + host-truth validation as tools), and adds the onramp gate: `claude plugin marketplace add Boogy-ai/boogy-superpowers` then `claude plugin install boogy-superpowers`. Then **tell the human to run `/reload-plugins`** in Claude Code — the plugin (skills + MCP + gate) won't activate until they do. On any other agent (or if you can't install the plugin): install the CLI — `cargo install --locked --git https://github.com/Boogy-ai/boogy-sdk boogy-cli` — and vendor the skills: `boogy skills install` (writes `.claude/skills/<name>/`; no CLI either? `npx degit Boogy-ai/boogy-superpowers/skills .claude/skills`). Vendored skills load automatically; if `.claude/skills/` did not exist when the session started, **tell the human to restart Claude Code** for them to be picked up.
-2. **Authenticate the user — now, before building.** Run the `login` tool (the plugin wires it) or `boogy login`, and walk the human through it: it prints a URL + one-time code; they open the URL, confirm the code matches, and sign in. A first-time user then picks a **handle** (lowercase `[a-z0-9-]`, 4–30 chars) — their account's username. **The human picks it; you never pick it for them.** It is not the name of the app you are building: one handle owns every service they ever build, and each service gets a web address of its own (`https://notes-7k3q.boogy.app/`, `https://gallery-x2m9.boogy.app/` — `boogy deploy` prints it) — so a handle taken from today's project permanently misnames their whole account. Let them choose it in the sign-in flow, or ask explicitly and wait; the `using-boogy` skill's "Choosing a handle" has the full rule. Do this early — deploying needs their token and the browser step is the one thing only the human can do.
+1. **Get the skills + tools in place.** Every path needs the CLI, which signs in and deploys: `cargo install --locked --git https://github.com/Boogy-ai/boogy-sdk boogy-cli`. On **Claude Code**, the preferred path for the skills is the plugin — one step that bundles the build skills (auto-discovered), wires the Boogy MCP (host-truth validation as tools), and adds the onramp gate: `claude plugin marketplace add Boogy-ai/boogy-superpowers` then `claude plugin install boogy@boogy`. Then **tell the human to run `/reload-plugins`** in Claude Code — the plugin (skills + MCP + gate) won't activate until they do. On any other agent (or if you can't install the plugin), vendor the skills: `boogy skills install` (writes `.claude/skills/<name>/`; no CLI yet? `npx degit Boogy-ai/boogy-superpowers/skills .claude/skills`). Vendored skills load automatically; if `.claude/skills/` did not exist when the session started, **tell the human to restart Claude Code** for them to be picked up.
+2. **Authenticate the user — now, before building.** Run `boogy login` and walk the human through it: it prints a URL + one-time code and waits; they open the URL, confirm the code matches, and sign in. The CLI saves the token to its credentials file and every later `boogy` command uses it, so the token never passes through you — never ask for it or print it. A first-time user then picks a **handle** (lowercase `[a-z0-9-]`, 4–30 chars) — their account's username. **The human picks it; you never pick it for them.** It is not the name of the app you are building: one handle owns every service they ever build, and each service gets a web address of its own (`https://notes-7k3q.boogy.app/`, `https://gallery-x2m9.boogy.app/` — `boogy deploy` prints it) — so a handle taken from today's project permanently misnames their whole account. Let them choose it in the sign-in flow, or ask explicitly and wait; the `using-boogy` skill's "Choosing a handle" has the full rule. Do this early — deploying needs their token and the browser step is the one thing only the human can do.
 3. **Work STRICTLY from the installed skills — invoke them, never paraphrase them.** Use your Skill tool, starting with `using-boogy`. The installed skills are the ONLY source of truth for how to build on Boogy. Never build from memory, from this README, from the platform API, or from any summary you made — invoke the skill each time. Your subagents inherit the installed skill, not a summary in your head.
 4. **Deploy needs the CLI** (`boogy deploy`) or the `/v1` API — the MCP/plugin cannot deploy. Install the CLI (step 1) if you haven't.
 
-**If you get stuck, STOP — do not work around it.** If any step is blocked (the plugin or CLI won't install, `login` won't complete, the skills won't load, or you're missing a permission, network access, or tool), do NOT skip the step, do NOT improvise an alternative, and do NOT proceed to build without it. Tell the user exactly what is blocking you and the specific choice or action you need from them, then wait for them to unblock it.
+**If you get stuck, STOP — do not work around it.** If any step is blocked (the plugin or CLI won't install, `boogy login` won't complete, the skills won't load, or you're missing a permission, network access, or tool), do NOT skip the step, do NOT improvise an alternative, and do NOT proceed to build without it. Tell the user exactly what is blocking you and the specific choice or action you need from them, then wait for them to unblock it.
 
 Everything below is reference — it does NOT replace steps 1–4.
 
@@ -61,7 +61,7 @@ restart Claude Code** so it picks up the new directory. Re-run `boogy skills ins
 replaces only Boogy's skills and never touches your own `.claude/skills` entries.
 
 > **Plugin route (preferred for Claude Code):** `claude plugin marketplace add Boogy-ai/boogy-superpowers`
-> then `claude plugin install boogy-superpowers` — bundles the skills, MCP, and onramp gate in one step.
+> then `claude plugin install boogy@boogy` — bundles the skills, MCP, and onramp gate in one step.
 > After installing, **tell the human to run `/reload-plugins`** so the plugin activates mid-session.
 
 > Skills are plain markdown — an agent can also just **Read** them directly
@@ -77,19 +77,21 @@ flat-layout requirement applies).
 Install by name from the marketplace, in one step (Claude Code 2.1.275 or later):
 
 ```
-/plugin install boogy-superpowers --marketplace Boogy-ai/boogy-superpowers
+/plugin install boogy --marketplace Boogy-ai/boogy-superpowers
 ```
 
 or in two, on any version:
 
 ```bash
 claude plugin marketplace add Boogy-ai/boogy-superpowers
-claude plugin install boogy-superpowers
+claude plugin install boogy@boogy
 ```
 
-Installing the plugin also wires the Boogy MCP (`login`, `validate_manifest`,
+Installing the plugin also wires the Boogy MCP (`validate_manifest`,
 `check_service` as tools) and the onramp gate — so you get skills + live
-host-truth validation in one step.
+host-truth validation in one step. Sign-in and deploys go through the CLI
+(`boogy login`, `boogy deploy`), which keeps your token in its own credentials
+file.
 
 > **Local dev / own host:** the MCP URL in `.claude-plugin/plugin.json` is
 > hardcoded to `https://api.boogy.ai/mcp`. If you run your own host, edit the
@@ -105,8 +107,8 @@ once per session; they run no other command and change no setting.
 The bundled MCP server is Boogy's, at `https://api.boogy.ai/mcp`. What reaches
 it is what you or your agent pass to its tools: a `boogy.toml` to validate
 (`validate_manifest`), service source to lint (`check_service`), a skill name
-(`get_skill`), and the device sign-in exchange (`login`, `login_status`), whose
-result is your Boogy session token. Privacy policy: https://boogy.ai/privacy.
+(`get_skill`). It has no sign-in tool and never sees your Boogy token: signing
+in is `boogy login`, which stores the token on your machine. Privacy policy: https://boogy.ai/privacy.
 Terms: https://boogy.ai/terms. Support: https://github.com/Boogy-ai/boogy-superpowers/issues.
 
 ### (c) Make it stick — a `CLAUDE.md` directive
@@ -116,19 +118,19 @@ gate fires only on a prompt that names Boogy, and only once per session, so
 "build me something that syncs my YouTube likes" gets nothing, and neither does
 a session whose context has been compacted. A directive in `CLAUDE.md` has
 neither limit — it is in context always. An agent following `boogy-onramp`
-writes it for you and says that it did, and until it exists the session-start
-hook asks for it once per session; to set it up by hand, paste this into your
+offers to write it and does so only if you agree, and until it exists the
+session-start hook reminds the agent once per session; to set it up by hand, paste this into your
 project's `CLAUDE.md` (or your global `~/.claude/CLAUDE.md` if you build on
 Boogy across projects), **keeping the comment line** — that marker is what the
 session-start hook looks for before it goes quiet:
 
 ```markdown
-<!-- boogy-superpowers-directive -->
+<!-- boogy-directive -->
 ## Boogy
 
 **Whenever you build or change a Boogy module** (a service you deploy on
 Boogy: its manifest, its code, its deploy), **invoke** the
-`boogy-superpowers` skills with the Skill tool, every time, before the work;
+Boogy skills with the Skill tool, every time, before the work;
 never summarize, paraphrase, or work from memory of them. Entry point:
 `using-boogy`, which routes to the rest. Work that builds or changes no
 module does not invoke them.
@@ -139,7 +141,7 @@ it, it builds from guesswork.
 
 Skills not installed? Install the plugin from its GitHub repo —
 `claude plugin marketplace add Boogy-ai/boogy-superpowers`, then
-`claude plugin install boogy-superpowers`, then ask the human to run
+`claude plugin install boogy@boogy`, then ask the human to run
 `/reload-plugins` — or vendor them with
 `npx degit Boogy-ai/boogy-superpowers/skills .claude/skills`. Flat, one
 level: a wrapper directory makes every skill silently undiscoverable.
@@ -149,7 +151,7 @@ level: a wrapper directory makes every skill silently undiscoverable.
 
 Both are **assert-only** — they read and print, and never run a command that
 changes anything. Neither writes `CLAUDE.md`: that is the agent's job, and the
-agent tells you it did it.
+agent asks you first.
 
 | Hook | Fires | Says something when |
 |---|---|---|
@@ -178,7 +180,7 @@ minutes, then it grows by deploys the person tries and steers.
 Or connect to Boogy's **public, anonymous MCP server** at `https://api.boogy.ai/mcp`
 (no account, no install — e.g. `claude mcp add boogy https://api.boogy.ai/mcp`) and
 call `get_started` / `get_skill`: it serves these same skills plus host-truth
-validation (`validate_manifest`, `check_service`) and sign-in (`login`).
+validation (`validate_manifest`, `check_service`). Sign in with `boogy login`.
 
 ---
 

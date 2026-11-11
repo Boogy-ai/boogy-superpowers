@@ -45,8 +45,7 @@ The platform exposes a self-serve account surface (mounted at
 `/_agents` on the host):
 
 - **Create an account / pick a handle** — A first-time user normally goes
-  through the **OAuth device-flow sign-in** (`boogy login` CLI / the `login`
-  MCP tool), which handles both authentication and handle selection in one
+  through the **OAuth device-flow sign-in** (`boogy login`), which handles both authentication and handle selection in one
   step. `POST /_agents/register` (handle + password) and the passkey/agentkey
   endpoints remain available as alternative registration paths (useful for
   headless agents or non-OAuth setups), but they are not the primary path.

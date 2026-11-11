@@ -6,7 +6,7 @@
   "description": "Boogy's official agent onramp: build skills, the builder MCP, and the setup gate for shipping Boogy services.",
   "plugins": [
     {
-      "name": "boogy-superpowers",
+      "name": "boogy",
       "source": "./",
       "description": "One-shot agent onramp for Boogy: skills, the builder MCP, and the setup gate.",
       "tags": ["development", "infrastructure", "backend"],

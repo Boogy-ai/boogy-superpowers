@@ -26,10 +26,10 @@ deploy / console credential) is **rejected with 403** at a non-public app route
 
 Control-plane routes (`/v1`, `/_admin`, `/_agents`, `/healthz`) match
 **before** tenant dispatch, so your global Agent token works there exactly as
-before. The builder's own `/mcp` (guidance/login tools) matches before tenant
+before. The builder's own `/mcp` (guidance and validation tools) matches before tenant
 dispatch the same way on the control host — but if your OWN service mounts a
 route at `/mcp`, that path is scoped to your service's own host and dispatches
-to your service like any other route. Deploy/provision/login via CLI or MCP
+to your service like any other route. Deploy/provision/login via the CLI
 are **unaffected**.
 
 > **Deploy/test caveat:** if you try to `curl` or smoke-test your OWN deployed

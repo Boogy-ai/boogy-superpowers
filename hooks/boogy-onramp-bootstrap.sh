@@ -14,7 +14,7 @@
 #
 # Never runs a state-changing command — it reads files and prints, nothing else.
 # In particular it does NOT write CLAUDE.md: writing is the agent's job, and the
-# agent announces it to the human.
+# agent asks the human first.
 #
 # Never fails a session: unreadable files, an absent HOME, a weird CLAUDE.md and
 # malformed stdin all exit 0 quietly.
@@ -30,20 +30,22 @@ input="$(cat 2>/dev/null)" || input=""
 cwd="$(printf '%s' "$input" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
 [ -n "$cwd" ] && [ -d "$cwd" ] || cwd="${PWD:-.}"
 
-# The probe. Two patterns, both fixed strings:
+# The probe. Three patterns, all fixed strings:
 #  - MARKER is the explicit, unambiguous one and is carried by the directive
 #    block in `boogy-onramp` step 5 and in the README. A bare `## Boogy` heading
 #    would NOT be safe to probe on: a Boogy project's CLAUDE.md may well have a
 #    `## Boogy` section about something else entirely, and this hook would then
 #    go silent in exactly the project that needs it.
-#  - LEGACY catches a directive pasted before the marker existed, so anyone
-#    already set up does not get re-prompted.
-MARKER='<!-- boogy-superpowers-directive -->'
+#  - OLD_MARKER is the marker the directive carried while the plugin was named
+#    `boogy-superpowers`, and LEGACY a directive pasted before any marker
+#    existed, so anyone already set up does not get re-prompted.
+MARKER='<!-- boogy-directive -->'
+OLD_MARKER='<!-- boogy-superpowers-directive -->'
 LEGACY='All Boogy work goes through the'
 
 has_directive() {
   [ -f "$1" ] && [ -r "$1" ] || return 1
-  grep -F -q -e "$MARKER" -e "$LEGACY" "$1" 2>/dev/null
+  grep -F -q -e "$MARKER" -e "$OLD_MARKER" -e "$LEGACY" "$1" 2>/dev/null
 }
 
 # Walk up from cwd: a session started in a subdirectory (or a worktree) must
@@ -70,4 +72,4 @@ if [ -n "${HOME:-}" ]; then
 fi
 
 # Absent. Say it once, conditionally, and say how to make it stop.
-printf '%s\n' "The \`boogy-superpowers\` skills are installed in this session. If this work builds or changes a Boogy module (a service you deploy on boogy.ai), invoke them with the Skill tool starting at \`using-boogy\` — never work from memory of them — and persist the standing directive into \`CLAUDE.md\` as \`boogy-onramp\` step 5 describes, which also stops this line appearing again. If it builds no module, ignore this line."
+printf '%s\n' "The Boogy skills are installed in this session. If this work builds or changes a Boogy module (a service you deploy on boogy.ai), invoke them with the Skill tool starting at \`using-boogy\` — never work from memory of them — and offer to add the standing directive to \`CLAUDE.md\` as \`boogy-onramp\` step 5 describes (ask the human first; once it is there, this line stops appearing). If it builds no module, ignore this line."
